@@ -1,29 +1,55 @@
-import { InputHTMLAttributes, forwardRef, useId } from 'react'
+'use client'
 
-type CheckboxProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> & {
+import { ChangeEvent, InputHTMLAttributes, forwardRef, useId } from 'react'
+import FormControlLabel from '@mui/material/FormControlLabel'
+import MuiCheckbox from '@mui/material/Checkbox'
+import { tokens } from '@/lib/theme'
+
+type CheckboxProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'color'> & {
   label: string
 }
 
 export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(function Checkbox(
-  { label, id, className = '', ...props },
+  { label, id, className = '', checked, defaultChecked, disabled, onChange, name, ...props },
   ref
 ) {
   const generatedId = useId()
   const inputId = id ?? generatedId
 
   return (
-    <label
-      htmlFor={inputId}
-      className="flex cursor-pointer items-start gap-2.5 text-sm text-neutral-300"
-    >
-      <input
-        ref={ref}
-        id={inputId}
-        type="checkbox"
-        className={`mt-0.5 h-4 w-4 flex-shrink-0 rounded border-white/20 bg-white/5 accent-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-400/30 ${className}`}
-        {...props}
-      />
-      <span>{label}</span>
-    </label>
+    <FormControlLabel
+      sx={{
+        m: 0,
+        gap: 1.25,
+        alignItems: 'flex-start',
+        '& .MuiFormControlLabel-label': {
+          fontSize: '0.875rem',
+          lineHeight: '20px',
+          color: tokens.ink,
+        },
+      }}
+      control={
+        <MuiCheckbox
+          id={inputId}
+          name={name}
+          checked={checked}
+          defaultChecked={defaultChecked}
+          disabled={disabled}
+          onChange={onChange as (event: ChangeEvent<HTMLInputElement>, checked: boolean) => void}
+          className={className}
+          size="small"
+          disableRipple
+          sx={{
+            p: 0,
+            mt: '2px',
+            color: 'rgba(138, 148, 163, 0.55)',
+            '&.Mui-checked': { color: tokens.navy },
+            '& .MuiSvgIcon-root': { fontSize: 18 },
+          }}
+          slotProps={{ input: { ...props, ref } }}
+        />
+      }
+      label={label}
+    />
   )
 })

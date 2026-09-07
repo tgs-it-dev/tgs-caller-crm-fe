@@ -1,35 +1,15 @@
-import { ButtonHTMLAttributes } from 'react'
+'use client'
 
-type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+import { ButtonHTMLAttributes } from 'react'
+import MuiButton from '@mui/material/Button'
+import CircularProgress from '@mui/material/CircularProgress'
+import { tokens } from '@/lib/theme'
+
+type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'color'> & {
   isLoading?: boolean
   loadingText?: string
   variant?: 'primary' | 'secondary'
   size?: 'default' | 'small'
-}
-
-function Spinner({ variant }: { variant: 'primary' | 'secondary' }) {
-  return (
-    <svg
-      aria-hidden
-      className={`h-4 w-4 animate-spin ${variant === 'primary' ? 'text-paper' : 'text-ink'}`}
-      viewBox="0 0 24 24"
-      fill="none"
-    >
-      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-    </svg>
-  )
-}
-
-const VARIANT_CLASSES = {
-  primary: 'bg-navy text-paper hover:opacity-90 disabled:opacity-50',
-  secondary:
-    'border border-slate/40 bg-paper text-ink hover:bg-slate/10 disabled:bg-slate/10 disabled:text-slate',
-}
-
-const SIZE_CLASSES = {
-  default: 'px-4 py-3 text-sm',
-  small: 'px-3.5 py-2 text-[13px]',
 }
 
 export function Button({
@@ -40,16 +20,60 @@ export function Button({
   children,
   disabled,
   className = '',
+  type = 'button',
   ...props
 }: ButtonProps) {
+  const isPrimary = variant === 'primary'
+
   return (
-    <button
+    <MuiButton
+      type={type}
+      fullWidth
+      disableElevation
+      variant={isPrimary ? 'contained' : 'outlined'}
       disabled={disabled || isLoading}
-      className={`flex w-full items-center justify-center gap-2 rounded-lg font-semibold transition disabled:cursor-not-allowed ${VARIANT_CLASSES[variant]} ${SIZE_CLASSES[size]} ${className}`}
+      className={className}
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 1,
+        borderRadius: '8px',
+        fontWeight: 600,
+        textTransform: 'none',
+        minWidth: 0,
+        ...(size === 'small'
+          ? { px: 1.75, py: 1, fontSize: '13px' }
+          : { px: 2, py: 1.5, fontSize: '0.875rem' }),
+        ...(isPrimary
+          ? {
+              bgcolor: tokens.navy,
+              color: tokens.paper,
+              '&:hover': { bgcolor: tokens.navy, opacity: 0.9 },
+              '&.Mui-disabled': {
+                bgcolor: tokens.navy,
+                color: tokens.paper,
+                opacity: 0.5,
+              },
+            }
+          : {
+              bgcolor: tokens.paper,
+              color: tokens.ink,
+              border: '1px solid rgba(138, 148, 163, 0.4)',
+              '&:hover': {
+                bgcolor: 'rgba(138, 148, 163, 0.1)',
+                border: '1px solid rgba(138, 148, 163, 0.4)',
+              },
+              '&.Mui-disabled': {
+                bgcolor: 'rgba(138, 148, 163, 0.1)',
+                color: tokens.slate,
+              },
+            }),
+      }}
       {...props}
     >
-      {isLoading && <Spinner variant={variant} />}
+      {isLoading && <CircularProgress size={16} color="inherit" aria-hidden />}
       {isLoading ? loadingText ?? children : children}
-    </button>
+    </MuiButton>
   )
 }
