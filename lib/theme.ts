@@ -17,6 +17,18 @@ export const tokens = {
     green: '#4F8A5B',
     gold: '#C99A3E',
     blue: '#3E7CB1',
+    /** Figma "Signal red" — the Queue "Ringing" pill. Deliberately not status.red. */
+    signalRed: '#D64545',
+    /** Figma "Bay green" — the Closers "Completed" pill. Deliberately not status.green. */
+    bayGreen: '#2F8F5B',
+  },
+  /** Header/footer strips inside the Queue and Closers card tables. */
+  strip: '#F8F8F8',
+  /** Pill fills from Figma — all lighter than a 10% alpha of their text colour. */
+  badge: {
+    waiting: '#FCFBF2',
+    ringing: '#FCF2F0',
+    done: '#F3FBF7',
   },
 } as const
 
@@ -151,9 +163,12 @@ export const theme = createTheme({
             borderColor: tokens.chrome,
           },
           // 2px keeps focus a single border rather than a halo outside the
-          // field, while still meeting WCAG 2.2 focus-appearance.
+          // field. Navy rather than a mid-blue because the indicator has to
+          // read as a *change* from the slate resting border: navy is 3.7:1
+          // against slate, where status.blue managed only 1.45:1 and looked
+          // near-identical to an unfocused field.
           '&.Mui-focused fieldset': {
-            borderColor: tokens.status.blue,
+            borderColor: tokens.navy,
             borderWidth: 2,
           },
           '&.MuiInputBase-multiline': {
@@ -222,17 +237,65 @@ export const theme = createTheme({
       },
     },
 
+    // Figma "Component 22" (Queue status pill): 24px tall, 9999px radius,
+    // 2px/12px padding, 8px gap; text Inter Medium 12px / 170%.
     MuiChip: {
       styleOverrides: {
         root: {
           height: 'auto',
+          minHeight: 24,
           borderRadius: 9999,
         },
         label: {
-          padding: '2px 10px',
-          fontSize: '0.75rem',
+          padding: '2px 12px',
+          fontSize: 12,
           fontWeight: 500,
-          lineHeight: '16px',
+          lineHeight: 1.7,
+        },
+      },
+    },
+
+    // Every card table in this design shares one shape: a 37px grey header
+    // strip, white body rows split by hairlines, and a matching footer strip
+    // holding the pagination. `separate` collapsing is what lets the strips
+    // keep their 6px radius — with `collapse`, cell corners don't round.
+    MuiTable: {
+      styleOverrides: {
+        root: {
+          borderCollapse: 'separate',
+          borderSpacing: 0,
+          tableLayout: 'fixed',
+          '& thead th': {
+            backgroundColor: tokens.strip,
+            borderBottom: `0.5px solid ${tokens.slate}`,
+          },
+          '& thead th:first-of-type': { borderRadius: '6px 0 0 6px' },
+          '& thead th:last-of-type': { borderRadius: '0 6px 6px 0' },
+          '& tbody td': { borderBottom: `0.5px solid ${tokens.slate}` },
+          '& tbody tr:last-of-type td': { borderBottom: 0 },
+        },
+      },
+    },
+
+    // Header cells are Inter Medium 14px/150% in "Diagnostic ink", which lands
+    // a 21px line box inside the strip's 8px padding for a 37px total.
+    // Body copy sits on `black`, not `ink` — this design file distinguishes the
+    // two, so don't collapse them.
+    MuiTableCell: {
+      styleOverrides: {
+        root: {
+          borderColor: tokens.slate,
+          fontSize: '0.875rem',
+          lineHeight: 1.5,
+        },
+        head: {
+          padding: '8px 24px',
+          fontWeight: 500,
+          color: tokens.ink,
+        },
+        body: {
+          padding: '20px 24px',
+          color: tokens.black,
         },
       },
     },

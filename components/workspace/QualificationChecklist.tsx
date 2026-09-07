@@ -21,7 +21,7 @@ export function QualificationChecklist() {
   const [notes, setNotes] = useState('')
 
   return (
-    <div className="rounded-xl border border-slate bg-white p-6" style={{ borderWidth: '0.5px' }}>
+    <div className="rounded-xl border-hairline border-slate bg-white p-6">
       <h2 className="border-b border-slate/20 pb-4 text-lg font-medium leading-[120%] text-ink">
         Qualification Checklist
       </h2>

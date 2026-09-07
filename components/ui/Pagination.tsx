@@ -21,6 +21,7 @@ export function Pagination({
   rangeEnd,
   onPrevious,
   onNext,
+  className = '',
 }: {
   page: number
   totalPages: number
@@ -28,9 +29,11 @@ export function Pagination({
   rangeEnd: number
   onPrevious: () => void
   onNext: () => void
+  /** Outer spacing is the caller's business, not this component's. */
+  className?: string
 }) {
   return (
-    <div className="mt-3 flex items-center justify-between text-xs text-slate">
+    <div className={`flex items-center justify-between text-xs text-slate ${className}`}>
       <span>
         Showing {rangeStart} to {rangeEnd}
       </span>

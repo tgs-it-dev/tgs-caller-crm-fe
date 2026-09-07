@@ -2,28 +2,34 @@
 
 import { useEffect, useState } from 'react'
 import { RequireRole } from '@/components/auth/RequireRole'
+import { QueueTable } from '@/components/fronter/QueueTable'
 import { Alert } from '@/components/ui/Alert'
-import { QueueRow } from '@/components/fronter/QueueRow'
-import { StatTile } from '@/components/fronter/StatTile'
-import { CurrentUser, getCurrentUser, readToken } from '@/lib/auth'
-import { InteractionDetail, listInteractions } from '@/lib/interactions'
+import { Badge } from '@/components/ui/Badge'
+import { PageShell } from '@/components/ui/PageShell'
+import { readToken } from '@/lib/auth'
 import { waitForMocking } from '@/lib/mockReady'
+import { QueueEntry, listQueue } from '@/lib/queue'
+
+/** Wait times tick every second; the list itself is refreshed less often. */
+const TICK_MS = 1000
+const POLL_MS = 15000
 
 type LoadState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; user: CurrentUser; queue: InteractionDetail[] }
+  | { status: 'ready'; entries: QueueEntry[] }
 
-export default function FronterPage() {
+export default function FronterQueuePage() {
   return (
     <RequireRole role="fronter">
-      <Dashboard />
+      <Queue />
     </RequireRole>
   )
 }
 
-function Dashboard() {
+function Queue() {
   const [load, setLoad] = useState<LoadState>({ status: 'loading' })
+  const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
     let cancelled = false
@@ -31,14 +37,12 @@ function Dashboard() {
     if (!token) return
 
     waitForMocking()
-      .then(() => Promise.all([getCurrentUser(token), listInteractions(token)]))
-      .then(([user, queue]) => {
-        if (cancelled) return
-        setLoad({ status: 'ready', user, queue })
+      .then(() => listQueue(token))
+      .then((entries) => {
+        if (!cancelled) setLoad({ status: 'ready', entries })
       })
       .catch(() => {
-        if (cancelled) return
-        setLoad({ status: 'error', message: 'Unable to load your queue right now.' })
+        if (!cancelled) setLoad({ status: 'error', message: 'Unable to load the queue right now.' })
       })
 
     return () => {
@@ -46,56 +50,46 @@ function Dashboard() {
     }
   }, [])
 
-  if (load.status === 'loading') {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-shop-floor">
-        <p className="text-sm text-slate">Loading your desk…</p>
-      </div>
-    )
-  }
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), TICK_MS)
+    return () => clearInterval(id)
+  }, [])
 
-  if (load.status === 'error') {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-shop-floor px-4">
-        <div className="w-full max-w-sm">
-          <Alert>{load.message}</Alert>
-        </div>
-      </div>
-    )
-  }
+  useEffect(() => {
+    const token = readToken()
+    if (!token) return
 
-  const { user, queue } = load
-  const activeCount = queue.filter((i) => i.status === 'active').length
-  const wrapUpCount = queue.filter((i) => i.status === 'wrap_up').length
+    const id = setInterval(() => {
+      listQueue(token)
+        .then((entries) => {
+          setLoad((prev) => (prev.status === 'ready' ? { ...prev, entries } : prev))
+        })
+        // A failed refresh keeps the last good snapshot on screen — that's the
+        // "cached" half of the card's heading.
+        .catch(() => {})
+    }, POLL_MS)
+
+    return () => clearInterval(id)
+  }, [])
 
   return (
-    <main className="min-h-screen bg-shop-floor px-4 py-10 text-ink sm:px-6 lg:px-10">
-      <div className="mx-auto max-w-3xl">
-        <div className="mb-8">
-          <p className="text-sm text-slate">Welcome back</p>
-          <h1 className="mt-0.5 text-2xl font-semibold tracking-tight text-ink">{user.name}</h1>
-        </div>
+    <PageShell
+      title="Queue"
+      actions={
+        <Badge tone="live" dot>
+          Live
+        </Badge>
+      }
+    >
+      {load.status === 'loading' && (
+        <p className="rounded-xl border-hairline border-slate bg-white px-4 py-10 text-center text-sm text-slate">
+          Loading the queue…
+        </p>
+      )}
 
-        <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <StatTile label="In queue" value={queue.length} />
-          <StatTile label="Live calls" value={activeCount} />
-          <StatTile label="Wrap-up" value={wrapUpCount} />
-        </div>
+      {load.status === 'error' && <Alert>{load.message}</Alert>}
 
-        <h2 className="mb-3 text-sm font-semibold text-ink">Your queue</h2>
-
-        {queue.length === 0 ? (
-          <p className="rounded-xl border border-slate/20 bg-white px-4 py-8 text-center text-sm text-slate">
-            No calls waiting right now.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {queue.map((interaction) => (
-              <QueueRow key={interaction.id} interaction={interaction} />
-            ))}
-          </div>
-        )}
-      </div>
-    </main>
+      {load.status === 'ready' && <QueueTable entries={load.entries} now={now} />}
+    </PageShell>
   )
 }

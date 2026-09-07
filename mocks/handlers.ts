@@ -1,5 +1,6 @@
 import { rest } from 'msw'
 import type { InteractionDetail } from '../lib/interactions'
+import type { QueueEntry } from '../lib/queue'
 import type { QualificationCreateRequest, QualificationResponse } from '../lib/qualification'
 import type { TransferCreateRequest, TransferResponse } from '../lib/transfers'
 
@@ -51,6 +52,41 @@ const MOCK_INTERACTIONS: Record<string, InteractionDetail> = {
     },
   },
 }
+
+// Seed for the fronter Queue screen. Deterministic rather than randomised so
+// the table, wait times, and pagination look identical on every reload, and so
+// nothing depends on ordering luck. `/queue` doesn't exist on the backend yet —
+// see the contract note in lib/queue.ts.
+const QUEUE_LEAD_NAMES = [
+  'Mubeen N.',
+  'Alicia R.',
+  'Devon M.',
+  'Priya S.',
+  'Marcus T.',
+  'Elena V.',
+  'Jordan K.',
+  'Sofia L.',
+]
+
+const QUEUE_CAMPAIGNS = [
+  'Auto Warranty — Q3',
+  'Extended Coverage',
+  'Renewal Outreach',
+  'Mileage Expiry',
+]
+
+const QUEUE_SEEDED_AT = Date.now()
+
+// 48 rows so the 5-per-page table paginates across 10 pages like the design.
+const MOCK_QUEUE: QueueEntry[] = Array.from({ length: 48 }, (_, index) => ({
+  id: `int-${2000 + index}`,
+  lead_name: QUEUE_LEAD_NAMES[index % QUEUE_LEAD_NAMES.length],
+  lead_phone: `+1323555${(1000 + index).toString().slice(-4)}`,
+  campaign_name: QUEUE_CAMPAIGNS[index % QUEUE_CAMPAIGNS.length],
+  // Staggered so the top of the queue has waited longest (first row = 03:12).
+  queued_at: new Date(QUEUE_SEEDED_AT - (192 - index * 4) * 1000).toISOString(),
+  status: index % 7 === 0 ? 'ringing' : 'waiting',
+}))
 
 const MOCK_QUALIFICATIONS = new Map<string, QualificationResponse>()
 let qualificationSeq = 0
@@ -106,6 +142,10 @@ export const handlers = [
 
   rest.get('/interactions', (req, res, ctx) => {
     return res(ctx.status(200), ctx.json(Object.values(MOCK_INTERACTIONS)))
+  }),
+
+  rest.get('/queue', (req, res, ctx) => {
+    return res(ctx.status(200), ctx.json(MOCK_QUEUE))
   }),
 
   rest.get('/interactions/:interactionId', (req, res, ctx) => {
