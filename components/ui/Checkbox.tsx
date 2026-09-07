@@ -3,14 +3,13 @@
 import { ChangeEvent, InputHTMLAttributes, forwardRef, useId } from 'react'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import MuiCheckbox from '@mui/material/Checkbox'
-import { tokens } from '@/lib/theme'
 
 type CheckboxProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'color'> & {
   label: string
 }
 
 export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(function Checkbox(
-  { label, id, className = '', checked, defaultChecked, disabled, onChange, name, ...props },
+  { label, id, className, checked, defaultChecked, disabled, onChange, name, ...htmlInputProps },
   ref
 ) {
   const generatedId = useId()
@@ -18,6 +17,8 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(function Che
 
   return (
     <FormControlLabel
+      // Top-aligned so multi-line labels read correctly. Kept local rather
+      // than themed because MuiFormControlLabel also backs the radio rows.
       sx={{
         m: 0,
         gap: 1.25,
@@ -25,7 +26,6 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(function Che
         '& .MuiFormControlLabel-label': {
           fontSize: '0.875rem',
           lineHeight: '20px',
-          color: tokens.ink,
         },
       }}
       control={
@@ -37,16 +37,8 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(function Che
           disabled={disabled}
           onChange={onChange as (event: ChangeEvent<HTMLInputElement>, checked: boolean) => void}
           className={className}
-          size="small"
-          disableRipple
-          sx={{
-            p: 0,
-            mt: '2px',
-            color: 'rgba(138, 148, 163, 0.55)',
-            '&.Mui-checked': { color: tokens.navy },
-            '& .MuiSvgIcon-root': { fontSize: 18 },
-          }}
-          slotProps={{ input: { ...props, ref } }}
+          sx={{ mt: '2px' }}
+          slotProps={{ input: { ...htmlInputProps, ref } }}
         />
       }
       label={label}

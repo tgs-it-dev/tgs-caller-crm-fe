@@ -1,6 +1,6 @@
 'use client'
 
-import { createTheme } from '@mui/material/styles'
+import { alpha, createTheme } from '@mui/material/styles'
 
 /** Design tokens mirrored from tailwind.config.js / Figma "CRM - Auto Warranty". */
 export const tokens = {
@@ -19,6 +19,8 @@ export const tokens = {
     blue: '#3E7CB1',
   },
 } as const
+
+const FIELD_SHADOW = '0 1px 2px 0 rgb(0 0 0 / 0.05)'
 
 export const theme = createTheme({
   cssVariables: true,
@@ -42,18 +44,10 @@ export const theme = createTheme({
       main: tokens.slate,
       contrastText: tokens.ink,
     },
-    error: {
-      main: tokens.status.red,
-    },
-    success: {
-      main: tokens.status.green,
-    },
-    warning: {
-      main: tokens.status.gold,
-    },
-    info: {
-      main: tokens.status.blue,
-    },
+    error: { main: tokens.status.red },
+    success: { main: tokens.status.green },
+    warning: { main: tokens.status.gold },
+    info: { main: tokens.status.blue },
     text: {
       primary: tokens.ink,
       secondary: tokens.slate,
@@ -72,94 +66,173 @@ export const theme = createTheme({
       styleOverrides: {
         root: {
           borderRadius: 8,
-          fontSize: '0.875rem',
+          minWidth: 0,
+          gap: 8,
         },
         sizeMedium: {
           padding: '12px 16px',
+          fontSize: '0.875rem',
         },
         sizeSmall: {
           padding: '8px 14px',
           fontSize: '13px',
         },
+        // Scoped to the primary color class so a future destructive/contained
+        // button still picks up its own palette entry.
+        contained: {
+          '&.MuiButton-colorPrimary': {
+            backgroundColor: tokens.navy,
+            color: tokens.paper,
+            '&:hover': {
+              backgroundColor: tokens.navy,
+              opacity: 0.9,
+            },
+            '&.Mui-disabled': {
+              backgroundColor: tokens.navy,
+              color: tokens.paper,
+              opacity: 0.5,
+            },
+          },
+        },
         outlined: {
-          borderColor: 'rgba(138, 148, 163, 0.4)',
-          color: tokens.ink,
           backgroundColor: tokens.paper,
+          borderColor: alpha(tokens.slate, 0.4),
+          color: tokens.ink,
+          fontWeight: 500,
           '&:hover': {
-            borderColor: 'rgba(138, 148, 163, 0.4)',
-            backgroundColor: 'rgba(138, 148, 163, 0.1)',
+            backgroundColor: alpha(tokens.slate, 0.1),
+            borderColor: alpha(tokens.slate, 0.4),
+          },
+          '&.Mui-disabled': {
+            backgroundColor: alpha(tokens.slate, 0.1),
+            color: tokens.slate,
           },
         },
       },
     },
+
+    // Labels sit above their control across the whole app, so the shrink
+    // animation and the notch in the outline are both turned off.
+    MuiInputLabel: {
+      defaultProps: {
+        shrink: true,
+      },
+      styleOverrides: {
+        root: {
+          position: 'relative',
+          transform: 'none',
+          maxWidth: 'none',
+          marginBottom: 6,
+          fontSize: '0.875rem',
+          fontWeight: 500,
+          color: tokens.black,
+          '&.Mui-focused, &.Mui-error': {
+            color: tokens.black,
+          },
+          '& .MuiFormLabel-asterisk': {
+            display: 'none',
+          },
+        },
+      },
+    },
+
     MuiOutlinedInput: {
       styleOverrides: {
         root: {
+          marginTop: 0,
+          borderRadius: 8,
           backgroundColor: tokens.paper,
-          '& .MuiOutlinedInput-notchedOutline': {
+          boxShadow: FIELD_SHADOW,
+          '& fieldset': {
+            borderColor: tokens.chrome,
+            '& legend': { display: 'none' },
+          },
+          '&:hover fieldset': {
             borderColor: tokens.chrome,
           },
-          '&:hover .MuiOutlinedInput-notchedOutline': {
-            borderColor: tokens.chrome,
-          },
-          '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+          // 2px keeps focus a single border rather than a halo outside the
+          // field, while still meeting WCAG 2.2 focus-appearance.
+          '&.Mui-focused fieldset': {
             borderColor: tokens.status.blue,
-            borderWidth: 1,
+            borderWidth: 2,
+          },
+          '&.MuiInputBase-multiline': {
+            padding: 0,
+          },
+          '&.MuiInputBase-adornedEnd': {
+            paddingRight: 12,
+            '& .MuiInputBase-input': { paddingRight: 8 },
           },
         },
         input: {
+          padding: '12px 16px',
           fontSize: '0.875rem',
           color: tokens.ink,
-          padding: '12px 16px',
           '&::placeholder': {
             color: tokens.grey,
             opacity: 1,
           },
-        },
-      },
-    },
-    MuiFormLabel: {
-      styleOverrides: {
-        root: {
-          fontSize: '0.875rem',
-          fontWeight: 500,
-          color: tokens.black,
-          marginBottom: 6,
-          '&.Mui-focused': {
-            color: tokens.black,
+          // Chrome's autofill fill rendered these fields pale blue.
+          '&:-webkit-autofill, &:-webkit-autofill:hover, &:-webkit-autofill:focus': {
+            WebkitBoxShadow: `0 0 0 1000px ${tokens.paper} inset`,
+            WebkitTextFillColor: tokens.ink,
+            caretColor: tokens.ink,
+            transition: 'background-color 9999s ease-out',
           },
         },
       },
     },
+
+    MuiCheckbox: {
+      defaultProps: {
+        size: 'small',
+        disableRipple: true,
+      },
+      styleOverrides: {
+        root: {
+          padding: 0,
+          color: alpha(tokens.slate, 0.55),
+          '&.Mui-checked': { color: tokens.navy },
+          '& .MuiSvgIcon-root': { fontSize: 18 },
+        },
+      },
+    },
+
     MuiAlert: {
       styleOverrides: {
         root: {
+          alignItems: 'flex-start',
+          gap: 8,
+          padding: '10px 12px',
           borderRadius: 8,
           fontSize: '0.875rem',
+          '& .MuiAlert-icon': {
+            padding: 0,
+            margin: 0,
+            marginTop: 2,
+            color: 'inherit',
+          },
+          '& .MuiAlert-message': { padding: 0 },
         },
         colorError: {
-          backgroundColor: 'rgba(181, 80, 74, 0.1)',
+          backgroundColor: alpha(tokens.status.red, 0.1),
           color: tokens.status.red,
-          border: '1px solid rgba(181, 80, 74, 0.3)',
+          border: `1px solid ${alpha(tokens.status.red, 0.3)}`,
         },
       },
     },
+
     MuiChip: {
       styleOverrides: {
         root: {
-          fontWeight: 500,
-          fontSize: '0.75rem',
+          height: 'auto',
+          borderRadius: 9999,
         },
-      },
-    },
-    MuiCheckbox: {
-      styleOverrides: {
-        root: {
-          color: 'rgba(138, 148, 163, 0.4)',
-          padding: 0,
-          '&.Mui-checked': {
-            color: tokens.navy,
-          },
+        label: {
+          padding: '2px 10px',
+          fontSize: '0.75rem',
+          fontWeight: 500,
+          lineHeight: '16px',
         },
       },
     },

@@ -3,7 +3,6 @@
 import { InputHTMLAttributes, ReactNode, forwardRef, useId } from 'react'
 import TextField from '@mui/material/TextField'
 import InputAdornment from '@mui/material/InputAdornment'
-import { fieldSx } from '@/lib/fieldSx'
 
 type InputProps = InputHTMLAttributes<HTMLInputElement> & {
   label: string
@@ -11,7 +10,27 @@ type InputProps = InputHTMLAttributes<HTMLInputElement> & {
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
-  { label, id, className = '', endAdornment, type = 'text', ...props },
+  {
+    label,
+    id,
+    className,
+    endAdornment,
+    type = 'text',
+    // Props MUI needs on the wrapper to drive its own disabled/required state;
+    // everything else goes straight to the <input>.
+    value,
+    defaultValue,
+    onChange,
+    onBlur,
+    onFocus,
+    name,
+    placeholder,
+    autoComplete,
+    autoFocus,
+    disabled,
+    required,
+    ...htmlInputProps
+  },
   ref
 ) {
   const generatedId = useId()
@@ -26,31 +45,25 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
       variant="outlined"
       className={className}
       inputRef={ref}
-      placeholder={props.placeholder}
-      value={props.value}
-      defaultValue={props.defaultValue}
-      name={props.name}
-      autoComplete={props.autoComplete}
-      disabled={props.disabled}
-      required={props.required}
-      onChange={props.onChange}
-      onBlur={props.onBlur}
-      onFocus={props.onFocus}
+      value={value}
+      defaultValue={defaultValue}
+      onChange={onChange}
+      onBlur={onBlur}
+      onFocus={onFocus}
+      name={name}
+      placeholder={placeholder}
+      autoComplete={autoComplete}
+      autoFocus={autoFocus}
+      disabled={disabled}
+      required={required}
       slotProps={{
-        // Keep the input required for validation but drop MUI's asterisk —
-        // the Figma labels have none.
-        inputLabel: { shrink: true, required: false },
-        htmlInput: {
-          'aria-label': props['aria-label'],
-          minLength: props.minLength,
-        },
+        htmlInput: htmlInputProps,
         input: {
           endAdornment: endAdornment ? (
             <InputAdornment position="end">{endAdornment}</InputAdornment>
           ) : undefined,
         },
       }}
-      sx={fieldSx({ hasEndAdornment: Boolean(endAdornment) })}
     />
   )
 })

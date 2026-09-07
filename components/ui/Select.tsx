@@ -8,14 +8,26 @@ import {
   useId,
 } from 'react'
 import TextField from '@mui/material/TextField'
-import { fieldSx } from '@/lib/fieldSx'
 
 type SelectProps = SelectHTMLAttributes<HTMLSelectElement> & {
   label?: string
 }
 
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select(
-  { label, id, className = '', children, onChange, onBlur, ...props },
+  {
+    label,
+    id,
+    className,
+    children,
+    value,
+    defaultValue,
+    onChange,
+    onBlur,
+    name,
+    disabled,
+    required,
+    ...htmlSelectProps
+  },
   ref
 ) {
   const generatedId = useId()
@@ -29,22 +41,22 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
       fullWidth
       variant="outlined"
       className={className}
-      value={props.value ?? ''}
-      defaultValue={props.defaultValue}
-      name={props.name}
-      disabled={props.disabled}
-      required={props.required}
+      value={value}
+      defaultValue={defaultValue}
+      // The rendered control is a native <select>, so the public handler types
+      // are accurate even though MUI types them against its own input.
       onChange={onChange as unknown as ChangeEventHandler<HTMLInputElement | HTMLTextAreaElement>}
       onBlur={onBlur as unknown as FocusEventHandler<HTMLInputElement | HTMLTextAreaElement>}
+      name={name}
+      disabled={disabled}
+      required={required}
       slotProps={{
-        inputLabel: label ? { shrink: true, required: false } : undefined,
+        htmlInput: htmlSelectProps,
         select: {
           native: true,
           inputRef: ref,
-          'aria-label': props['aria-label'],
         },
       }}
-      sx={fieldSx()}
     >
       {children}
     </TextField>
