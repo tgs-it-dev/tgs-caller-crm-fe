@@ -27,6 +27,10 @@ module.exports = {
         "relay-blue": "#2E7DB5",
         // Unnamed hex lifted from the Queue card.
         "table-strip": "#F8F8F8",
+        // Pill borders in the workspace "Phone Matched" / "Source" chips.
+        "pill-border": "#EFEFEF",
+        // Body copy color for the workspace lead-summary paragraph.
+        "body-text": "#656565",
         accent: {
           blue: "#0088FF"
         }

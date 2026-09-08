@@ -1,14 +1,16 @@
 function ChevronIcon({ direction }: { direction: 'left' | 'right' }) {
   return (
-    <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden>
+    <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4" aria-hidden>
       <path
-        fillRule="evenodd"
         d={
           direction === 'left'
-            ? 'M12.79 5.23a.75.75 0 010 1.06L8.06 10l4.73 3.71a.75.75 0 11-.93 1.18l-5.5-4.3a.75.75 0 010-1.18l5.5-4.3a.75.75 0 011.06.02z'
-            : 'M7.21 14.77a.75.75 0 010-1.06L11.94 10 7.21 6.29a.75.75 0 01.93-1.18l5.5 4.3a.75.75 0 010 1.18l-5.5 4.3a.75.75 0 01-1.06-.02z'
+            ? 'M12.5 4.5L7 10l5.5 5.5'
+            : 'M7.5 4.5L13 10l-5.5 5.5'
         }
-        clipRule="evenodd"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       />
     </svg>
   )
@@ -37,17 +39,18 @@ export function Pagination({
       <span>
         Showing {rangeStart} to {rangeEnd}
       </span>
-      <div className="flex items-center gap-2">
+      {/* Figma: grey strip hosts white rounded chevron buttons around the page label. */}
+      <div className="flex items-center gap-3">
         <button
           type="button"
           aria-label="Previous page"
           onClick={onPrevious}
           disabled={page <= 1}
-          className="text-slate hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex h-7 w-7 items-center justify-center rounded-md bg-white text-ink disabled:cursor-not-allowed disabled:opacity-40"
         >
           <ChevronIcon direction="left" />
         </button>
-        <span>
+        <span className="min-w-[5.5rem] text-center text-sm font-normal leading-[150%] text-ink">
           Page {page} of {totalPages}
         </span>
         <button
@@ -55,7 +58,7 @@ export function Pagination({
           aria-label="Next page"
           onClick={onNext}
           disabled={page >= totalPages}
-          className="text-slate hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex h-7 w-7 items-center justify-center rounded-md bg-white text-ink disabled:cursor-not-allowed disabled:opacity-40"
         >
           <ChevronIcon direction="right" />
         </button>

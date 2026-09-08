@@ -9,6 +9,7 @@ import RadioGroup from '@mui/material/RadioGroup'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
+import { tokens } from '@/lib/theme'
 
 const WARRANTY_STATUS_OPTIONS = ['Active', 'Expired', 'Expiring soon', 'Unknown']
 
@@ -61,7 +62,20 @@ export function QualificationChecklist() {
         </Select>
 
         <FormControl>
-          <FormLabel id="consent-dnc-label">Consent / DNC confirmation *</FormLabel>
+          <FormLabel
+            id="consent-dnc-label"
+            sx={{
+              fontSize: '14px',
+              fontWeight: 500,
+              lineHeight: 1.5,
+              letterSpacing: 0,
+              marginBottom: '12px',
+              color: tokens.ink,
+              '&.Mui-focused': { color: tokens.ink },
+            }}
+          >
+            Consent / DNC confirmation *
+          </FormLabel>
           <RadioGroup
             row
             aria-labelledby="consent-dnc-label"

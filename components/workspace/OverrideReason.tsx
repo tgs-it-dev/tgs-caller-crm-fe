@@ -43,7 +43,7 @@ export function OverrideReason({
           placeholder="Reason for override..."
           value={reason}
           onChange={(e) => onReasonChange(e.target.value)}
-          className="mt-2"
+          className="mt-3"
         />
       )}
     </div>

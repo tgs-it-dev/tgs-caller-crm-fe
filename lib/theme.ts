@@ -24,6 +24,10 @@ export const tokens = {
   },
   /** Header/footer strips inside the Queue and Closers card tables. */
   strip: '#F8F8F8',
+  /** Pill borders in the workspace "Phone Matched" / "Source" chips. */
+  pillBorder: '#EFEFEF',
+  /** Body copy color for the workspace lead-summary paragraph. */
+  bodyText: '#656565',
   /** Pill fills from Figma — all lighter than a 10% alpha of their text colour. */
   badge: {
     waiting: '#FCFBF2',
@@ -134,7 +138,7 @@ export const theme = createTheme({
           position: 'relative',
           transform: 'none',
           maxWidth: 'none',
-          marginBottom: 6,
+          marginBottom: 12,
           fontSize: '0.875rem',
           fontWeight: 500,
           color: tokens.black,
@@ -267,7 +271,7 @@ export const theme = createTheme({
           tableLayout: 'fixed',
           '& thead th': {
             backgroundColor: tokens.strip,
-            borderBottom: `0.5px solid ${tokens.slate}`,
+            border: 0,
           },
           '& thead th:first-of-type': { borderRadius: '6px 0 0 6px' },
           '& thead th:last-of-type': { borderRadius: '0 6px 6px 0' },
@@ -292,6 +296,7 @@ export const theme = createTheme({
           padding: '8px 24px',
           fontWeight: 500,
           color: tokens.ink,
+          borderBottom: 0,
         },
         body: {
           padding: '20px 24px',

@@ -33,16 +33,20 @@ export function ClosersTable({ closers }: { closers: Closer[] }) {
       <TableHead>
         <TableRow>
           <TableCell scope="col">Name</TableCell>
-          <TableCell scope="col">Date Range</TableCell>
-          <TableCell scope="col">Status</TableCell>
+          <TableCell scope="col" align="center">
+            Date Range
+          </TableCell>
+          <TableCell scope="col" align="right">
+            Status
+          </TableCell>
         </TableRow>
       </TableHead>
       <TableBody>
         {closers.map((closer) => (
           <TableRow key={closer.id}>
             <TableCell>{closer.name}</TableCell>
-            <TableCell>{closer.dateRange}</TableCell>
-            <TableCell>
+            <TableCell align="center">{closer.dateRange}</TableCell>
+            <TableCell align="right">
               <Badge tone="done">{closer.status}</Badge>
             </TableCell>
           </TableRow>
