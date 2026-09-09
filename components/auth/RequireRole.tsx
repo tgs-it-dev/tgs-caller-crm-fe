@@ -2,13 +2,16 @@
 
 import { ReactNode, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { clearToken, getCurrentUser, readToken, Role } from '@/lib/auth'
+import { Alert } from '@/components/ui/Alert'
+import { Button } from '@/components/ui/Button'
+import { AuthError, clearToken, getCurrentUser, readToken, Role } from '@/lib/auth'
 
-type Status = 'checking' | 'authorized'
+type Status = 'checking' | 'authorized' | 'error'
 
-function useAuthorization(isAllowed: (roles: Role[]) => boolean) {
+function useAuthorization(role?: Role) {
   const router = useRouter()
   const [status, setStatus] = useState<Status>('checking')
+  const [retryKey, setRetryKey] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -19,39 +22,77 @@ function useAuthorization(isAllowed: (roles: Role[]) => boolean) {
       return
     }
 
+    setStatus('checking')
+
     getCurrentUser(token)
       .then((user) => {
         if (cancelled) return
-        if (!isAllowed(user.roles)) {
+        if (role && !user.roles.includes(role)) {
           router.replace('/login')
           return
         }
         setStatus('authorized')
       })
-      .catch(() => {
+      .catch((err) => {
         if (cancelled) return
-        clearToken()
-        router.replace('/login')
+        // Only treat a confirmed 401 as an invalid session. Network blips,
+        // 5xx, and CORS failures must not wipe a still-valid token.
+        if (err instanceof AuthError && err.status === 401) {
+          clearToken()
+          router.replace('/login')
+          return
+        }
+        setStatus('error')
       })
 
     return () => {
       cancelled = true
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router])
+  }, [router, role, retryKey])
 
-  return status
+  return { status, retry: () => setRetryKey((k) => k + 1) }
+}
+
+function AuthGate({
+  status,
+  onRetry,
+  children,
+}: {
+  status: Status
+  onRetry: () => void
+  children: ReactNode
+}) {
+  if (status === 'authorized') return <>{children}</>
+  if (status === 'error') {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-paper px-6">
+        <div className="w-full max-w-sm">
+          <Alert>Unable to verify your session. Check your connection and try again.</Alert>
+          <Button type="button" onClick={onRetry}>
+            Retry
+          </Button>
+        </div>
+      </main>
+    )
+  }
+  return null
 }
 
 export function RequireRole({ role, children }: { role: Role; children: ReactNode }) {
-  const status = useAuthorization((roles) => roles.includes(role))
-  if (status !== 'authorized') return null
-  return <>{children}</>
+  const { status, retry } = useAuthorization(role)
+  return (
+    <AuthGate status={status} onRetry={retry}>
+      {children}
+    </AuthGate>
+  )
 }
 
 // For screens any signed-in agent may view, regardless of role.
 export function RequireAuth({ children }: { children: ReactNode }) {
-  const status = useAuthorization(() => true)
-  if (status !== 'authorized') return null
-  return <>{children}</>
+  const { status, retry } = useAuthorization()
+  return (
+    <AuthGate status={status} onRetry={retry}>
+      {children}
+    </AuthGate>
+  )
 }

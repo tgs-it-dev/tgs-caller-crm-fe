@@ -14,14 +14,14 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
 
   return (
     <div>
-      <label htmlFor={inputId} className="mb-1.5 block text-sm font-medium text-black">
+      <label htmlFor={inputId} className="mb-1.5 block text-sm font-medium text-ink">
         {label}
       </label>
       <div className="relative">
         <input
           ref={ref}
           id={inputId}
-          className={`block w-full rounded-lg border border-chrome bg-paper px-4 py-3 text-sm text-ink placeholder-grey transition focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy ${endAdornment ? 'pr-11' : ''} ${className}`}
+          className={`block w-full rounded-lg border border-slate bg-paper px-4 py-3 text-sm text-ink placeholder-slate transition focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy ${endAdornment ? 'pr-11' : ''} ${className}`}
           {...props}
         />
         {endAdornment && (
