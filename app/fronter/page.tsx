@@ -2,17 +2,18 @@
 
 import { useEffect, useState } from 'react'
 import { RequireRole } from '@/components/auth/RequireRole'
+import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import { Alert } from '@/components/ui/Alert'
 import { QueueRow } from '@/components/fronter/QueueRow'
 import { StatTile } from '@/components/fronter/StatTile'
-import { CurrentUser, getCurrentUser, readToken } from '@/lib/auth'
+import { readToken } from '@/lib/auth'
 import { InteractionDetail, listInteractions } from '@/lib/interactions'
 import { waitForMocking } from '@/lib/mockReady'
 
-type LoadState =
+type QueueState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; user: CurrentUser; queue: InteractionDetail[] }
+  | { status: 'ready'; queue: InteractionDetail[] }
 
 export default function FronterPage() {
   return (
@@ -23,7 +24,8 @@ export default function FronterPage() {
 }
 
 function Dashboard() {
-  const [load, setLoad] = useState<LoadState>({ status: 'loading' })
+  const { user, status: userStatus } = useCurrentUser()
+  const [queueState, setQueueState] = useState<QueueState>({ status: 'loading' })
 
   useEffect(() => {
     let cancelled = false
@@ -31,14 +33,14 @@ function Dashboard() {
     if (!token) return
 
     waitForMocking()
-      .then(() => Promise.all([getCurrentUser(token), listInteractions(token)]))
-      .then(([user, queue]) => {
+      .then(() => listInteractions(token))
+      .then((queue) => {
         if (cancelled) return
-        setLoad({ status: 'ready', user, queue })
+        setQueueState({ status: 'ready', queue })
       })
       .catch(() => {
         if (cancelled) return
-        setLoad({ status: 'error', message: 'Unable to load your queue right now.' })
+        setQueueState({ status: 'error', message: 'Unable to load your queue right now.' })
       })
 
     return () => {
@@ -46,7 +48,7 @@ function Dashboard() {
     }
   }, [])
 
-  if (load.status === 'loading') {
+  if (userStatus === 'loading' || queueState.status === 'loading') {
     return (
       <div className="flex min-h-screen items-center justify-center bg-shop-floor">
         <p className="text-sm text-slate">Loading your desk…</p>
@@ -54,17 +56,27 @@ function Dashboard() {
     )
   }
 
-  if (load.status === 'error') {
+  if (userStatus === 'error' || !user) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-shop-floor px-4">
         <div className="w-full max-w-sm">
-          <Alert>{load.message}</Alert>
+          <Alert>Unable to load your profile right now.</Alert>
         </div>
       </div>
     )
   }
 
-  const { user, queue } = load
+  if (queueState.status === 'error') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-shop-floor px-4">
+        <div className="w-full max-w-sm">
+          <Alert>{queueState.message}</Alert>
+        </div>
+      </div>
+    )
+  }
+
+  const { queue } = queueState
   const activeCount = queue.filter((i) => i.status === 'active').length
   const wrapUpCount = queue.filter((i) => i.status === 'wrap_up').length
 

@@ -7,10 +7,17 @@ export type Closer = {
 
 export const MOCK_CLOSERS: Closer[] = [
   { id: '1', name: 'Mubeen N.', dateRange: '08.08.2026', status: 'Completed' },
-  { id: '2', name: 'Mubeen N.', dateRange: '08.08.2026', status: 'Completed' },
-  { id: '3', name: 'Mubeen N.', dateRange: '08.08.2026', status: 'Completed' },
-  { id: '4', name: 'Mubeen N.', dateRange: '08.08.2026', status: 'Completed' },
-  { id: '5', name: 'Mubeen N.', dateRange: '08.08.2026', status: 'Completed' },
+  { id: '2', name: 'Ayesha K.', dateRange: '08.08.2026', status: 'Available' },
+  { id: '3', name: 'Omar R.', dateRange: '08.09.2026', status: 'Available' },
+  { id: '4', name: 'Sara L.', dateRange: '08.09.2026', status: 'On Call' },
+  { id: '5', name: 'Daniel P.', dateRange: '08.10.2026', status: 'Available' },
+  { id: '6', name: 'Nina V.', dateRange: '08.10.2026', status: 'Completed' },
+  { id: '7', name: 'Chris T.', dateRange: '08.11.2026', status: 'Available' },
+  { id: '8', name: 'Elena M.', dateRange: '08.11.2026', status: 'On Call' },
+  { id: '9', name: 'Hassan J.', dateRange: '08.12.2026', status: 'Available' },
+  { id: '10', name: 'Priya S.', dateRange: '08.12.2026', status: 'Completed' },
+  { id: '11', name: 'Leo W.', dateRange: '08.13.2026', status: 'Available' },
+  { id: '12', name: 'Maya C.', dateRange: '08.13.2026', status: 'Available' },
 ]
 
 export function ClosersTable({ closers }: { closers: Closer[] }) {

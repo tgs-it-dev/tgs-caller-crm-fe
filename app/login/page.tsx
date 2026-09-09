@@ -77,6 +77,7 @@ export default function LoginPage() {
     setIsSubmitting(true)
 
     try {
+      await waitForMocking()
       const { access_token } = await login({ email, password })
       storeToken(access_token)
 

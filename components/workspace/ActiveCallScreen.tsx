@@ -54,7 +54,7 @@ export function ActiveCallScreen({ interactionId }: { interactionId: string }) {
             </div>
             <div className="space-y-8">
               <DispositionCard />
-              <TransferPanel />
+              <TransferPanel interactionId={interactionId} />
             </div>
           </div>
         </div>

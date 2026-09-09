@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { RequireRole } from '@/components/auth/RequireRole'
+import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import { Alert } from '@/components/ui/Alert'
 import { ActionRail } from '@/components/workspace/ActionRail'
 import { CallerProfile } from '@/components/workspace/CallerProfile'
 import { QualificationSection } from '@/components/workspace/QualificationSection'
-import { getCurrentUser, readToken } from '@/lib/auth'
+import { readToken } from '@/lib/auth'
 import { InteractionDetail, InteractionNotFoundError, getInteraction } from '@/lib/interactions'
 import { waitForMocking } from '@/lib/mockReady'
 import {
@@ -48,6 +49,7 @@ export function Workspace({ interactionId }: { interactionId: string }) {
 }
 
 function WorkspaceContent({ interactionId }: { interactionId: string }) {
+  const { user } = useCurrentUser()
   const [load, setLoad] = useState<LoadState>({ status: 'loading' })
   const [snapshot, setSnapshot] = useState<QualificationSnapshot>(EMPTY_SNAPSHOT)
   const [consent, setConsent] = useState<ConsentDnc>(EMPTY_CONSENT)
@@ -147,7 +149,10 @@ function WorkspaceContent({ interactionId }: { interactionId: string }) {
       )
       setVersion(savedQualification.version)
 
-      const user = await getCurrentUser(token)
+      if (!user) {
+        throw new Error('Unable to identify the current agent. Please refresh and try again.')
+      }
+
       const transfer = await createTransfer(
         { interaction_id: interactionId, fronter_user_id: user.id },
         token

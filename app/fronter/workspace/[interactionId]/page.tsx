@@ -1,4 +1,4 @@
-import { ActiveCallScreen } from '@/components/workspace/ActiveCallScreen'
+import { Workspace } from './Workspace'
 
 export default async function FronterWorkspacePage({
   params,
@@ -6,5 +6,5 @@ export default async function FronterWorkspacePage({
   params: Promise<{ interactionId: string }>
 }) {
   const { interactionId } = await params
-  return <ActiveCallScreen interactionId={interactionId} />
+  return <Workspace interactionId={interactionId} />
 }
