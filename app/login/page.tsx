@@ -180,7 +180,7 @@ export default function LoginPage() {
           Continue with Google
         </Button>
 
-        <p className="mt-6 text-center text-sm text-slate">
+        <p className="mt-4 text-center text-xs text-dimgray sm:text-sm">
           Don&apos;t have an account?{' '}
           <a href="#" className="font-medium text-navy transition-colors hover:text-ink hover:underline">
             Sign up here
