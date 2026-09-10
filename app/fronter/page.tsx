@@ -14,7 +14,7 @@ import { QueueEntry, listQueue } from '@/lib/queue'
 const TICK_MS = 1000
 const POLL_MS = 15000
 
-type QueueState =
+type LoadState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
   | { status: 'ready'; entries: QueueEntry[] }
@@ -28,7 +28,7 @@ export default function FronterQueuePage() {
 }
 
 function Queue() {
-  const [load, setLoad] = useState<QueueState>({ status: 'loading' })
+  const [load, setLoad] = useState<LoadState>({ status: 'loading' })
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
