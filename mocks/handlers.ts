@@ -1,10 +1,9 @@
 import { rest } from 'msw'
+import type { Role } from '../lib/auth'
 import type { InteractionDetail } from '../lib/interactions'
 import type { QueueEntry } from '../lib/queue'
 import type { QualificationCreateRequest, QualificationResponse } from '../lib/qualification'
 import type { TransferCreateRequest, TransferResponse } from '../lib/transfers'
-
-type Role = 'fronter' | 'closer' | 'administrator'
 
 type MockUser = {
   id: string
@@ -114,7 +113,12 @@ export const handlers = [
 
     return res(
       ctx.status(200),
-      ctx.json({ access_token: token, token_type: 'bearer', expires_in_min: 60 })
+      ctx.json({
+        access_token: token,
+        refresh_token: `mock-refresh-${user.id}`,
+        token_type: 'bearer' as const,
+        expires_in_min: 60,
+      })
     )
   }),
 
