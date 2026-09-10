@@ -155,14 +155,14 @@ export default function LoginPage() {
           </div>
 
           <div className="mb-6 flex items-center justify-between">
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-dimgray">
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-slate">
               <input
                 type="checkbox"
                 className="h-4 w-4 cursor-pointer rounded border-slate/40 accent-navy transition-colors hover:border-ink focus:ring-2 focus:ring-navy/30"
               />
               Remember me
             </label>
-            <a href="#" className="text-sm font-medium text-accent-blue transition-colors hover:underline">
+            <a href="#" className="text-sm font-medium text-status-blue transition-colors hover:underline">
               Forgot Password?
             </a>
           </div>
@@ -183,7 +183,7 @@ export default function LoginPage() {
           Continue with Google
         </Button>
 
-        <p className="mt-6 text-center text-sm text-slate">
+        <p className="mt-4 text-center text-xs text-slate sm:text-sm">
           Don&apos;t have an account?{' '}
           <a href="#" className="font-medium text-navy transition-colors hover:text-ink hover:underline">
             Sign up here
