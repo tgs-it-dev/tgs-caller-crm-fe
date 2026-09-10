@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { RequireRole } from '@/components/auth/RequireRole'
+import { Badge } from '@/components/ui/Badge'
+import { PageShell } from '@/components/ui/PageShell'
 import { CallerLeadInfo } from './CallerLeadInfo'
 import { DispositionCard } from './DispositionCard'
 import { QualificationChecklist } from './QualificationChecklist'
@@ -23,10 +25,9 @@ function LiveCallBadge() {
 
   return (
     <div className="flex items-center gap-3">
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-xs font-medium text-status-red">
-        <span className="h-1.5 w-1.5 rounded-full bg-status-red" />
+      <Badge tone="live" dot>
         Live
-      </span>
+      </Badge>
       <span className="text-sm text-ink">on call — {formatElapsed(elapsed)}</span>
     </div>
   )
@@ -35,30 +36,20 @@ function LiveCallBadge() {
 export function ActiveCallScreen({ interactionId }: { interactionId: string }) {
   return (
     <RequireRole role="fronter">
-      <main className="min-h-screen bg-shop-floor">
-        <div
-          className="border-b border-slate px-6 py-6"
-          style={{ borderBottomWidth: '0.5px' }}
-        >
-          <div className="mx-auto flex max-w-6xl items-center justify-between">
-            <h1 className="text-2xl font-semibold tracking-tight text-ink">Active Call</h1>
-            <LiveCallBadge />
+      <PageShell title="Active Call" actions={<LiveCallBadge />}>
+        {/* Figma runs this as two equal columns on a 16px gutter, vertical and
+            horizontal — not a fluid column beside a fixed-width rail. */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="space-y-4">
+            <CallerLeadInfo />
+            <QualificationChecklist />
+          </div>
+          <div className="space-y-4">
+            <DispositionCard />
+            <TransferPanel />
           </div>
         </div>
-
-        <div className="mx-auto max-w-6xl px-6 py-6">
-          <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_400px]">
-            <div className="space-y-8">
-              <CallerLeadInfo />
-              <QualificationChecklist />
-            </div>
-            <div className="space-y-8">
-              <DispositionCard />
-              <TransferPanel interactionId={interactionId} />
-            </div>
-          </div>
-        </div>
-      </main>
+      </PageShell>
     </RequireRole>
   )
 }

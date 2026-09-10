@@ -158,7 +158,7 @@ export default function LoginPage() {
             <label className="flex cursor-pointer items-center gap-2 text-sm text-dimgray">
               <input
                 type="checkbox"
-                className="h-4 w-4 cursor-pointer rounded border-slate/40 accent-navy transition-colors hover:border-ink focus:ring-2 focus:ring-status-blue/30"
+                className="h-4 w-4 cursor-pointer rounded border-slate/40 accent-navy transition-colors hover:border-ink focus:ring-2 focus:ring-navy/30"
               />
               Remember me
             </label>

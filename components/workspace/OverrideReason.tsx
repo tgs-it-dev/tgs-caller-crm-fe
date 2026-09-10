@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { Textarea } from '@/components/ui/Textarea'
 
 function ChevronUpIcon() {
   return (
@@ -36,13 +37,13 @@ export function OverrideReason({
         </span>
       </button>
       {open && (
-        <textarea
+        <Textarea
           aria-label="Override reason"
           rows={3}
           placeholder="Reason for override..."
           value={reason}
           onChange={(e) => onReasonChange(e.target.value)}
-          className="mt-2 block w-full rounded-lg border border-chrome bg-paper px-4 py-3 text-sm text-ink placeholder-grey shadow-sm transition focus:border-status-blue focus:outline-none focus:ring-2 focus:ring-status-blue/30"
+          className="mt-3"
         />
       )}
     </div>

@@ -219,11 +219,13 @@ export function Sidebar() {
             }`}
           >
             <span className="flex items-center gap-3">
-              <BellIcon />
+              <span className="flex-shrink-0 p-1">
+                <BellIcon />
+              </span>
               <span className={collapsed ? 'lg:hidden' : ''}>Notification</span>
             </span>
             <span
-              className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-status-red text-xs font-semibold text-white ${
+              className={`flex min-w-[32px] flex-shrink-0 items-center justify-center rounded-xl bg-signal-red px-3 py-1.5 text-xs font-semibold leading-none text-white ${
                 collapsed ? 'lg:hidden' : ''
               }`}
             >

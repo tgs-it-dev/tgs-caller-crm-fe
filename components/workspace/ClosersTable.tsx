@@ -1,3 +1,12 @@
+'use client'
+
+import Table from '@mui/material/Table'
+import TableBody from '@mui/material/TableBody'
+import TableCell from '@mui/material/TableCell'
+import TableHead from '@mui/material/TableHead'
+import TableRow from '@mui/material/TableRow'
+import { Badge } from '@/components/ui/Badge'
+
 export type Closer = {
   id: string
   name: string
@@ -22,23 +31,34 @@ export const MOCK_CLOSERS: Closer[] = [
 
 export function ClosersTable({ closers }: { closers: Closer[] }) {
   return (
-    <table className="w-full text-sm">
-      <thead>
-        <tr className="border-b border-slate/20 text-left text-xs font-medium text-slate">
-          <th className="pb-2 font-medium">Name</th>
-          <th className="pb-2 font-medium">Date Range</th>
-          <th className="pb-2 font-medium">Status</th>
-        </tr>
-      </thead>
-      <tbody>
+    <Table
+      aria-label="Available closers"
+      // These rows are single-line, so Figma runs them at 16px vertical
+      // padding (52px rows) instead of the 20px the two-line Queue rows take.
+      sx={{ '& tbody td': { paddingTop: '16px', paddingBottom: '16px' } }}
+    >
+      <TableHead>
+        <TableRow>
+          <TableCell scope="col">Name</TableCell>
+          <TableCell scope="col" align="center">
+            Date Range
+          </TableCell>
+          <TableCell scope="col" align="right">
+            Status
+          </TableCell>
+        </TableRow>
+      </TableHead>
+      <TableBody>
         {closers.map((closer) => (
-          <tr key={closer.id} className="border-b border-slate/10 last:border-0">
-            <td className="py-2.5 text-ink">{closer.name}</td>
-            <td className="py-2.5 text-ink">{closer.dateRange}</td>
-            <td className="py-2.5 font-medium text-status-green">{closer.status}</td>
-          </tr>
+          <TableRow key={closer.id}>
+            <TableCell>{closer.name}</TableCell>
+            <TableCell align="center">{closer.dateRange}</TableCell>
+            <TableCell align="right">
+              <Badge tone="done">{closer.status}</Badge>
+            </TableCell>
+          </TableRow>
         ))}
-      </tbody>
-    </table>
+      </TableBody>
+    </Table>
   )
 }

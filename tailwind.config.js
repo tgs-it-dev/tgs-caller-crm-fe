@@ -22,12 +22,27 @@ module.exports = {
           gold: "#C99A3E",
           blue: "#3E7CB1"
         },
+        // Figma variable names, kept verbatim so specs stay greppable.
+        "signal-red": "#D64545",
+        "relay-blue": "#2E7DB5",
+        // Unnamed hex lifted from the Queue card.
+        "table-strip": "#F8F8F8",
+        // Pill borders in the workspace "Phone Matched" / "Source" chips.
+        "pill-border": "#EFEFEF",
+        // Body copy color for the workspace lead-summary paragraph.
+        "body-text": "#656565",
         accent: {
           blue: "#0088FF"
         }
       },
       fontFamily: {
         sans: ["var(--font-inter)", "Inter", ...defaultTheme.fontFamily.sans]
+      },
+      // Every rule in the Figma file is a 0.5px slate hairline — card outlines,
+      // card heading dividers, page header rules, table rows. Tailwind has no
+      // sub-pixel border scale, so this replaces inline `borderWidth` styles.
+      borderWidth: {
+        hairline: "0.5px"
       }
     }
   },
