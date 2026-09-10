@@ -1,6 +1,6 @@
 import { Inter } from 'next/font/google'
 import '../styles/globals.css'
-import MockProvider from './providers/MockProvider'
+import AppProviders from './providers/AppProviders'
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 
@@ -13,7 +13,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={inter.variable}>
       <body className="min-h-screen bg-paper font-sans text-ink">
-        <MockProvider>{children}</MockProvider>
+        <AppProviders>{children}</AppProviders>
       </body>
     </html>
   )

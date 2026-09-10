@@ -13,6 +13,7 @@ import {
   readToken,
   storeToken,
 } from '@/lib/auth'
+import { waitForMocking } from '@/lib/mockReady'
 
 function EyeIcon({ open }: { open: boolean }) {
   return open ? (
@@ -62,7 +63,8 @@ export default function LoginPage() {
     const token = readToken()
     if (!token) return
 
-    getCurrentUser(token)
+    waitForMocking()
+      .then(() => getCurrentUser(token))
       .then((user) => router.replace(landingRouteForRoles(user.roles)))
       .catch(() => {
         // stale/invalid token — let the user sign in again
@@ -75,6 +77,7 @@ export default function LoginPage() {
     setIsSubmitting(true)
 
     try {
+      await waitForMocking()
       const { access_token } = await login({ email, password })
       storeToken(access_token)
 
@@ -155,7 +158,7 @@ export default function LoginPage() {
             <label className="flex cursor-pointer items-center gap-2 text-sm text-slate">
               <input
                 type="checkbox"
-                className="h-4 w-4 cursor-pointer rounded border-slate/40 accent-navy transition-colors hover:border-ink focus:ring-2 focus:ring-status-blue/30"
+                className="h-4 w-4 cursor-pointer rounded border-slate/40 accent-navy transition-colors hover:border-ink focus:ring-2 focus:ring-navy/30"
               />
               Remember me
             </label>

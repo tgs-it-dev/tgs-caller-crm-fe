@@ -9,7 +9,9 @@ shapes.
 
 ## Stack & requirements
 
-- Next.js (App Router, Turbopack), React 18, TypeScript (`strict: true`), Tailwind CSS.
+- Next.js (App Router, Turbopack), React 18, TypeScript (`strict: true`),
+  MUI (`@mui/material` v9 + `@mui/icons-material` + `@mui/material-nextjs`),
+  Emotion, Tailwind CSS v3.
 - **Node >= 20.9** is required — `nvm use 20` before running `npm run dev`; the
   system default may be Node 16, which fails silently-ish (no listening port).
 - `msw` mocks the backend in the browser (`app/providers/MockProvider.tsx`
@@ -54,15 +56,26 @@ Frontend pieces:
 
 ## UI conventions
 
-- Shared primitives live in `components/ui/` (`Input`, `Button`, `Alert`).
-  Reuse these instead of inlining `<input>`/`<button>` markup — extend them
-  with props rather than duplicating styles.
+- **MUI is the component layer; Tailwind is for layout/spacing utilities.**
+  Shared primitives in `components/ui/` wrap MUI (`Button` → `MuiButton`,
+  `Input`/`Select`/`Textarea` → `TextField`, `Checkbox`, `Alert`, `Badge` →
+  `Chip`, etc.). Prefer those wrappers over raw MUI or native HTML controls;
+  extend them with props rather than duplicating styles. Feature tables and
+  form composites may import MUI directly (`Table`, `RadioGroup`, …) when no
+  shared wrapper exists yet.
+- Theme lives in `lib/theme.ts` (`createTheme` + `tokens` mirrored from Figma /
+  `tailwind.config.js`). Wired in `app/providers/AppProviders.tsx` via
+  `AppRouterCacheProvider` (`prepend: true` so Tailwind `className` utilities
+  still beat Emotion) + MUI `ThemeProvider`. Do **not** set `enableCssLayer`
+  — that path is for Tailwind v4; on v3 it makes every MUI style lose to
+  preflight.
 - Visual theme (as of the Figma "CRM - Auto Warranty" file, superseding the
-  earlier dark/teal theme): light (`bg-paper` `#FCFCFC`), `ink` (`#1C2430`)
-  for headings/dark surfaces, `navy` (`#1F3A5F`) for primary CTAs, `slate`
-  (`#8A94A3`) for borders/placeholders/secondary text. `status-red`/
-  `status-green`/`status-gold`/`status-blue` are accent/status colors only,
-  not for primary CTAs. Tokens are defined in `tailwind.config.js`. Font is
+  earlier dark/teal theme): light (`bg-paper` / `tokens.paper` `#FCFCFC`),
+  `ink` (`#1C2430`) for headings/dark surfaces, `navy` (`#1F3A5F`) for
+  primary CTAs, `slate` (`#8A94A3`) for borders/placeholders/secondary text.
+  `status-red` / `status-green` / `status-gold` / `status-blue` are
+  accent/status colors only, not for primary CTAs. Keep `tokens` in
+  `lib/theme.ts` and Tailwind color keys in sync when adding colors. Font is
   Inter, loaded via `next/font/google` in `app/layout.tsx` (`--font-inter`),
   on a 61/49/39/32/23/20/18/16/14/13px type scale (base 16, ~1.125 ratio,
   120% line-height). `Button` takes a `variant` prop (`primary` navy-filled /
@@ -70,6 +83,22 @@ Frontend pieces:
 - Errors (auth failures, form validation) render inline via `<Alert>` /
   `role="alert"` — never fail silently or let an unhandled rejection crash
   the page.
+
+### Design source & known component specs
+
+Source of truth for layout/spacing/typography is the Figma file
+"CRM - Auto Warranty" (design.figma.com, file key `4lOil7SfItqviZwsYhi7ec`).
+Pull exact values from Figma's Properties panel (Layout/Content/Typography/
+Colors sections) rather than eyeballing screenshots — dev-mode inspection
+gives px-accurate specs. Known specs pulled so far:
+
+- **Notification (bell icon + label + unread-count badge)**, used in the
+  active-call sidebar header: label frame is `77×21px` (hug), text style
+  "Label 1" — Inter 400, 14px, 150% line-height, 0% letter-spacing, color
+  `#2C2C2C` (not the `ink` token — check before assuming it maps 1:1).
+  Sits next to a circular unread-count badge (`status-red` fill, white
+  numeral) and a user identity block (avatar, name, email, sign-out icon)
+  further down the same panel.
 
 ## Route-segment conventions (App Router)
 

@@ -2,9 +2,8 @@
 
 import { ReactNode, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Alert } from '@/components/ui/Alert'
-import { Button } from '@/components/ui/Button'
-import { AuthError, clearToken, getCurrentUser, readToken, Role } from '@/lib/auth'
+import { clearToken, getCurrentUser, readToken, Role } from '@/lib/auth'
+import { waitForMocking } from '@/lib/mockReady'
 
 type Status = 'checking' | 'authorized' | 'error'
 
@@ -22,9 +21,8 @@ function useAuthorization(role?: Role) {
       return
     }
 
-    setStatus('checking')
-
-    getCurrentUser(token)
+    waitForMocking()
+      .then(() => getCurrentUser(token))
       .then((user) => {
         if (cancelled) return
         if (role && !user.roles.includes(role)) {
