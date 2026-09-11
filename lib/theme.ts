@@ -28,6 +28,8 @@ export const tokens = {
   pillBorder: '#EFEFEF',
   /** Body copy color for the workspace lead-summary paragraph. */
   bodyText: '#656565',
+  /** Figma "Light Grey" — Qualification Snapshot heading rule. */
+  lightGrey: '#DCDCDC',
   /** Pill fills from Figma — all lighter than a 10% alpha of their text colour. */
   badge: {
     waiting: '#FCFBF2',

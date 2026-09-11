@@ -9,6 +9,7 @@ import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import { Pagination } from '@/components/ui/Pagination'
 import type { TodaysDispositionRow } from '@/lib/closer'
+import { tokens } from '@/lib/theme'
 
 const PAGE_SIZE = 5
 
@@ -22,7 +23,7 @@ export function TodaysDispositionTable({ rows }: { rows: TodaysDispositionRow[] 
 
   return (
     <div className="rounded-xl border-hairline border-slate bg-white p-6">
-      <h2 className="mb-5 border-b-hairline border-slate pb-4 text-lg font-medium leading-[120%] text-ink">
+      <h2 className="mb-5 border-b-hairline border-light-grey pb-4 text-lg font-medium leading-[120%] text-ink">
         Today&apos;s Disposition
       </h2>
 
@@ -32,7 +33,13 @@ export function TodaysDispositionTable({ rows }: { rows: TodaysDispositionRow[] 
         <>
           <Table
             aria-label="Today's dispositions"
-            sx={{ '& tbody td': { paddingTop: '16px', paddingBottom: '16px' } }}
+            sx={{
+              '& tbody td': {
+                paddingTop: '16px',
+                paddingBottom: '16px',
+                color: tokens.black,
+              },
+            }}
           >
             <TableHead>
               <TableRow>
@@ -47,12 +54,12 @@ export function TodaysDispositionTable({ rows }: { rows: TodaysDispositionRow[] 
                   <TableCell>
                     <Link
                       href={`/closer/workspace/${row.interaction_id}`}
-                      className="font-medium text-navy underline hover:text-ink"
+                      className="font-medium text-navy underline hover:text-black"
                     >
                       {row.from_name}
                     </Link>
                   </TableCell>
-                  <TableCell className="font-mono text-sm text-ink">[uuid]</TableCell>
+                  <TableCell className="font-mono text-sm text-black">[uuid]</TableCell>
                   <TableCell>{row.accepted_at}</TableCell>
                 </TableRow>
               ))}

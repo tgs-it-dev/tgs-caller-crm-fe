@@ -13,7 +13,7 @@ export function CloserDispositionCard({
 }) {
   return (
     <div className="flex h-full flex-col rounded-xl border-hairline border-slate bg-white p-6">
-      <h2 className="border-b border-slate/20 pb-4 text-lg font-medium leading-[120%] text-ink">
+      <h2 className="border-b-hairline border-light-grey pb-4 text-lg font-medium leading-[120%] text-ink">
         Closer Disposition
       </h2>
       <p className="mt-4 flex-1 text-base leading-[150%] text-body-text">
