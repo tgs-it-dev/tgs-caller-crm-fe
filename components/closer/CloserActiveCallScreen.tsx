@@ -102,7 +102,7 @@ function CloserActiveCallContent({ interactionId }: { interactionId: string }) {
     <PageShell
       title="Active Call"
       actions={
-        <Badge tone="done" dot>
+        <Badge tone="accepted" dot>
           {statusText}
         </Badge>
       }
