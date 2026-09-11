@@ -1,24 +1,12 @@
-export type Role = 'fronter' | 'closer' | 'administrator'
+import type { components } from '@/lib/generated/schema'
 
-export type LoginRequest = {
-  email: string
-  password: string
-}
+/** Role literals from the frozen OpenAPI `UserResponse.roles` enum. */
+export type Role = components['schemas']['UserResponse']['roles'][number]
 
-export type TokenResponse = {
-  access_token: string
-  token_type: 'bearer'
-  expires_in_min: number
-}
-
-export type CurrentUser = {
-  id: string
-  email: string
-  name: string
-  active: boolean
-  roles: Role[]
-  created_at: string
-}
+export type LoginRequest = components['schemas']['LoginRequest']
+export type TokenResponse = components['schemas']['TokenResponse']
+/** `/auth/me` payload — same shape as OpenAPI `UserResponse`. */
+export type CurrentUser = components['schemas']['UserResponse']
 
 export class AuthError extends Error {
   status: number
@@ -62,7 +50,7 @@ export async function login(payload: LoginRequest): Promise<TokenResponse> {
     throw new AuthError(await parseErrorMessage(res), res.status)
   }
 
-  return res.json()
+  return res.json() as Promise<TokenResponse>
 }
 
 export async function getCurrentUser(token: string): Promise<CurrentUser> {
@@ -74,7 +62,7 @@ export async function getCurrentUser(token: string): Promise<CurrentUser> {
     throw new AuthError(await parseErrorMessage(res), res.status)
   }
 
-  return res.json()
+  return res.json() as Promise<CurrentUser>
 }
 
 // The backend may grant more than one role; the primary role decides
