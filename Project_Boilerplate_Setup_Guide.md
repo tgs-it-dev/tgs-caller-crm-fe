@@ -1,6 +1,6 @@
 # Project Bootstrap Guide
 **Auto Warranty Call Center CRM — Frontend-only Boilerplate**
-> NOTE: This repository is configured as frontend-only. Backend code and the `packages/api-client` package were removed/moved: the vendored API types now live under `apps/web/src/schema.d.ts` for local frontend development.
+> NOTE: This repository is configured as frontend-only. Backend code and the `packages/api-client` package were removed/moved: generated API types live under `lib/generated/schema.d.ts` (regenerate with `npm run gen:api-client` from the sibling backend OpenAPI).
 *Follow this top to bottom on day 1. Owners are called out per step (BE-A / BE-B / FE) matching the Week 1 task breakdown — this document is what "Week 1, Days 1–2" actually means in commands.*
 
 ---
@@ -347,32 +347,22 @@ apps/web/app/
 
 **Owner: BE-B drafts the FastAPI route/schema shapes, BE-A reviews, FE consumes via the generated client.**
 
-FastAPI generates an OpenAPI schema automatically from the Pydantic schemas and route signatures in `apps/api/src/schemas/` and `routers/`. Once the router stubs and Pydantic response models exist for the core endpoints (auth, leads, qualification, transfers, dashboard live-status), generate a typed TS client into `packages/api-client`:
+FastAPI generates an OpenAPI schema automatically from the Pydantic schemas and route signatures. Once the router stubs and Pydantic response models exist for the core endpoints (auth, leads, qualification, transfers, dashboard live-status), generate TypeScript types into this frontend repo (separate from the backend — no monorepo `packages/api-client` required):
 
 ```bash
-# run this from repo root, backend must be running locally
-cd packages/api-client
-pnpm init
-pnpm add -D openapi-typescript
-pnpm dlx openapi-typescript http://localhost:4000/openapi.json -o ./src/schema.d.ts
+# from tgs-caller-crm-fe, with tgs-caller-crm-be as a sibling folder
+npm run gen:api-client
+# → openapi-typescript ../tgs-caller-crm-be/openapi/openapi.json -o ./lib/generated/schema.d.ts
 ```
 
-`apps/web` imports generated types from `packages/api-client` and calls the API with a thin typed `fetch` wrapper (or `openapi-fetch`, which pairs directly with `openapi-typescript`'s output):
-
-```bash
-cd apps/web
-pnpm add openapi-fetch
-```
+Import generated types with a thin typed `fetch` wrapper (or `openapi-fetch`):
 
 ```typescript
-// apps/web/lib/api.ts
-import createClient from "openapi-fetch";
-import type { paths } from "./src/schema";
-
-export const api = createClient<paths>({ baseUrl: process.env.NEXT_PUBLIC_API_URL });
+// lib/api.tsx
+import type { paths } from "@/lib/generated/schema";
 ```
 
-**Regenerate the client any time backend schemas change** — add this as a `pnpm` script (`gen:api-client`) so it's a one-command refresh, not a manual chore someone forgets. This is the Python-backend equivalent of "freezing the contract Friday": freeze the Pydantic schemas and route shapes for the core endpoints, generate once, and FE builds real UI against real types with mocked responses — no churn, no waiting on real backend logic.
+**Regenerate the client any time backend schemas change** — `npm run gen:api-client` / `pnpm gen:api-client` is the one-command refresh so it is not a manual chore someone forgets. This is the Python-backend equivalent of "freezing the contract Friday": freeze the Pydantic schemas and route shapes for the core endpoints, generate once, and FE builds real UI against real types with mocked responses — no churn, no waiting on real backend logic.
 
 ---
 

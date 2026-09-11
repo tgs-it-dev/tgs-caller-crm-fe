@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ComponentType } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import { PhoneIcon } from '@/components/icons/PhoneIcon'
+import type { Role } from '@/lib/auth'
 import { readToken } from '@/lib/auth'
 import { listInteractions } from '@/lib/interactions'
 import { waitForMocking } from '@/lib/mockReady'
@@ -77,7 +78,23 @@ function MenuIcon() {
   )
 }
 
-export function Sidebar() {
+type DeskRole = Extract<Role, 'fronter' | 'closer'>
+
+type NavMatch = 'workspace' | 'queue' | 'stats'
+
+type NavItem = {
+  href: string
+  label: string
+  icon: ComponentType
+  match: NavMatch
+}
+
+const ROLE_LABEL: Record<DeskRole, string> = {
+  fronter: 'CRM — Fronter',
+  closer: 'CRM — Closer',
+}
+
+export function Sidebar({ role = 'fronter' }: { role?: DeskRole }) {
   const pathname = usePathname()
   const router = useRouter()
   const { user, signOut } = useCurrentUser()
@@ -85,14 +102,23 @@ export function Sidebar() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [fallbackActiveId, setFallbackActiveId] = useState<string | null>(null)
 
+  const basePath = role === 'closer' ? '/closer' : '/fronter'
+  const workspacePathPrefix = `${basePath}/workspace`
+
   const workspaceIdFromPath = useMemo(() => {
-    const match = pathname.match(/^\/fronter\/workspace\/([^/]+)/)
+    const match = pathname.match(new RegExp(`^${workspacePathPrefix}/([^/]+)`))
     return match?.[1] ?? null
-  }, [pathname])
+  }, [pathname, workspacePathPrefix])
 
   useEffect(() => {
     if (workspaceIdFromPath) {
       setFallbackActiveId(workspaceIdFromPath)
+      return
+    }
+
+    // Closer's Active Call lands on /closer itself; fronter resolves a live interaction.
+    if (role === 'closer') {
+      setFallbackActiveId(null)
       return
     }
 
@@ -112,7 +138,7 @@ export function Sidebar() {
     return () => {
       cancelled = true
     }
-  }, [workspaceIdFromPath])
+  }, [workspaceIdFromPath, role])
 
   useEffect(() => {
     setMobileOpen(false)
@@ -123,16 +149,26 @@ export function Sidebar() {
     router.push('/login')
   }
 
-  const activeCallHref = workspaceIdFromPath
-    ? `/fronter/workspace/${workspaceIdFromPath}`
-    : fallbackActiveId
-      ? `/fronter/workspace/${fallbackActiveId}`
-      : '/fronter'
+  const activeCallHref =
+    role === 'closer'
+      ? workspaceIdFromPath
+        ? `${workspacePathPrefix}/${workspaceIdFromPath}`
+        : basePath
+      : workspaceIdFromPath
+        ? `${workspacePathPrefix}/${workspaceIdFromPath}`
+        : fallbackActiveId
+          ? `${workspacePathPrefix}/${fallbackActiveId}`
+          : basePath
 
-  const navItems = [
-    { href: activeCallHref, label: 'Active Call', icon: PhoneIcon, match: 'workspace' as const },
-    { href: '/fronter', label: 'Queue', icon: QueueIcon, match: 'queue' as const },
-    { href: '/fronter/stats', label: 'My Stats', icon: StatsIcon, match: 'stats' as const },
+  const navItems: NavItem[] = [
+    { href: activeCallHref, label: 'Active Call', icon: PhoneIcon, match: 'workspace' },
+    {
+      href: role === 'closer' ? `${basePath}/queue` : basePath,
+      label: 'Queue',
+      icon: QueueIcon,
+      match: 'queue',
+    },
+    { href: `${basePath}/stats`, label: 'My Stats', icon: StatsIcon, match: 'stats' },
   ]
 
   return (
@@ -183,7 +219,7 @@ export function Sidebar() {
           {!collapsed && (
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-ink">{user?.name ?? '[NAME]'}</p>
-              <p className="truncate text-xs text-slate">CRM — Fronter</p>
+              <p className="truncate text-xs text-slate">{ROLE_LABEL[role]}</p>
             </div>
           )}
         </div>
@@ -192,9 +228,13 @@ export function Sidebar() {
           {navItems.map(({ href, label, icon: Icon, match }) => {
             const active =
               match === 'queue'
-                ? pathname === '/fronter'
+                ? role === 'closer'
+                  ? pathname === `${basePath}/queue`
+                  : pathname === basePath
                 : match === 'workspace'
-                  ? pathname.startsWith('/fronter/workspace')
+                  ? role === 'closer'
+                    ? pathname === basePath || pathname.startsWith(workspacePathPrefix)
+                    : pathname.startsWith(workspacePathPrefix)
                   : pathname.startsWith(href)
             return (
               <Link
