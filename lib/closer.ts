@@ -4,6 +4,10 @@ export type QualificationResponse = components['schemas']['QualificationResponse
 export type TransferResponse = components['schemas']['TransferResponse']
 export type TransferDecisionRequest = components['schemas']['TransferDecisionRequest']
 export type ConsentDnc = components['schemas']['ConsentDnc']
+export type DispositionResponse = components['schemas']['DispositionResponse']
+export type DispositionCaptureRequest = components['schemas']['DispositionCaptureRequest']
+export type InteractionDispositionResponse =
+  components['schemas']['InteractionDispositionResponse']
 
 /**
  * Closer-facing read model for the Qualification Snapshot card.
@@ -20,16 +24,19 @@ export type CloserQualificationSnapshot = {
   notes: string
 }
 
-/** Row for Today's Disposition — composes TransferResponse + display fields. */
+/** Row for Today's Disposition — accepted transfers on the closer desk. */
 export type TodaysDispositionRow = {
   transfer_id: TransferResponse['id']
   interaction_id: TransferResponse['interaction_id']
   status: TransferResponse['status']
   from_name: string
   accepted_at: string
+  /** Latest closer-stage disposition label when one has been captured. */
+  disposition_label: string | null
 }
 
 const DEFAULT_INTERACTION_ID = 'int-1001'
+export const CLOSER_DEFAULT_TRANSFER_ID = `transfer-for-${DEFAULT_INTERACTION_ID}`
 
 /** Seeded snapshot matching the Figma Closer Active Call frame. */
 export const MOCK_CLOSER_SNAPSHOT: CloserQualificationSnapshot = {
@@ -50,18 +57,23 @@ function formatAcceptedClock(iso: string) {
 }
 
 /** Today's accepted transfers for the closer desk (mock until a list endpoint ships). */
-export function listTodaysDispositions(): TodaysDispositionRow[] {
+export function listTodaysDispositions(
+  dispositionByInteraction: Record<string, string | null> = {}
+): TodaysDispositionRow[] {
   const base = new Date()
   base.setHours(14, 22, 7, 0)
 
   return Array.from({ length: 48 }, (_, i) => {
     const accepted = new Date(base.getTime() + i * 60_000)
+    const interaction_id =
+      i === 0 ? DEFAULT_INTERACTION_ID : `int-today-${String(i + 1).padStart(4, '0')}`
     return {
       transfer_id: `transfer-today-${i + 1}`,
-      interaction_id: i === 0 ? DEFAULT_INTERACTION_ID : `int-today-${String(i + 1).padStart(4, '0')}`,
+      interaction_id,
       status: 'accepted' as const,
       from_name: i % 2 === 0 ? 'Jane D.' : 'Alex R.',
       accepted_at: formatAcceptedClock(accepted.toISOString()),
+      disposition_label: dispositionByInteraction[interaction_id] ?? null,
     }
   })
 }
@@ -91,9 +103,33 @@ export function snapshotFromQualification(
   return { vehicle, mileage, state, warranty_status: warranty, consent_label, notes }
 }
 
+/** Latest closer-stage capture for an interaction, if any. */
+export function latestCloserDisposition(
+  items: InteractionDispositionResponse[]
+): InteractionDispositionResponse | null {
+  const closer = items.filter((item) => item.stage === 'closer')
+  if (closer.length === 0) return null
+  return closer.reduce((best, item) => (item.version > best.version ? item : best))
+}
+
 function apiUrl(path: string) {
   const base = process.env.NEXT_PUBLIC_API_URL || ''
   return `${base}${path}`
+}
+
+async function authJson<T>(path: string, token: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(apiUrl(path), {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+      ...init?.headers,
+    },
+  })
+  if (!res.ok) {
+    throw new Error(`Request failed (${res.status}) for ${path}`)
+  }
+  return res.json() as Promise<T>
 }
 
 export async function getLatestQualification(
@@ -106,6 +142,56 @@ export async function getLatestQualification(
   if (res.status === 404) return null
   if (!res.ok) throw new Error('Unable to load the qualification snapshot.')
   return res.json() as Promise<QualificationResponse>
+}
+
+export async function getTransfer(
+  transferId: string,
+  token: string
+): Promise<TransferResponse | null> {
+  const res = await fetch(apiUrl(`/transfers/${transferId}`), {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (res.status === 404) return null
+  if (!res.ok) throw new Error('Unable to load the transfer.')
+  return res.json() as Promise<TransferResponse>
+}
+
+export async function listCloserDispositionOptions(
+  token: string
+): Promise<DispositionResponse[]> {
+  const data = await authJson<{ items: DispositionResponse[] }>(
+    '/dispositions?stage=closer',
+    token
+  )
+  return data.items
+}
+
+export async function listInteractionDispositions(
+  interactionId: string,
+  token: string
+): Promise<InteractionDispositionResponse[]> {
+  const data = await authJson<{ items: InteractionDispositionResponse[] }>(
+    `/interactions/${interactionId}/dispositions`,
+    token
+  )
+  return data.items
+}
+
+export async function createCloserDisposition(
+  interactionId: string,
+  payload: DispositionCaptureRequest,
+  token: string
+): Promise<InteractionDispositionResponse> {
+  const res = await fetch(apiUrl(`/interactions/${interactionId}/dispositions`), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error('Unable to save the disposition.')
+  return res.json() as Promise<InteractionDispositionResponse>
 }
 
 export async function acceptTransfer(

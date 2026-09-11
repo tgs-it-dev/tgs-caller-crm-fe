@@ -132,13 +132,42 @@ const MOCK_TRANSFERS = new Map<string, TransferResponse>()
   MOCK_TRANSFERS.set('transfer-for-int-1001', {
     id: 'transfer-for-int-1001',
     interaction_id: 'int-1001',
-    status: 'offered',
+    // Screen 6 opens on an already-accepted transfer.
+    status: 'accepted',
     fronter_user_id: '1',
-    closer_user_id: null,
+    closer_user_id: '2',
     created_at: now,
     updated_at: now,
   })
 })()
+
+type MockDisposition = {
+  id: string
+  label: string
+  stage: 'fronter' | 'closer'
+}
+
+type MockInteractionDisposition = {
+  id: string
+  interaction_id: string
+  disposition_id: string
+  label: string
+  stage: 'fronter' | 'closer'
+  actor_user_id: string
+  version: number
+  created_at: string
+}
+
+const MOCK_DISPOSITION_CATALOG: MockDisposition[] = [
+  { id: 'disp-closer-sale', label: 'Sale completed', stage: 'closer' },
+  { id: 'disp-closer-callback', label: 'Callback requested', stage: 'closer' },
+  { id: 'disp-closer-not-interested', label: 'Not interested', stage: 'closer' },
+  { id: 'disp-closer-dnc', label: 'Do not call', stage: 'closer' },
+  { id: 'disp-fronter-qualified', label: 'Qualified — ready to transfer', stage: 'fronter' },
+]
+
+const MOCK_INTERACTION_DISPOSITIONS = new Map<string, MockInteractionDisposition[]>()
+let interactionDispositionSeq = 0
 
 export const handlers = [
   rest.get('http://localhost:4000/health', (req, res, ctx) => {
@@ -292,5 +321,63 @@ export const handlers = [
     MOCK_TRANSFERS.set(transferId, transfer)
 
     return res(ctx.status(200), ctx.json(transfer))
+  }),
+
+  rest.get('/transfers/:transferId', (req, res, ctx) => {
+    const transfer = MOCK_TRANSFERS.get(req.params.transferId as string)
+    if (!transfer) {
+      return res(ctx.status(404), ctx.json({ detail: 'Transfer not found.' }))
+    }
+    return res(ctx.status(200), ctx.json(transfer))
+  }),
+
+  rest.get('/dispositions', (req, res, ctx) => {
+    const stage = req.url.searchParams.get('stage')
+    const items =
+      stage === 'fronter' || stage === 'closer'
+        ? MOCK_DISPOSITION_CATALOG.filter((d) => d.stage === stage)
+        : MOCK_DISPOSITION_CATALOG
+    return res(ctx.status(200), ctx.json({ items }))
+  }),
+
+  rest.get('/interactions/:interactionId/dispositions', (req, res, ctx) => {
+    const interactionId = req.params.interactionId as string
+    const items = MOCK_INTERACTION_DISPOSITIONS.get(interactionId) ?? []
+    return res(ctx.status(200), ctx.json({ items }))
+  }),
+
+  rest.post('/interactions/:interactionId/dispositions', async (req, res, ctx) => {
+    const authHeader = req.headers.get('authorization') || ''
+    const token = authHeader.replace(/^Bearer\s+/i, '')
+    const actor = MOCK_TOKENS.get(token)
+    if (!actor) {
+      return res(ctx.status(401), ctx.json({ detail: 'Not authenticated.' }))
+    }
+
+    const interactionId = req.params.interactionId as string
+    const body = (await req.json()) as { disposition_id: string }
+    const catalog = MOCK_DISPOSITION_CATALOG.find((d) => d.id === body.disposition_id)
+    if (!catalog) {
+      return res(ctx.status(422), ctx.json({ detail: 'Unknown disposition.' }))
+    }
+
+    const existing = MOCK_INTERACTION_DISPOSITIONS.get(interactionId) ?? []
+    const stageVersions = existing.filter((d) => d.stage === catalog.stage)
+    const version = (stageVersions.at(-1)?.version ?? 0) + 1
+    const now = new Date().toISOString()
+
+    const record: MockInteractionDisposition = {
+      id: `int-disp-${++interactionDispositionSeq}`,
+      interaction_id: interactionId,
+      disposition_id: catalog.id,
+      label: catalog.label,
+      stage: catalog.stage,
+      actor_user_id: actor.id,
+      version,
+      created_at: now,
+    }
+    MOCK_INTERACTION_DISPOSITIONS.set(interactionId, [...existing, record])
+
+    return res(ctx.status(201), ctx.json(record))
   }),
 ]

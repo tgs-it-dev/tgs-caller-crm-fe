@@ -58,8 +58,13 @@ export function TodaysDispositionTable({ rows }: { rows: TodaysDispositionRow[] 
                     >
                       {row.from_name}
                     </Link>
+                    {row.disposition_label && (
+                      <p className="mt-1 text-xs leading-[150%] text-body-text">
+                        {row.disposition_label}
+                      </p>
+                    )}
                   </TableCell>
-                  <TableCell className="font-mono text-sm text-black">[uuid]</TableCell>
+                  <TableCell className="font-mono text-sm text-black">{row.interaction_id}</TableCell>
                   <TableCell>{row.accepted_at}</TableCell>
                 </TableRow>
               ))}
