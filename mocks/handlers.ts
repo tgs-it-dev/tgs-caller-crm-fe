@@ -91,6 +91,55 @@ const MOCK_QUALIFICATIONS = new Map<string, QualificationResponse>()
 let qualificationSeq = 0
 let transferSeq = 0
 
+const MOCK_TRANSFERS = new Map<string, TransferResponse>()
+
+// Seed the closer Active Call snapshot so /closer loads Figma-matching data
+// without requiring a fronter save first.
+;(() => {
+  const now = new Date().toISOString()
+  MOCK_QUALIFICATIONS.set('int-1001', {
+    id: 'qual-seed-1001',
+    interaction_id: 'int-1001',
+    version: 1,
+    // Closer snapshot fields live alongside the fronter checklist until BE
+    // freezes a dedicated closer read DTO.
+    snapshot_json: {
+      checklist: {
+        identityVerified: true,
+        vehicleDetailsConfirmed: true,
+        warrantyNeedConfirmed: true,
+        budgetDiscussed: true,
+        decisionMakerConfirmed: true,
+      },
+      disposition: 'qualified',
+      notes: 'Customer mentioned transmission noise',
+      override: { applied: false, reason: '' },
+      vehicle: '2019 Toyota Camry',
+      mileage: '62,400',
+      state: 'TX',
+      warranty_status: 'Expired',
+    } as QualificationResponse['snapshot_json'],
+    consent_dnc: {
+      consent_given: true,
+      consent_captured_at: now,
+      dnc_flagged: false,
+      dnc_source: null,
+    },
+    created_at: now,
+    updated_at: now,
+  })
+
+  MOCK_TRANSFERS.set('transfer-for-int-1001', {
+    id: 'transfer-for-int-1001',
+    interaction_id: 'int-1001',
+    status: 'offered',
+    fronter_user_id: '1',
+    closer_user_id: null,
+    created_at: now,
+    updated_at: now,
+  })
+})()
+
 export const handlers = [
   rest.get('http://localhost:4000/health', (req, res, ctx) => {
     return res(ctx.status(200), ctx.json({ status: 'ok' }))
@@ -200,7 +249,48 @@ export const handlers = [
       created_at: now,
       updated_at: now,
     }
+    MOCK_TRANSFERS.set(transfer.id, transfer)
 
     return res(ctx.status(201), ctx.json(transfer))
+  }),
+
+  rest.post('/transfers/:transferId/accept', async (req, res, ctx) => {
+    const transferId = req.params.transferId as string
+    const body = (await req.json()) as { closer_user_id: string }
+    const existing = MOCK_TRANSFERS.get(transferId)
+    const now = new Date().toISOString()
+
+    const transfer: TransferResponse = {
+      id: transferId,
+      interaction_id: existing?.interaction_id ?? 'int-1001',
+      status: 'accepted',
+      fronter_user_id: existing?.fronter_user_id ?? '1',
+      closer_user_id: body.closer_user_id,
+      created_at: existing?.created_at ?? now,
+      updated_at: now,
+    }
+    MOCK_TRANSFERS.set(transferId, transfer)
+
+    return res(ctx.status(200), ctx.json(transfer))
+  }),
+
+  rest.post('/transfers/:transferId/reject', async (req, res, ctx) => {
+    const transferId = req.params.transferId as string
+    const body = (await req.json()) as { closer_user_id: string }
+    const existing = MOCK_TRANSFERS.get(transferId)
+    const now = new Date().toISOString()
+
+    const transfer: TransferResponse = {
+      id: transferId,
+      interaction_id: existing?.interaction_id ?? 'int-1001',
+      status: 'rejected',
+      fronter_user_id: existing?.fronter_user_id ?? '1',
+      closer_user_id: body.closer_user_id,
+      created_at: existing?.created_at ?? now,
+      updated_at: now,
+    }
+    MOCK_TRANSFERS.set(transferId, transfer)
+
+    return res(ctx.status(200), ctx.json(transfer))
   }),
 ]
