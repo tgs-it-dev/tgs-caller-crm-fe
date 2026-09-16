@@ -140,6 +140,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/events/inbound": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stored events, as they arrived
+         * @description What the dialer actually sent, independent of what we concluded from it.
+         *
+         *     Administrator only: raw payloads carry whatever the dialer put in them, and
+         *     nothing here is scoped to one agent's work.
+         */
+        get: operations["list_inbound_events_events_inbound_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/events/vicidial": {
         parameters: {
             query?: never;
@@ -214,6 +237,26 @@ export interface paths {
         };
         /** Scaffold placeholder — replace in week 5 */
         get: operations["stub_integrations_ghl__stub_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/interactions/{interaction_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fetch interaction detail, including its consent/DNC record
+         * @description Surfaces the latest qualification's consent/DNC value for audit review.
+         */
+        get: operations["get_detail_interactions__interaction_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -363,15 +406,69 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/reconciliation/_stub": {
+    "/reconciliation/exceptions": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Scaffold placeholder — replace in week 4 */
-        get: operations["stub_reconciliation__stub_get"];
+        /**
+         * List unreconciled interaction mismatches
+         * @description Queryable admin exception view — one row per (interaction, reason).
+         */
+        get: operations["list_exceptions_reconciliation_exceptions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reporting/funnel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Funnel counts for a range of business days
+         * @description Counts for interactions created in the window, narrowing at each stage.
+         *
+         *     Both dates are inclusive days, so one day is start == end. Each number has a
+         *     matching drill-down at /reporting/funnel/{stage}.
+         *
+         *     Administrator only: these are company-wide figures. An agent's own numbers
+         *     are a different report, and one the schema cannot produce yet — interactions,
+         *     call legs and qualifications record no user.
+         */
+        get: operations["funnel_reporting_funnel_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reporting/funnel/{stage}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The interactions behind one funnel number
+         * @description The records the number is made of, newest first.
+         *
+         *     `total` is produced by the same select the aggregate counts, so it always
+         *     equals the figure this stage reports — pass the same window and timezone the
+         *     aggregate was read with.
+         */
+        get: operations["funnel_drilldown_reporting_funnel__stage__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -576,6 +673,43 @@ export interface components {
             /** Transfers Initiated */
             transfers_initiated: number;
         };
+        /**
+         * FunnelInteraction
+         * @description One row behind a funnel number.
+         *
+         *     Deliberately thin. InteractionDetailResponse nests a qualification, which is
+         *     right for one interaction and wasteful repeated down a page of them.
+         */
+        FunnelInteraction: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
+        };
+        /** FunnelInteractionListResponse */
+        FunnelInteractionListResponse: {
+            /** Items */
+            items: components["schemas"]["FunnelInteraction"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Timezone */
+            timezone: string;
+            /** Total */
+            total: number;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -585,6 +719,104 @@ export interface components {
         HealthResponse: {
             /** Status */
             status: string;
+        };
+        /**
+         * HistoricalFunnel
+         * @description Counts for one window, narrowing at each stage.
+         *
+         *     Not FunnelCounts: that is the live dashboard's snapshot of today, has no
+         *     connects, and carries a sales figure this endpoint cannot yet produce.
+         */
+        HistoricalFunnel: {
+            /** Attempts */
+            attempts: number;
+            /** Connects */
+            connects: number;
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /** Qualified */
+            qualified: number;
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /** Timezone */
+            timezone: string;
+            /** Transfer Attempts */
+            transfer_attempts: number;
+        };
+        /** InboundEventListResponse */
+        InboundEventListResponse: {
+            /** Items */
+            items: components["schemas"]["InboundEventResponse"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * InboundEventResponse
+         * @description A stored event exactly as it arrived, plus what became of it.
+         *
+         *     Raw and derived stay separate — this reads the payload we were sent, not the
+         *     interaction we concluded from it, which is what makes reconciliation
+         *     possible at all.
+         */
+        InboundEventResponse: {
+            /** Error */
+            error: string | null;
+            /** Event Id */
+            event_id: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+            /** Processed At */
+            processed_at: string | null;
+            /**
+             * Received At
+             * Format: date-time
+             */
+            received_at: string;
+            /** Skipped Reason */
+            skipped_reason: string | null;
+            /** Source */
+            source: string;
+        };
+        /** InteractionDetailResponse */
+        InteractionDetailResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
+            qualification: components["schemas"]["InteractionQualificationSummary"] | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** InteractionDispositionListResponse */
         InteractionDispositionListResponse: {
@@ -625,6 +857,20 @@ export interface components {
              * @enum {string}
              */
             stage: "fronter" | "closer";
+            /** Version */
+            version: number;
+        };
+        /**
+         * InteractionQualificationSummary
+         * @description Just enough of a qualification to audit consent — not the full snapshot.
+         */
+        InteractionQualificationSummary: {
+            consent_dnc: components["schemas"]["ConsentDnc"];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
             /** Version */
             version: number;
         };
@@ -740,11 +986,6 @@ export interface components {
             snapshot_json: {
                 [key: string]: unknown;
             };
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
             /** Version */
             version: number;
         };
@@ -756,6 +997,44 @@ export interface components {
             };
             /** Status */
             status: string;
+        };
+        /** ReconciliationExceptionItem */
+        ReconciliationExceptionItem: {
+            /** Details */
+            details: {
+                [key: string]: unknown;
+            };
+            /**
+             * Detected At
+             * Format: date-time
+             */
+            detected_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Interaction Id
+             * Format: uuid
+             */
+            interaction_id: string;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "multi_leg_without_transfer" | "late_event_after_finalization";
+        };
+        /** ReconciliationExceptionListResponse */
+        ReconciliationExceptionListResponse: {
+            /** Items */
+            items: components["schemas"]["ReconciliationExceptionItem"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
         };
         /** RefreshRequest */
         RefreshRequest: {
@@ -844,7 +1123,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "initiated" | "offered" | "accepted" | "rejected" | "timeout";
+            status: "initiated" | "offered" | "accepted" | "rejected" | "timeout" | "failed";
             /**
              * Updated At
              * Format: date-time
@@ -1205,6 +1484,43 @@ export interface operations {
             };
         };
     };
+    list_inbound_events_events_inbound_get: {
+        parameters: {
+            query?: {
+                source?: string | null;
+                /** @description Only events not yet handled */
+                unprocessed?: boolean;
+                /** @description Only events whose handling errored */
+                failed?: boolean;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboundEventListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     receive_vicidial_event_events_vicidial_post: {
         parameters: {
             query?: {
@@ -1297,6 +1613,37 @@ export interface operations {
                     "application/json": {
                         [key: string]: string;
                     };
+                };
+            };
+        };
+    };
+    get_detail_interactions__interaction_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InteractionDetailResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1548,9 +1895,12 @@ export interface operations {
             };
         };
     };
-    stub_reconciliation__stub_get: {
+    list_exceptions_reconciliation_exceptions_get: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1563,9 +1913,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["ReconciliationExceptionListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    funnel_reporting_funnel_get: {
+        parameters: {
+            query: {
+                start: string;
+                end: string;
+                /** @description IANA name deciding which day the dates mean, e.g. America/New_York. Defaults to the configured business day, so figures stay comparable between people unless someone deliberately asks for another region's. */
+                timezone?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoricalFunnel"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    funnel_drilldown_reporting_funnel__stage__get: {
+        parameters: {
+            query: {
+                start: string;
+                end: string;
+                /** @description IANA name deciding which day the dates mean, e.g. America/New_York. Defaults to the configured business day, so figures stay comparable between people unless someone deliberately asks for another region's. */
+                timezone?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                stage: "attempts" | "connects" | "qualified" | "transfer_attempts";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FunnelInteractionListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
