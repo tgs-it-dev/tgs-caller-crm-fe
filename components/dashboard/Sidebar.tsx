@@ -149,16 +149,13 @@ export function Sidebar({ role = 'fronter' }: { role?: DeskRole }) {
     router.push('/login')
   }
 
-  const activeCallHref =
-    role === 'closer'
-      ? workspaceIdFromPath
-        ? `${workspacePathPrefix}/${workspaceIdFromPath}`
-        : basePath
-      : workspaceIdFromPath
-        ? `${workspacePathPrefix}/${workspaceIdFromPath}`
-        : fallbackActiveId
-          ? `${workspacePathPrefix}/${fallbackActiveId}`
-          : basePath
+  // Closers keep fallbackActiveId null (Active Call = /closer); fronters may
+  // resolve a live interaction. Same href formula for both roles.
+  const activeCallHref = workspaceIdFromPath
+    ? `${workspacePathPrefix}/${workspaceIdFromPath}`
+    : fallbackActiveId
+      ? `${workspacePathPrefix}/${fallbackActiveId}`
+      : basePath
 
   const navItems: NavItem[] = [
     { href: activeCallHref, label: 'Active Call', icon: PhoneIcon, match: 'workspace' },
