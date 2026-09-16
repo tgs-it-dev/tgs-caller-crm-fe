@@ -1,5 +1,6 @@
 import { rest } from 'msw'
 import type { Role } from '../lib/auth'
+import { CLOSER_DESK_SEEDS } from '../lib/closer'
 import type { InteractionDetail } from '../lib/interactions'
 import type { QueueEntry } from '../lib/queue'
 import type { QualificationCreateRequest, QualificationResponse } from '../lib/qualification'
@@ -50,6 +51,28 @@ const MOCK_INTERACTIONS: Record<string, InteractionDetail> = {
       created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 12).toISOString(),
     },
   },
+  'int-1102': {
+    id: 'int-1102',
+    status: 'active',
+    started_at: new Date(Date.now() - 6 * 60 * 1000).toISOString(),
+    lead: {
+      id: 'lead-1102',
+      phone_normalized: '+13105550188',
+      source: 'vicidial',
+      created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5).toISOString(),
+    },
+  },
+  'int-1103': {
+    id: 'int-1103',
+    status: 'active',
+    started_at: new Date(Date.now() - 12 * 60 * 1000).toISOString(),
+    lead: {
+      id: 'lead-1103',
+      phone_normalized: '+18135550177',
+      source: 'ghl',
+      created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 8).toISOString(),
+    },
+  },
 }
 
 // Seed for the fronter Queue screen. Deterministic rather than randomised so
@@ -93,52 +116,54 @@ let transferSeq = 0
 
 const MOCK_TRANSFERS = new Map<string, TransferResponse>()
 
-// Seed the closer Active Call snapshot so /closer loads Figma-matching data
-// without requiring a fronter save first.
+// Seed Today's Disposition rows so each closer workspace link has a matching
+// qualification + already-accepted transfer. Keep in sync with CLOSER_DESK_SEEDS.
 ;(() => {
   const now = new Date().toISOString()
-  MOCK_QUALIFICATIONS.set('int-1001', {
-    id: 'qual-seed-1001',
-    interaction_id: 'int-1001',
-    version: 1,
-    // Closer snapshot fields live alongside the fronter checklist until BE
-    // freezes a dedicated closer read DTO.
-    snapshot_json: {
-      checklist: {
-        identityVerified: true,
-        vehicleDetailsConfirmed: true,
-        warrantyNeedConfirmed: true,
-        budgetDiscussed: true,
-        decisionMakerConfirmed: true,
+  for (const seed of CLOSER_DESK_SEEDS) {
+    MOCK_QUALIFICATIONS.set(seed.interaction_id, {
+      id: `qual-seed-${seed.interaction_id}`,
+      interaction_id: seed.interaction_id,
+      version: 1,
+      // Closer snapshot fields live alongside the fronter checklist until BE
+      // freezes a dedicated closer read DTO.
+      snapshot_json: {
+        checklist: {
+          identityVerified: true,
+          vehicleDetailsConfirmed: true,
+          warrantyNeedConfirmed: true,
+          budgetDiscussed: true,
+          decisionMakerConfirmed: true,
+        },
+        disposition: 'qualified',
+        notes: seed.snapshot.notes,
+        override: { applied: false, reason: '' },
+        vehicle: seed.snapshot.vehicle,
+        mileage: seed.snapshot.mileage,
+        state: seed.snapshot.state,
+        warranty_status: seed.snapshot.warranty_status,
+      } as QualificationResponse['snapshot_json'],
+      consent_dnc: {
+        consent_given: seed.consent_given,
+        consent_captured_at: seed.consent_given ? now : null,
+        dnc_flagged: seed.dnc_flagged,
+        dnc_source: null,
       },
-      disposition: 'qualified',
-      notes: 'Customer mentioned transmission noise',
-      override: { applied: false, reason: '' },
-      vehicle: '2019 Toyota Camry',
-      mileage: '62,400',
-      state: 'TX',
-      warranty_status: 'Expired',
-    } as QualificationResponse['snapshot_json'],
-    consent_dnc: {
-      consent_given: true,
-      consent_captured_at: now,
-      dnc_flagged: false,
-      dnc_source: null,
-    },
-    created_at: now,
-    updated_at: now,
-  })
+      created_at: now,
+      updated_at: now,
+    })
 
-  MOCK_TRANSFERS.set('transfer-for-int-1001', {
-    id: 'transfer-for-int-1001',
-    interaction_id: 'int-1001',
-    // Screen 6 opens on an already-accepted transfer.
-    status: 'accepted',
-    fronter_user_id: '1',
-    closer_user_id: '2',
-    created_at: now,
-    updated_at: now,
-  })
+    MOCK_TRANSFERS.set(seed.transfer_id, {
+      id: seed.transfer_id,
+      interaction_id: seed.interaction_id,
+      // Screen 6 opens on an already-accepted transfer.
+      status: 'accepted',
+      fronter_user_id: '1',
+      closer_user_id: '2',
+      created_at: now,
+      updated_at: now,
+    })
+  }
 })()
 
 type MockDisposition = {
@@ -283,6 +308,9 @@ export const handlers = [
     return res(ctx.status(201), ctx.json(transfer))
   }),
 
+  // Accept/reject offer UI is out of scope for FE-03 / Screen 6 (workspace
+  // assumes an already-accepted transfer). Keep these routes for a later
+  // closer-offer screen rather than inventing that UI here.
   rest.post('/transfers/:transferId/accept', async (req, res, ctx) => {
     const transferId = req.params.transferId as string
     const body = (await req.json()) as { closer_user_id: string }

@@ -12,8 +12,6 @@ import { PageShell } from '@/components/ui/PageShell'
 import { readToken } from '@/lib/auth'
 import {
   CLOSER_DEFAULT_INTERACTION_ID,
-  CLOSER_DEFAULT_TRANSFER_ID,
-  MOCK_CLOSER_SNAPSHOT,
   createCloserDisposition,
   getLatestQualification,
   getTransfer,
@@ -22,6 +20,7 @@ import {
   listInteractionDispositions,
   listTodaysDispositions,
   snapshotFromQualification,
+  transferIdForInteraction,
   type CloserQualificationSnapshot,
   type DispositionResponse,
   type TodaysDispositionRow,
@@ -53,25 +52,32 @@ export function CloserActiveCallScreen({
 
 function CloserActiveCallContent({ interactionId }: { interactionId: string }) {
   const { user } = useCurrentUser()
-  const transferId =
-    interactionId === CLOSER_DEFAULT_INTERACTION_ID
-      ? CLOSER_DEFAULT_TRANSFER_ID
-      : `transfer-for-${interactionId}`
+  const transferId = transferIdForInteraction(interactionId)
 
-  const [snapshot, setSnapshot] = useState<CloserQualificationSnapshot>(MOCK_CLOSER_SNAPSHOT)
+  const [snapshot, setSnapshot] = useState<CloserQualificationSnapshot | null>(null)
   const [options, setOptions] = useState<DispositionResponse[]>([])
   const [dispositionId, setDispositionId] = useState('')
   const [savedLabel, setSavedLabel] = useState<string | null>(null)
-  const [rows, setRows] = useState<TodaysDispositionRow[]>(() => listTodaysDispositions())
-  const [transferStatus, setTransferStatus] = useState<TransferStatusLabel>('accepted')
+  const [dispositionLabels, setDispositionLabels] = useState<Record<string, string | null>>({})
+  const [transferStatus, setTransferStatus] = useState<TransferStatusLabel | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const rows: TodaysDispositionRow[] = listTodaysDispositions(dispositionLabels)
 
   useEffect(() => {
     let cancelled = false
     const token = readToken()
     if (!token) return
+
+    setIsLoading(true)
+    setSnapshot(null)
+    setTransferStatus(null)
+    setSavedLabel(null)
+    setDispositionId('')
+    setLoadError(null)
+    setSaveError(null)
 
     waitForMocking()
       .then(async () => {
@@ -85,25 +91,33 @@ function CloserActiveCallContent({ interactionId }: { interactionId: string }) {
 
         setSnapshot(snapshotFromQualification(qualification))
         setOptions(catalog)
-
-        if (transfer) {
-          setTransferStatus(transfer.status)
-        }
+        setTransferStatus(transfer?.status ?? null)
 
         const latest = latestCloserDisposition(captured)
         setSavedLabel(latest?.label ?? null)
         if (latest) {
           setDispositionId(latest.disposition_id)
         }
+        setDispositionLabels((prev) => ({
+          ...prev,
+          [interactionId]: latest?.label ?? null,
+        }))
 
-        const labels: Record<string, string | null> = {}
-        if (latest) labels[interactionId] = latest.label
-        setRows(listTodaysDispositions(labels))
+        if (!qualification && !transfer) {
+          setLoadError('No accepted transfer or qualification snapshot found for this interaction.')
+        } else if (!transfer) {
+          setLoadError('No transfer found for this interaction.')
+        } else if (!qualification) {
+          setLoadError('No qualification snapshot found for this interaction.')
+        }
+        setIsLoading(false)
       })
       .catch(() => {
         if (cancelled) return
         setLoadError('Unable to load the accepted transfer workspace.')
-        setSnapshot(MOCK_CLOSER_SNAPSHOT)
+        setSnapshot(null)
+        setTransferStatus(null)
+        setIsLoading(false)
       })
 
     return () => {
@@ -123,10 +137,10 @@ function CloserActiveCallContent({ interactionId }: { interactionId: string }) {
       const captured = await listInteractionDispositions(interactionId, token)
       const latest = latestCloserDisposition(captured)
       setSavedLabel(latest?.label ?? null)
-
-      const labels: Record<string, string | null> = {}
-      if (latest) labels[interactionId] = latest.label
-      setRows(listTodaysDispositions(labels))
+      setDispositionLabels((prev) => ({
+        ...prev,
+        [interactionId]: latest?.label ?? null,
+      }))
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Unable to save the disposition.')
     } finally {
@@ -134,14 +148,25 @@ function CloserActiveCallContent({ interactionId }: { interactionId: string }) {
     }
   }
 
-  const statusText = STATUS_LABEL[transferStatus] ?? 'Transfer Accepted'
-  const dispositionLocked = transferStatus !== 'accepted'
+  const statusText = isLoading
+    ? 'Transfer Accepted'
+    : transferStatus
+      ? (STATUS_LABEL[transferStatus] ?? 'Transfer Accepted')
+      : 'Transfer not found'
+  const dispositionLocked = isLoading || transferStatus !== 'accepted'
+  const lockedMessage =
+    isLoading || transferStatus === 'accepted'
+      ? null
+      : 'Disposition unlocks after the transfer is accepted.'
 
   return (
     <PageShell
       title="Active Call"
       actions={
-        <Badge tone="accepted" dot>
+        <Badge
+          tone={!isLoading && transferStatus !== 'accepted' ? 'neutral' : 'accepted'}
+          dot
+        >
           {statusText}
         </Badge>
       }
@@ -154,7 +179,7 @@ function CloserActiveCallContent({ interactionId }: { interactionId: string }) {
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-12">
         <div className="flex flex-col gap-4 lg:col-span-7">
-          <QualificationSnapshot snapshot={snapshot} />
+          <QualificationSnapshot snapshot={snapshot} isLoading={isLoading} />
           <TodaysDispositionTable rows={rows} />
         </div>
         <div className="lg:col-span-5">
@@ -166,12 +191,7 @@ function CloserActiveCallContent({ interactionId }: { interactionId: string }) {
             isSaving={isSaving}
             disabled={dispositionLocked}
             savedLabel={savedLabel}
-            error={
-              saveError ??
-              (dispositionLocked
-                ? 'Disposition unlocks after the transfer is accepted.'
-                : null)
-            }
+            error={saveError ?? lockedMessage}
           />
         </div>
       </div>

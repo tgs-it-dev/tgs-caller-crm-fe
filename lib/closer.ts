@@ -2,7 +2,6 @@ import type { components } from '@/lib/generated/schema'
 
 export type QualificationResponse = components['schemas']['QualificationResponse']
 export type TransferResponse = components['schemas']['TransferResponse']
-export type TransferDecisionRequest = components['schemas']['TransferDecisionRequest']
 export type ConsentDnc = components['schemas']['ConsentDnc']
 export type DispositionResponse = components['schemas']['DispositionResponse']
 export type DispositionCaptureRequest = components['schemas']['DispositionCaptureRequest']
@@ -36,7 +35,13 @@ export type TodaysDispositionRow = {
 }
 
 const DEFAULT_INTERACTION_ID = 'int-1001'
-export const CLOSER_DEFAULT_TRANSFER_ID = `transfer-for-${DEFAULT_INTERACTION_ID}`
+
+export function transferIdForInteraction(interactionId: string) {
+  return `transfer-for-${interactionId}`
+}
+
+export const CLOSER_DEFAULT_INTERACTION_ID = DEFAULT_INTERACTION_ID
+export const CLOSER_DEFAULT_TRANSFER_ID = transferIdForInteraction(DEFAULT_INTERACTION_ID)
 
 /** Seeded snapshot matching the Figma Closer Active Call frame. */
 export const MOCK_CLOSER_SNAPSHOT: CloserQualificationSnapshot = {
@@ -47,6 +52,62 @@ export const MOCK_CLOSER_SNAPSHOT: CloserQualificationSnapshot = {
   consent_label: 'Confirmed',
   notes: 'Customer mentioned transmission noise',
 }
+
+/** Desk rows that MSW must also seed (qualification + accepted transfer). */
+export type CloserDeskSeed = {
+  interaction_id: string
+  transfer_id: string
+  from_name: string
+  /** Minutes after 14:22:07 used for the Today's Disposition clock. */
+  accepted_offset_min: number
+  snapshot: CloserQualificationSnapshot
+  consent_given: boolean
+  dnc_flagged: boolean
+}
+
+export const CLOSER_DESK_SEEDS: readonly CloserDeskSeed[] = [
+  {
+    interaction_id: DEFAULT_INTERACTION_ID,
+    transfer_id: CLOSER_DEFAULT_TRANSFER_ID,
+    from_name: 'Jane D.',
+    accepted_offset_min: 0,
+    snapshot: MOCK_CLOSER_SNAPSHOT,
+    consent_given: true,
+    dnc_flagged: false,
+  },
+  {
+    interaction_id: 'int-1102',
+    transfer_id: transferIdForInteraction('int-1102'),
+    from_name: 'Alex R.',
+    accepted_offset_min: 1,
+    snapshot: {
+      vehicle: '2021 Honda Accord',
+      mileage: '38,200',
+      state: 'CA',
+      warranty_status: 'Active',
+      consent_label: 'Confirmed',
+      notes: 'Interested in bumper-to-bumper extension',
+    },
+    consent_given: true,
+    dnc_flagged: false,
+  },
+  {
+    interaction_id: 'int-1103',
+    transfer_id: transferIdForInteraction('int-1103'),
+    from_name: 'Priya S.',
+    accepted_offset_min: 2,
+    snapshot: {
+      vehicle: '2016 Ford F-150',
+      mileage: '94,800',
+      state: 'FL',
+      warranty_status: 'Expired',
+      consent_label: 'Not confirmed',
+      notes: 'Caller asked about powertrain coverage only',
+    },
+    consent_given: false,
+    dnc_flagged: false,
+  },
+]
 
 function formatAcceptedClock(iso: string) {
   const d = new Date(iso)
@@ -63,36 +124,29 @@ export function listTodaysDispositions(
   const base = new Date()
   base.setHours(14, 22, 7, 0)
 
-  return Array.from({ length: 48 }, (_, i) => {
-    const accepted = new Date(base.getTime() + i * 60_000)
-    const interaction_id =
-      i === 0 ? DEFAULT_INTERACTION_ID : `int-today-${String(i + 1).padStart(4, '0')}`
+  return CLOSER_DESK_SEEDS.map((seed) => {
+    const accepted = new Date(base.getTime() + seed.accepted_offset_min * 60_000)
     return {
-      transfer_id: `transfer-today-${i + 1}`,
-      interaction_id,
+      transfer_id: seed.transfer_id,
+      interaction_id: seed.interaction_id,
       status: 'accepted' as const,
-      from_name: i % 2 === 0 ? 'Jane D.' : 'Alex R.',
+      from_name: seed.from_name,
       accepted_at: formatAcceptedClock(accepted.toISOString()),
-      disposition_label: dispositionByInteraction[interaction_id] ?? null,
+      disposition_label: dispositionByInteraction[seed.interaction_id] ?? null,
     }
   })
 }
 
+function snapString(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
 export function snapshotFromQualification(
   qualification: QualificationResponse | null
-): CloserQualificationSnapshot {
-  if (!qualification) return MOCK_CLOSER_SNAPSHOT
+): CloserQualificationSnapshot | null {
+  if (!qualification) return null
 
   const snap = qualification.snapshot_json
-  const vehicle = typeof snap.vehicle === 'string' ? snap.vehicle : MOCK_CLOSER_SNAPSHOT.vehicle
-  const mileage = typeof snap.mileage === 'string' ? snap.mileage : MOCK_CLOSER_SNAPSHOT.mileage
-  const state = typeof snap.state === 'string' ? snap.state : MOCK_CLOSER_SNAPSHOT.state
-  const warranty =
-    typeof snap.warranty_status === 'string'
-      ? snap.warranty_status
-      : MOCK_CLOSER_SNAPSHOT.warranty_status
-  const notes = typeof snap.notes === 'string' ? snap.notes : MOCK_CLOSER_SNAPSHOT.notes
-
   const consent = qualification.consent_dnc
   const consent_label = consent.dnc_flagged
     ? 'DNC flagged'
@@ -100,7 +154,14 @@ export function snapshotFromQualification(
       ? 'Confirmed'
       : 'Not confirmed'
 
-  return { vehicle, mileage, state, warranty_status: warranty, consent_label, notes }
+  return {
+    vehicle: snapString(snap.vehicle),
+    mileage: snapString(snap.mileage),
+    state: snapString(snap.state),
+    warranty_status: snapString(snap.warranty_status),
+    consent_label,
+    notes: snapString(snap.notes),
+  }
 }
 
 /** Latest closer-stage capture for an interaction, if any. */
@@ -117,43 +178,68 @@ function apiUrl(path: string) {
   return `${base}${path}`
 }
 
-async function authJson<T>(path: string, token: string, init?: RequestInit): Promise<T> {
+class CloserApiError extends Error {
+  readonly status: number
+
+  constructor(status: number, message: string) {
+    super(message)
+    this.name = 'CloserApiError'
+    this.status = status
+  }
+}
+
+type AuthJsonInit = RequestInit & {
+  errorMessage?: string
+}
+
+async function authJson<T>(path: string, token: string, init: AuthJsonInit = {}): Promise<T> {
+  const { errorMessage, headers, ...rest } = init
   const res = await fetch(apiUrl(path), {
-    ...init,
+    ...rest,
     headers: {
       Authorization: `Bearer ${token}`,
-      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-      ...init?.headers,
+      ...(rest.body ? { 'Content-Type': 'application/json' } : {}),
+      ...headers,
     },
   })
   if (!res.ok) {
-    throw new Error(`Request failed (${res.status}) for ${path}`)
+    throw new CloserApiError(
+      res.status,
+      errorMessage ?? `Request failed (${res.status}) for ${path}`
+    )
   }
   return res.json() as Promise<T>
+}
+
+async function authJsonOrNull<T>(
+  path: string,
+  token: string,
+  init: AuthJsonInit = {}
+): Promise<T | null> {
+  try {
+    return await authJson<T>(path, token, init)
+  } catch (err) {
+    if (err instanceof CloserApiError && err.status === 404) return null
+    throw err
+  }
 }
 
 export async function getLatestQualification(
   interactionId: string,
   token: string
 ): Promise<QualificationResponse | null> {
-  const res = await fetch(apiUrl(`/qualification/${interactionId}`), {
-    headers: { Authorization: `Bearer ${token}` },
+  return authJsonOrNull<QualificationResponse>(`/qualification/${interactionId}`, token, {
+    errorMessage: 'Unable to load the qualification snapshot.',
   })
-  if (res.status === 404) return null
-  if (!res.ok) throw new Error('Unable to load the qualification snapshot.')
-  return res.json() as Promise<QualificationResponse>
 }
 
 export async function getTransfer(
   transferId: string,
   token: string
 ): Promise<TransferResponse | null> {
-  const res = await fetch(apiUrl(`/transfers/${transferId}`), {
-    headers: { Authorization: `Bearer ${token}` },
+  return authJsonOrNull<TransferResponse>(`/transfers/${transferId}`, token, {
+    errorMessage: 'Unable to load the transfer.',
   })
-  if (res.status === 404) return null
-  if (!res.ok) throw new Error('Unable to load the transfer.')
-  return res.json() as Promise<TransferResponse>
 }
 
 export async function listCloserDispositionOptions(
@@ -182,30 +268,17 @@ export async function createCloserDisposition(
   payload: DispositionCaptureRequest,
   token: string
 ): Promise<InteractionDispositionResponse> {
-  const res = await fetch(apiUrl(`/interactions/${interactionId}/dispositions`), {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(payload),
-  })
-  if (!res.ok) throw new Error('Unable to save the disposition.')
-  return res.json() as Promise<InteractionDispositionResponse>
+  return authJson<InteractionDispositionResponse>(
+    `/interactions/${interactionId}/dispositions`,
+    token,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      errorMessage: 'Unable to save the disposition.',
+    }
+  )
 }
 
-export async function acceptTransfer(
-  transferId: string,
-  payload: TransferDecisionRequest,
-  token: string
-): Promise<TransferResponse> {
-  const res = await fetch(apiUrl(`/transfers/${transferId}/accept`), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify(payload),
-  })
-  if (!res.ok) throw new Error('Unable to accept the transfer.')
-  return res.json() as Promise<TransferResponse>
-}
-
-export const CLOSER_DEFAULT_INTERACTION_ID = DEFAULT_INTERACTION_ID
+// Accept/reject offer client helpers are out of scope for FE-03 / Screen 6
+// (workspace assumes an already-accepted transfer). Reintroduce when the
+// closer-offer UI ships.
