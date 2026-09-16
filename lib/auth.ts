@@ -1,4 +1,5 @@
 import type { components } from '@/lib/generated/schema'
+import { apiUrl } from '@/lib/apiUrl'
 
 /** Role literals from the frozen OpenAPI `UserResponse.roles` enum. */
 export type Role = components['schemas']['UserResponse']['roles'][number]
@@ -21,11 +22,6 @@ const ROLE_LANDING: Record<Role, string> = {
   fronter: '/fronter',
   closer: '/closer',
   administrator: '/admin',
-}
-
-function apiUrl(path: string) {
-  const base = process.env.NEXT_PUBLIC_API_URL || ''
-  return `${base}${path}`
 }
 
 async function parseErrorMessage(res: Response): Promise<string> {

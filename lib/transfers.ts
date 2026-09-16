@@ -1,3 +1,5 @@
+import { apiUrl } from '@/lib/apiUrl'
+
 // Matches the backend's frozen contract in src/schemas/transfers.py.
 export type TransferStatus = 'initiated' | 'offered' | 'accepted' | 'rejected' | 'timeout'
 
@@ -14,11 +16,6 @@ export type TransferResponse = {
 export type TransferCreateRequest = {
   interaction_id: string
   fronter_user_id: string
-}
-
-function apiUrl(path: string) {
-  const base = process.env.NEXT_PUBLIC_API_URL || ''
-  return `${base}${path}`
 }
 
 export async function createTransfer(

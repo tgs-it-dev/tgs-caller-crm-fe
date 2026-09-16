@@ -1,4 +1,5 @@
 import type { components } from '@/lib/generated/schema'
+import { apiUrl } from '@/lib/apiUrl'
 
 export type QualificationResponse = components['schemas']['QualificationResponse']
 export type TransferResponse = components['schemas']['TransferResponse']
@@ -171,11 +172,6 @@ export function latestCloserDisposition(
   const closer = items.filter((item) => item.stage === 'closer')
   if (closer.length === 0) return null
   return closer.reduce((best, item) => (item.version > best.version ? item : best))
-}
-
-function apiUrl(path: string) {
-  const base = process.env.NEXT_PUBLIC_API_URL || ''
-  return `${base}${path}`
 }
 
 class CloserApiError extends Error {
