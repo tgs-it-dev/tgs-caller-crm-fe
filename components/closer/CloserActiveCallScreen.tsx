@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useReducer, useState } from 'react'
 import { RequireRole } from '@/components/auth/RequireRole'
-import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import { CloserDispositionCard } from '@/components/closer/CloserDispositionCard'
 import { QualificationSnapshot } from '@/components/closer/QualificationSnapshot'
 import { TodaysDispositionTable } from '@/components/closer/TodaysDispositionTable'
@@ -159,7 +158,6 @@ function CloserActiveCallWorkspace({
   rows: TodaysDispositionRow[]
   onDispositionLabel: (interactionId: string, label: string | null) => void
 }) {
-  const { user } = useCurrentUser()
   const transferId = transferIdForInteraction(interactionId)
   const [workspace, dispatch] = useReducer(workspaceReducer, initialWorkspace)
   const [isSaving, setIsSaving] = useState(false)
@@ -220,8 +218,16 @@ function CloserActiveCallWorkspace({
   }, [interactionId, transferId, onDispositionLabel])
 
   async function handleSaveDisposition() {
+    if (!dispositionId || isSaving) return
+
     const token = readToken()
-    if (!token || !user || !dispositionId || isSaving) return
+    if (!token) {
+      dispatch({
+        type: 'save_error',
+        message: 'Your session expired. Please sign in again.',
+      })
+      return
+    }
 
     setIsSaving(true)
     dispatch({ type: 'save_start' })
