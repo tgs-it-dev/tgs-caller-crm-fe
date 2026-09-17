@@ -4,8 +4,9 @@ import { ReactNode, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Alert } from '@/components/ui/Alert'
 import { Button } from '@/components/ui/Button'
-import { AuthError, clearToken, getCurrentUser, readToken, type Role } from '@/lib/auth'
+import { AuthError, clearSession, getCurrentUser, readToken, type Role } from '@/lib/auth'
 import { waitForMocking } from '@/lib/mockReady'
+import { withSession } from '@/lib/session'
 
 type Status = 'checking' | 'authorized' | 'error'
 
@@ -16,15 +17,15 @@ function useAuthorization(role?: Role) {
 
   useEffect(() => {
     let cancelled = false
-    const token = readToken()
 
-    if (!token) {
+    if (!readToken()) {
       router.replace('/login')
       return
     }
 
     waitForMocking()
-      .then(() => getCurrentUser(token))
+      // An expired token is renewed once before the user is sent to sign in.
+      .then(() => withSession(getCurrentUser))
       .then((user) => {
         if (cancelled) return
         if (role && !user.roles.includes(role)) {
@@ -38,7 +39,7 @@ function useAuthorization(role?: Role) {
         // Only treat a confirmed 401 as an invalid session. Network blips,
         // 5xx, and CORS failures must not wipe a still-valid token.
         if (err instanceof AuthError && err.status === 401) {
-          clearToken()
+          clearSession()
           router.replace('/login')
           return
         }

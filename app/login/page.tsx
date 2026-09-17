@@ -11,9 +11,43 @@ import {
   landingRouteForRoles,
   login,
   readToken,
-  storeToken,
+  storeSession,
 } from '@/lib/auth'
 import { waitForMocking } from '@/lib/mockReady'
+import { withSession } from '@/lib/session'
+
+const MIN_PASSWORD_LENGTH = 8
+
+const FIELD_MESSAGES: Record<string, string> = {
+  email: 'Enter a valid email address.',
+  // Short passwords never reach the server — the form stops them first — so a
+  // password the server rejects hit its upper limit, which it counts in bytes.
+  password: 'Password is too long. Please use a shorter one.',
+}
+
+/** Checked before sending, so the common mistakes never wait on the network. */
+function formProblem(email: string, password: string): string | null {
+  if (!email.trim()) return 'Enter your email address.'
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    return `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`
+  }
+  return null
+}
+
+function loginErrorMessage(err: unknown): string {
+  // fetch rejects, rather than failing with a status, when no response came back.
+  if (!(err instanceof AuthError)) {
+    return 'Unable to reach the server. Please check your connection and try again.'
+  }
+  switch (err.code) {
+    case 'validation_error':
+      return FIELD_MESSAGES[err.fields[0]?.field ?? ''] ?? err.message
+    case 'internal_error':
+      return 'Something went wrong on our side. Please try again.'
+    default:
+      return err.message
+  }
+}
 
 function EyeIcon({ open }: { open: boolean }) {
   return open ? (
@@ -58,37 +92,35 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // Already signed in? Skip the form and land straight on the workspace.
+  // Already signed in? Skip the form and land straight on the workspace — even
+  // when the access token has expired but the session can still be renewed.
   useEffect(() => {
-    const token = readToken()
-    if (!token) return
+    if (!readToken()) return
 
     waitForMocking()
-      .then(() => getCurrentUser(token))
+      .then(() => withSession(getCurrentUser))
       .then((user) => router.replace(landingRouteForRoles(user.roles)))
       .catch(() => {
-        // stale/invalid token — let the user sign in again
+        // nothing left to resume — let the user sign in again
       })
   }, [router])
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setError(null)
-    setIsSubmitting(true)
+    const problem = formProblem(email, password)
+    setError(problem)
+    if (problem) return
 
+    setIsSubmitting(true)
     try {
       await waitForMocking()
-      const { access_token } = await login({ email, password })
-      storeToken(access_token)
+      const tokens = await login({ email, password })
+      storeSession(tokens)
 
-      const user = await getCurrentUser(access_token)
+      const user = await getCurrentUser(tokens.access_token)
       router.push(landingRouteForRoles(user.roles))
     } catch (err) {
-      setError(
-        err instanceof AuthError
-          ? err.message
-          : 'Unable to reach the server. Please check your connection and try again.'
-      )
+      setError(loginErrorMessage(err))
       setIsSubmitting(false)
     }
   }
