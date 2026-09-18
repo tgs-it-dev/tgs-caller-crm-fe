@@ -100,14 +100,44 @@ Frontend pieces:
 - `components/auth/RequireRole.tsx` — client guard wrapping a page's content;
   redirects to `/login` if there's no token, the token is invalid, or the
   resolved roles don't include the required one. `RequireAuth` is the same
-  but accepts any authenticated role (used by `/dashboard`, which isn't
-  role-specific).
+  but accepts any authenticated role, for a screen every role may see (none
+  today).
 - Every role-landing page (`app/fronter`, `app/closer`, `app/admin`) wraps its
   body in `<RequireRole role="...">`. New protected routes must do the same —
   routes are open by default in Next.js, nothing blocks direct navigation
   unless a page explicitly guards itself.
 - `/login` redirects an already-authenticated user straight to their landing
   route instead of re-showing the form.
+
+## Desks and the sidebar
+
+- Each role has a segment — `/fronter`, `/closer`, `/admin` — whose
+  `layout.tsx` renders `Sidebar role="…"` around its pages; a role's other
+  screens live beneath it (`/admin/reports`, `/closer/queue`).
+- `components/dashboard/Sidebar.tsx` keeps a nav list per role: `deskNav()` for
+  fronters and closers, `ADMIN_NAV` for administrators. Each item carries its
+  own `isActive(pathname)`. A new page goes under its role's segment and into
+  that role's list.
+
+## Live data
+
+The administrator dashboard (`/admin`) is fed by `lib/liveStatus.ts`:
+`watchLiveStatus()` reads `GET /reporting/live`, then follows the
+`/realtime/ws` socket, which pushes the whole snapshot every 15 seconds.
+
+- The socket authenticates with a ticket from `POST /realtime/ticket`, and a
+  ticket works once — mint a new one for every connection, reconnects included.
+- The socket doesn't replay, so re-read the snapshot after every connect.
+- A dropped socket reconnects with backoff; one silent for 45s (the server
+  pings every 20s) is treated as dead.
+- The server closes a socket once its user is no longer active, signed in, or
+  allowed its channels (checked every 20s). The reconnect then fails, and the tab
+  ends up at `/login` — or, for a lost role, the page clears and says so.
+- Under MSW there's no socket to mock, so it polls the snapshot every 15s.
+- "Live" means the newest snapshot arrived within three push intervals,
+  timed by arrival — a socket kept open by pings can still carry stale figures.
+- Times show in the business time zone the snapshot names (`timezone`), with its
+  abbreviation, so they read in the same day as the counts.
 
 ## UI conventions
 
@@ -138,6 +168,11 @@ Frontend pieces:
 - Errors (auth failures, form validation) render inline via `<Alert>` /
   `role="alert"` — never fail silently or let an unhandled rejection crash
   the page.
+- The dashed card (`rounded-xl border-2 border-dashed border-relay-blue`) marks
+  something live going on. The fronter queue and the closer's qualification
+  snapshot always use it; the admin dashboard's Agent Status card switches to
+  it only while someone is on a call — drawn there as an outline, which takes no
+  room, so switching never moves the table.
 
 ### Design source & known component specs
 
