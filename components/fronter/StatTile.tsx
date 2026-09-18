@@ -1,8 +1,27 @@
-export function StatTile({ label, value }: { label: string; value: number }) {
+import type { ReactNode } from 'react'
+
+/**
+ * Metric card from Figma "Fronter - My Stats" (`Frame 1000007931`):
+ * 20px padding, 20px gap, 12px radius, 0.5px slate hairline.
+ */
+export function StatTile({
+  label,
+  value,
+  icon,
+}: {
+  label: string
+  value: number
+  icon: ReactNode
+}) {
   return (
-    <div className="rounded-xl border border-slate/20 bg-white px-5 py-4">
-      <p className="text-xs uppercase tracking-wide text-slate">{label}</p>
-      <p className="mt-1 text-2xl font-semibold text-ink">{value}</p>
+    <div className="flex flex-1 flex-col gap-5 rounded-xl border-hairline border-slate bg-white p-5">
+      <div className="flex items-center gap-2">
+        <span className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center text-body-text [&_svg]:h-5 [&_svg]:w-5">
+          {icon}
+        </span>
+        <p className="text-sm leading-[150%] text-body-text">{label}</p>
+      </div>
+      <p className="text-[32px] font-semibold leading-[120%] text-ink">{value}</p>
     </div>
   )
 }

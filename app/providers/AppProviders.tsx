@@ -3,6 +3,7 @@
 import { ReactNode } from 'react'
 import { AppRouterCacheProvider } from '@mui/material-nextjs/v16-appRouter'
 import { ThemeProvider } from '@mui/material/styles'
+import { SessionKeeper } from '@/components/auth/SessionKeeper'
 import { theme } from '@/lib/theme'
 import MockProvider from './MockProvider'
 
@@ -14,7 +15,10 @@ export default function AppProviders({ children }: { children: ReactNode }) {
     // on v3 (unlayered output) it makes every MUI style lose to preflight.
     <AppRouterCacheProvider options={{ prepend: true }}>
       <ThemeProvider theme={theme}>
-        <MockProvider>{children}</MockProvider>
+        <MockProvider>
+          <SessionKeeper />
+          {children}
+        </MockProvider>
       </ThemeProvider>
     </AppRouterCacheProvider>
   )
