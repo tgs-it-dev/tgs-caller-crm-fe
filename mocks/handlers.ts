@@ -377,7 +377,10 @@ export const handlers = [
     const token = authHeader.replace(/^Bearer\s+/i, '')
     const user = MOCK_TOKENS.get(token)
     if (!user) {
-      return res(ctx.status(401), ctx.json({ detail: 'Not authenticated.' }))
+      return res(
+        ctx.status(401),
+        ctx.json(authErrorBody('Could not validate credentials', 'auth.not_authenticated'))
+      )
     }
 
     const empty = { dispositions: [], transferred_interaction_ids: [] as string[] }

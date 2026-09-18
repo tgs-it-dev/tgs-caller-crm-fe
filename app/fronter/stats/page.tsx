@@ -6,7 +6,6 @@ import { StatTile } from '@/components/fronter/StatTile'
 import { TodaysDispositionTable } from '@/components/fronter/TodaysDispositionTable'
 import { Alert } from '@/components/ui/Alert'
 import { PageShell } from '@/components/ui/PageShell'
-import { readToken } from '@/lib/auth'
 import {
   fetchTodaysStats,
   summarizeTodaysStats,
@@ -14,6 +13,7 @@ import {
   type TodaysStatsSummary,
 } from '@/lib/fronterStats'
 import { waitForMocking } from '@/lib/mockReady'
+import { withSession } from '@/lib/session'
 
 /** Lucide `Phone` — Figma My Stats "Calls Today". */
 function CallsTodayIcon() {
@@ -112,11 +112,9 @@ function MyStats() {
 
   useEffect(() => {
     let cancelled = false
-    const token = readToken()
-    if (!token) return
 
     waitForMocking()
-      .then(() => fetchTodaysStats(token))
+      .then(() => withSession(fetchTodaysStats))
       .then((payload) => {
         if (cancelled) return
         setLoad({
@@ -127,7 +125,7 @@ function MyStats() {
       })
       .catch(() => {
         if (!cancelled) {
-          setLoad({ status: 'error', message: 'Unable to load today\'s stats right now.' })
+          setLoad({ status: 'error', message: "Unable to load today's stats right now." })
         }
       })
 

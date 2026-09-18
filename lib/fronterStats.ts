@@ -1,4 +1,6 @@
 import { apiUrl } from '@/lib/apiUrl'
+import { readApiError } from '@/lib/apiError'
+import { AuthError } from '@/lib/auth'
 import type { components } from '@/lib/generated/schema'
 
 /** Re-exports from `lib/generated/schema.d.ts` — do not hand-roll parallel DTOs. */
@@ -63,6 +65,9 @@ export async function fetchTodaysStats(token: string): Promise<TodaysStatsRespon
   const res = await fetch(apiUrl('/me/stats/today'), {
     headers: { Authorization: `Bearer ${token}` },
   })
-  if (!res.ok) throw new Error("Unable to load today's stats right now.")
+  if (!res.ok) {
+    const { status, code, message, fields } = await readApiError(res)
+    throw new AuthError(message, status, code, fields)
+  }
   return res.json() as Promise<TodaysStatsResponse>
 }
