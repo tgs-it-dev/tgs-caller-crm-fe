@@ -1,81 +1,46 @@
 'use client'
 
-import { useEffect, useMemo, useState, type ComponentType } from 'react'
+import { useEffect, useMemo, useState, type ComponentType, type SVGProps } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
+import { Bell, ChartLine, ListOrdered, LogOut, Menu, Phone } from 'lucide-react'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
-import { PhoneIcon } from '@/components/icons/PhoneIcon'
 import type { Role } from '@/lib/auth'
 import { readToken } from '@/lib/auth'
 import { listInteractions } from '@/lib/interactions'
 import { waitForMocking } from '@/lib/mockReady'
 
+/** Locked 24×24 box — prevents flex from squashing Lucide stroke icons. */
+const NAV_ICON = {
+  size: 24,
+  strokeWidth: 2,
+  'aria-hidden': true,
+  className: 'shrink-0',
+  style: { width: 24, height: 24, minWidth: 24, minHeight: 24 },
+} as const satisfies SVGProps<SVGSVGElement> & { size: number; strokeWidth: number }
+
+function PhoneIcon() {
+  return <Phone {...NAV_ICON} />
+}
+
 function QueueIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5 flex-shrink-0" aria-hidden>
-      <path
-        d="M4 6h2m0 0h12M6 6a1 1 0 100 2 1 1 0 000-2zM4 12h2m0 0h12M6 12a1 1 0 100 2 1 1 0 000-2zM4 18h2m0 0h12M6 18a1 1 0 100 2 1 1 0 000-2z"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      />
-    </svg>
-  )
+  return <ListOrdered {...NAV_ICON} />
 }
 
 function StatsIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5 flex-shrink-0" aria-hidden>
-      <path
-        d="M4 19V9m6 10V5m6 14v-7"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
+  return <ChartLine {...NAV_ICON} />
 }
 
 function BellIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5 flex-shrink-0" aria-hidden>
-      <path
-        d="M6 9a6 6 0 1112 0c0 4 1.5 5.5 1.5 5.5H4.5S6 13 6 9zM9.5 17a2.5 2.5 0 005 0"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
+  return <Bell {...NAV_ICON} />
 }
 
 function SignOutIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5 flex-shrink-0" aria-hidden>
-      <path
-        d="M15 17l5-5-5-5M20 12H9m0 8H5a1 1 0 01-1-1V5a1 1 0 011-1h4"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
+  return <LogOut {...NAV_ICON} />
 }
 
 function MenuIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5 flex-shrink-0" aria-hidden>
-      <path
-        d="M4 7h16M4 12h16M4 17h16"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      />
-    </svg>
-  )
+  return <Menu {...NAV_ICON} />
 }
 
 type DeskRole = Extract<Role, 'fronter' | 'closer'>
@@ -242,7 +207,9 @@ export function Sidebar({ role = 'fronter' }: { role?: DeskRole }) {
                   collapsed ? 'lg:justify-center lg:px-2 lg:py-2 px-3 py-2.5' : 'px-3 py-2.5'
                 } ${active ? 'bg-nav-active text-navy' : 'text-slate hover:bg-slate/10 hover:text-ink'}`}
               >
-                <Icon />
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center">
+                  <Icon />
+                </span>
                 <span className={collapsed ? 'lg:hidden' : ''}>{label}</span>
               </Link>
             )
