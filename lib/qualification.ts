@@ -1,3 +1,5 @@
+import { apiUrl } from '@/lib/apiUrl'
+
 // Mirrors the backend's frozen contract in src/schemas/qualification.py —
 // keep these Literal-equivalents in sync with src/schemas/common.py.
 export type LeadSource = 'vicidial' | 'ghl'
@@ -74,11 +76,6 @@ export type QualificationCreateRequest = {
   interaction_id: string
   snapshot_json: QualificationSnapshot
   consent_dnc: ConsentDnc
-}
-
-function apiUrl(path: string) {
-  const base = process.env.NEXT_PUBLIC_API_URL || ''
-  return `${base}${path}`
 }
 
 export async function getLatestQualification(

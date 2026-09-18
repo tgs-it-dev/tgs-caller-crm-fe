@@ -21,6 +21,8 @@ const TONES = {
   signal: { fg: tokens.status.signalRed, bg: tokens.badge.ringing },
   caution: { fg: tokens.status.gold, bg: tokens.badge.waiting },
   live: { fg: tokens.status.signalRed, bg: tokens.paper },
+  /** Page-header "Transfer Accepted" — bay green on paper, same role as `live`. */
+  accepted: { fg: tokens.status.bayGreen, bg: tokens.paper },
   done: { fg: tokens.status.bayGreen, bg: tokens.badge.done },
 } as const
 
@@ -34,12 +36,22 @@ export function Badge({
   /** Leading status dot, per the Figma "Ringing"/"Live" pills. */
   dot?: boolean
 }) {
+  const isAccepted = tone === 'accepted'
+
   return (
     <Chip
       size="small"
       label={
         dot ? (
-          <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
+          <Box
+            component="span"
+            sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 1,
+              verticalAlign: 'middle',
+            }}
+          >
             <Box
               component="span"
               aria-hidden
@@ -54,6 +66,18 @@ export function Badge({
       sx={{
         bgcolor: TONES[tone].bg,
         color: TONES[tone].fg,
+        verticalAlign: 'middle',
+        // Figma Transfer Accepted: Inter Regular 12px / 170%, pad 2/8/2/12.
+        ...(isAccepted && {
+          '& .MuiChip-label': {
+            padding: '2px 12px 2px 8px',
+            fontSize: 12,
+            fontWeight: 400,
+            fontStyle: 'normal',
+            lineHeight: 1.7,
+            letterSpacing: 0,
+          },
+        }),
       }}
     />
   )

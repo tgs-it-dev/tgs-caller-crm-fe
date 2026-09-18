@@ -1,3 +1,4 @@
+import { apiUrl } from '@/lib/apiUrl'
 import type { LeadSource } from '@/lib/qualification'
 
 /**
@@ -24,11 +25,6 @@ export type InteractionDetail = {
   status: InteractionStatus
   started_at: string
   lead: LeadSummary
-}
-
-function apiUrl(path: string) {
-  const base = process.env.NEXT_PUBLIC_API_URL || ''
-  return `${base}${path}`
 }
 
 export class InteractionNotFoundError extends Error {}

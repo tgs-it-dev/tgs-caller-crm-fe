@@ -7,6 +7,8 @@ module.exports = {
     extend: {
       colors: {
         ink: "#1C2430",
+        // Figma notification / table body copy — distinct from Diagnostic ink.
+        black: "#2C2C2C",
         paper: "#FCFCFC",
         "shop-floor": "#EEF0F1",
         "nav-active": "#F3F7FB",
@@ -27,6 +29,8 @@ module.exports = {
         "pill-border": "#EFEFEF",
         // Body copy color for the workspace lead-summary paragraph.
         "body-text": "#656565",
+        // Figma "Light Grey" — Qualification Snapshot heading rule.
+        "light-grey": "#DCDCDC",
         accent: {
           blue: "#0088FF"
         }

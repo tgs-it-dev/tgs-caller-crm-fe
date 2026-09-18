@@ -1,3 +1,5 @@
+import { apiUrl } from '@/lib/apiUrl'
+
 /**
  * PROVISIONAL CONTRACT — not part of the backend's frozen API.
  *
@@ -20,11 +22,6 @@ export type QueueEntry = {
   /** Wait time is derived from this client-side rather than sent pre-rendered. */
   queued_at: string
   status: QueueStatus
-}
-
-function apiUrl(path: string) {
-  const base = process.env.NEXT_PUBLIC_API_URL || ''
-  return `${base}${path}`
 }
 
 export async function listQueue(token: string): Promise<QueueEntry[]> {
