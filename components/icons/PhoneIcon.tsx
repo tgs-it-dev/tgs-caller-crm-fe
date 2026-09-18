@@ -1,14 +1,9 @@
 import { Phone } from 'lucide-react'
 
-export function PhoneIcon({ className = 'shrink-0' }: { className?: string }) {
-  /** Lucide `Phone` — shared with sidebar Active Call / workspace. */
-  return (
-    <Phone
-      size={24}
-      strokeWidth={2}
-      aria-hidden
-      className={className}
-      style={{ width: 24, height: 24, minWidth: 24, minHeight: 24 }}
-    />
-  )
+/**
+ * Lucide `Phone` — shared with sidebar Active Call / workspace.
+ * Size via `className` (e.g. `h-6 w-6`); do not lock with inline styles.
+ */
+export function PhoneIcon({ className = 'h-6 w-6 shrink-0' }: { className?: string }) {
+  return <Phone strokeWidth={2} aria-hidden className={className} />
 }

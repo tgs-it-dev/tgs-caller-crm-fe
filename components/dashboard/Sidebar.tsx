@@ -10,14 +10,12 @@ import { readToken } from '@/lib/auth'
 import { listInteractions } from '@/lib/interactions'
 import { waitForMocking } from '@/lib/mockReady'
 
-/** Locked 24×24 box — prevents flex from squashing Lucide stroke icons. */
+/** Nav Lucide icons — size via className so flex can't fight an inline lock. */
 const NAV_ICON = {
-  size: 24,
   strokeWidth: 2,
   'aria-hidden': true,
-  className: 'shrink-0',
-  style: { width: 24, height: 24, minWidth: 24, minHeight: 24 },
-} as const satisfies SVGProps<SVGSVGElement> & { size: number; strokeWidth: number }
+  className: 'h-6 w-6 shrink-0',
+} as const satisfies SVGProps<SVGSVGElement> & { strokeWidth: number }
 
 function PhoneIcon() {
   return <Phone {...NAV_ICON} />
