@@ -1,4 +1,4 @@
-import type { paths } from '../src/schema'
+import type { paths } from '@/lib/generated/schema'
 
 // Thin wrapper: if generated client exists, consume it; otherwise fall back to fetch.
 export async function fetchApi<Path extends keyof paths>(path: string, init?: RequestInit) {

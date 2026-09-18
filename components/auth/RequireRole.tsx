@@ -2,7 +2,9 @@
 
 import { ReactNode, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { clearToken, getCurrentUser, readToken, Role } from '@/lib/auth'
+import { Alert } from '@/components/ui/Alert'
+import { Button } from '@/components/ui/Button'
+import { AuthError, clearToken, getCurrentUser, readToken, type Role } from '@/lib/auth'
 import { waitForMocking } from '@/lib/mockReady'
 
 type Status = 'checking' | 'authorized' | 'error'

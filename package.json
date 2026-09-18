@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "dev:tailwind": "npx tailwindcss@3.4.7 -i styles/globals.css -o public/generated.css --watch"
+    "dev:tailwind": "npx tailwindcss@3.4.7 -i styles/globals.css -o public/generated.css --watch",
+    "gen:api-client": "openapi-typescript ../tgs-caller-crm-be/openapi/openapi.json -o ./lib/generated/schema.d.ts"
   },
   "dependencies": {
     "@emotion/cache": "^11.14.0",
@@ -28,6 +29,7 @@
     "autoprefixer": "10.4.14",
     "eslint": "9.39.5",
     "eslint-config-next": "16.3.4",
+    "openapi-typescript": "^7.13.0",
     "postcss": "8.4.23",
     "tailwindcss": "3.4.7",
     "typescript": "5.2.2"
