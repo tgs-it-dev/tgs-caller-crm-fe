@@ -75,7 +75,10 @@ Frontend pieces:
   `getCurrentUser()`, `landingRouteForRoles()`, and session storage in
   `localStorage`: `tgs_crm_access_token`, `tgs_crm_refresh_token`,
   `tgs_crm_access_expires_at`. Every data call reads the access token with
-  `readToken()` when it sends.
+  `readToken()` when it sends — a poll on every tick, never once for later.
+- `lib/sessionStore.ts` — the same session in IndexedDB, the copy renewals trust.
+  A tab's `localStorage` can lag another tab's write long enough to replay a spent
+  refresh token, which the API answers by ending every session; IndexedDB doesn't.
 - `lib/session.ts` — `refreshSession()` renews once however many callers ask:
   shared within a tab, and across tabs through a Web Lock, because of rotation.
   `withSession(call)` renews once on `auth.not_authenticated` and retries.
@@ -83,7 +86,9 @@ Frontend pieces:
   server without waiting.
 - `components/auth/SessionKeeper.tsx` — mounted once in `AppProviders`. Renews the
   access token about a minute before it expires (and on focus, since timers stop
-  while a laptop sleeps), and sends this tab to `/login` when another tab signs out.
+  while a laptop sleeps). Sends this tab to `/login` when the session ends: another
+  tab signs out, or a renewal anywhere in this tab finds it over (`lib/session.ts`
+  fires `SESSION_ENDED`). Nothing keeps running without a session.
 - `lib/apiError.ts` — `readApiError(res)` reads any failed response into
   `{status, code, message, fields}`.
 - **Why localStorage and not an httpOnly cookie:** the API hands tokens back in

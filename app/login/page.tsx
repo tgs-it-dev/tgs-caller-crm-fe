@@ -115,7 +115,7 @@ export default function LoginPage() {
     try {
       await waitForMocking()
       const tokens = await login({ email, password })
-      storeSession(tokens)
+      await storeSession(tokens)
 
       const user = await getCurrentUser(tokens.access_token)
       router.push(landingRouteForRoles(user.roles))
