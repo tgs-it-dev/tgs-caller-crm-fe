@@ -1,6 +1,8 @@
 import { RequireRole } from '@/components/auth/RequireRole'
 import { StatTile } from '@/components/fronter/StatTile'
+import { TodaysDispositionTable } from '@/components/fronter/TodaysDispositionTable'
 import { PageShell } from '@/components/ui/PageShell'
+import { listTodaysDispositions } from '@/lib/fronterStats'
 
 /** Lucide `Phone` — Figma My Stats "Calls Today". */
 function CallsTodayIcon() {
@@ -41,33 +43,33 @@ function QualifiedIcon() {
   )
 }
 
-/** Lucide `RefreshCw` — Figma My Stats "Transferred". */
+/** Lucide `ArrowLeftRight` — Figma My Stats "Transferred". */
 function TransferredIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden>
       <path
-        d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"
+        d="M8 3 4 7l4 4"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
       <path
-        d="M21 3v5h-5"
+        d="M4 7h16"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
       <path
-        d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"
+        d="m16 21 4-4-4-4"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
       <path
-        d="M8 16H3v5"
+        d="M20 17H4"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
@@ -78,13 +80,19 @@ function TransferredIcon() {
 }
 
 export default function FronterStatsPage() {
+  const rows = listTodaysDispositions()
+
   return (
     <RequireRole role="fronter">
       <PageShell title="My Stats">
-        <div className="flex flex-col gap-6 sm:flex-row sm:gap-5">
-          <StatTile label="Calls Today" value={0} icon={<CallsTodayIcon />} />
-          <StatTile label="Qualified" value={0} icon={<QualifiedIcon />} />
-          <StatTile label="Transferred" value={0} icon={<TransferredIcon />} />
+        <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-5 sm:flex-row">
+            <StatTile label="Calls Today" value={0} icon={<CallsTodayIcon />} />
+            <StatTile label="Qualified" value={0} icon={<QualifiedIcon />} />
+            <StatTile label="Transferred" value={0} icon={<TransferredIcon />} />
+          </div>
+
+          <TodaysDispositionTable rows={rows} />
         </div>
       </PageShell>
     </RequireRole>

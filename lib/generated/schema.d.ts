@@ -484,7 +484,17 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Live agent status and today's funnel counts */
+        /**
+         * Live agent status and today's funnel counts
+         * @description The dashboard as it stands right now.
+         *
+         *     Fetch this when the dashboard's socket connects, then apply what the socket
+         *     pushes. The stream does not replay, so anything published before it opened
+         *     only reaches the page through here.
+         *
+         *     Several figures are CRM approximations until the dialer is connected — ADR
+         *     0002 lists which.
+         */
         get: operations["live_status_reporting_live_get"];
         put?: never;
         post?: never;
@@ -586,10 +596,12 @@ export interface components {
             /**
              * Since
              * Format: date-time
+             * @description Roughly when the agent entered this status.
              */
             since: string;
             /**
              * Status
+             * @description available and offline mean signed in to the CRM or not — not logged in to the dialer.
              * @enum {string}
              */
             status: "available" | "on_call" | "in_qualification" | "offline";
@@ -925,7 +937,10 @@ export interface components {
         };
         /** LiveStatusResponse */
         LiveStatusResponse: {
-            /** Active Calls */
+            /**
+             * Active Calls
+             * @description Agents on a call or qualifying — a count of agents, which equals calls while each takes one at a time.
+             */
             active_calls: number;
             /** Agents */
             agents: components["schemas"]["AgentLiveStatus"][];
@@ -935,7 +950,10 @@ export interface components {
              * Format: date-time
              */
             generated_at: string;
-            /** Pending Transfers */
+            /**
+             * Pending Transfers
+             * @description Transfers offered and not yet answered.
+             */
             pending_transfers: number;
         };
         /** LoginRequest */
