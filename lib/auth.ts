@@ -1,4 +1,5 @@
 import type { components } from '@/lib/generated/schema'
+import { readApiError, type FieldError } from '@/lib/apiError'
 import { apiUrl } from '@/lib/apiUrl'
 
 /** Role literals from the frozen OpenAPI `UserResponse.roles` enum. */
@@ -11,10 +12,14 @@ export type CurrentUser = components['schemas']['UserResponse']
 
 export class AuthError extends Error {
   status: number
+  code: string
+  fields: FieldError[]
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code: string, fields: FieldError[] = []) {
     super(message)
     this.status = status
+    this.code = code
+    this.fields = fields
   }
 }
 
@@ -24,40 +29,42 @@ const ROLE_LANDING: Record<Role, string> = {
   administrator: '/admin',
 }
 
-async function parseErrorMessage(res: Response): Promise<string> {
-  try {
-    const body = await res.json()
-    if (typeof body?.detail === 'string') return body.detail
-  } catch {
-    // response had no JSON body
-  }
-  if (res.status === 401) return 'Incorrect email or password.'
-  return 'Something went wrong. Please try again.'
+async function authError(res: Response): Promise<AuthError> {
+  const { status, code, message, fields } = await readApiError(res)
+  return new AuthError(message, status, code, fields)
+}
+
+function postJson(path: string, body: unknown): Promise<Response> {
+  return fetch(apiUrl(path), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
 }
 
 export async function login(payload: LoginRequest): Promise<TokenResponse> {
-  const res = await fetch(apiUrl('/auth/login'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-
-  if (!res.ok) {
-    throw new AuthError(await parseErrorMessage(res), res.status)
-  }
-
+  const res = await postJson('/auth/login', payload)
+  if (!res.ok) throw await authError(res)
   return res.json() as Promise<TokenResponse>
+}
+
+/** Trade a refresh token for a new pair. The old refresh token stops working. */
+export async function refreshTokens(refreshToken: string): Promise<TokenResponse> {
+  const res = await postJson('/auth/refresh', { refresh_token: refreshToken })
+  if (!res.ok) throw await authError(res)
+  return res.json() as Promise<TokenResponse>
+}
+
+/** End the session on the server. Always 204, whether the token was live or not. */
+export async function revokeRefreshToken(refreshToken: string): Promise<void> {
+  await postJson('/auth/logout', { refresh_token: refreshToken })
 }
 
 export async function getCurrentUser(token: string): Promise<CurrentUser> {
   const res = await fetch(apiUrl('/auth/me'), {
     headers: { Authorization: `Bearer ${token}` },
   })
-
-  if (!res.ok) {
-    throw new AuthError(await parseErrorMessage(res), res.status)
-  }
-
+  if (!res.ok) throw await authError(res)
   return res.json() as Promise<CurrentUser>
 }
 
@@ -70,17 +77,37 @@ export function landingRouteForRoles(roles: Role[]): string {
   return primary ? ROLE_LANDING[primary] : '/login'
 }
 
-const TOKEN_KEY = 'tgs_crm_access_token'
+export const ACCESS_TOKEN_KEY = 'tgs_crm_access_token'
+const REFRESH_TOKEN_KEY = 'tgs_crm_refresh_token'
+export const EXPIRES_AT_KEY = 'tgs_crm_access_expires_at'
 
-export function storeToken(token: string) {
-  window.localStorage.setItem(TOKEN_KEY, token)
+export function storeSession(tokens: TokenResponse) {
+  // From the stated lifetime rather than the token itself: mock tokens aren't JWTs.
+  const expiresAt = Date.now() + tokens.expires_in_min * 60_000
+  window.localStorage.setItem(ACCESS_TOKEN_KEY, tokens.access_token)
+  window.localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refresh_token)
+  window.localStorage.setItem(EXPIRES_AT_KEY, String(expiresAt))
 }
 
 export function readToken(): string | null {
   if (typeof window === 'undefined') return null
-  return window.localStorage.getItem(TOKEN_KEY)
+  return window.localStorage.getItem(ACCESS_TOKEN_KEY)
 }
 
-export function clearToken() {
-  window.localStorage.removeItem(TOKEN_KEY)
+export function readRefreshToken(): string | null {
+  if (typeof window === 'undefined') return null
+  return window.localStorage.getItem(REFRESH_TOKEN_KEY)
+}
+
+/** When the access token expires, in epoch milliseconds, or null without a session. */
+export function readExpiresAt(): number | null {
+  if (typeof window === 'undefined') return null
+  const expiresAt = Number(window.localStorage.getItem(EXPIRES_AT_KEY))
+  return expiresAt > 0 ? expiresAt : null
+}
+
+export function clearSession() {
+  window.localStorage.removeItem(ACCESS_TOKEN_KEY)
+  window.localStorage.removeItem(REFRESH_TOKEN_KEY)
+  window.localStorage.removeItem(EXPIRES_AT_KEY)
 }

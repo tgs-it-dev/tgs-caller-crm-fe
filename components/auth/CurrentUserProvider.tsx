@@ -9,8 +9,9 @@ import {
   useMemo,
   useState,
 } from 'react'
-import { CurrentUser, clearToken, getCurrentUser, readToken } from '@/lib/auth'
+import { CurrentUser, getCurrentUser, readToken } from '@/lib/auth'
 import { waitForMocking } from '@/lib/mockReady'
+import { signOut as endSession, withSession } from '@/lib/session'
 
 type CurrentUserState =
   | { status: 'loading'; user: null }
@@ -28,15 +29,14 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<CurrentUserState>({ status: 'loading', user: null })
 
   const refresh = useCallback(async () => {
-    const token = readToken()
-    if (!token) {
+    if (!readToken()) {
       setState({ status: 'error', user: null })
       return
     }
 
     try {
       await waitForMocking()
-      const user = await getCurrentUser(token)
+      const user = await withSession(getCurrentUser)
       setState({ status: 'ready', user })
     } catch {
       setState({ status: 'error', user: null })
@@ -48,7 +48,7 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
   }, [refresh])
 
   const signOut = useCallback(() => {
-    clearToken()
+    endSession()
     setState({ status: 'error', user: null })
   }, [])
 

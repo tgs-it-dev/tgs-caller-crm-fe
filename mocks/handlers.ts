@@ -24,6 +24,32 @@ const MOCK_USERS: MockUser[] = [
 ]
 
 const MOCK_TOKENS = new Map<string, MockUser>()
+// Rotated like the real API's: each refresh token works once.
+const MOCK_REFRESH_TOKENS = new Map<string, MockUser>()
+
+// The real API's error envelope, with the same codes, so error handling behaves
+// the same against mocks as against it.
+function authErrorBody(detail: string, code: string) {
+  return { detail, code }
+}
+
+// Not crypto.randomUUID(): it doesn't exist outside a secure context, and the
+// dev server is reachable over the network by plain http.
+let issued = 0
+
+function issueMockTokens(user: MockUser) {
+  const serial = ++issued
+  const accessToken = `mock-token-${user.id}-${serial}`
+  const refreshToken = `mock-refresh-${user.id}-${serial}`
+  MOCK_TOKENS.set(accessToken, user)
+  MOCK_REFRESH_TOKENS.set(refreshToken, user)
+  return {
+    access_token: accessToken,
+    refresh_token: refreshToken,
+    token_type: 'bearer' as const,
+    expires_in_min: 15,
+  }
+}
 
 // Seed data for the fronter workspace screen (FE-02). Standing in for the
 // backend's `/interactions`, `/qualification`, and `/transfers` endpoints,
@@ -282,21 +308,34 @@ export const handlers = [
     const user = MOCK_USERS.find((u) => u.email === email && u.password === password)
 
     if (!user) {
-      return res(ctx.status(401), ctx.json({ detail: 'Incorrect email or password.' }))
+      return res(
+        ctx.status(401),
+        ctx.json(authErrorBody('Incorrect email or password', 'auth.invalid_credentials'))
+      )
     }
 
-    const token = `mock-token-${user.id}-${Date.now()}`
-    MOCK_TOKENS.set(token, user)
+    return res(ctx.status(200), ctx.json(issueMockTokens(user)))
+  }),
 
-    return res(
-      ctx.status(200),
-      ctx.json({
-        access_token: token,
-        refresh_token: `mock-refresh-${user.id}`,
-        token_type: 'bearer' as const,
-        expires_in_min: 60,
-      })
-    )
+  rest.post('/auth/refresh', async (req, res, ctx) => {
+    const { refresh_token } = await req.json()
+    const user = MOCK_REFRESH_TOKENS.get(refresh_token)
+
+    if (!user) {
+      return res(
+        ctx.status(401),
+        ctx.json(authErrorBody('Invalid refresh token', 'auth.invalid_refresh_token'))
+      )
+    }
+
+    MOCK_REFRESH_TOKENS.delete(refresh_token)
+    return res(ctx.status(200), ctx.json(issueMockTokens(user)))
+  }),
+
+  rest.post('/auth/logout', async (req, res, ctx) => {
+    const { refresh_token } = await req.json()
+    MOCK_REFRESH_TOKENS.delete(refresh_token)
+    return res(ctx.status(204))
   }),
 
   rest.get('/auth/me', (req, res, ctx) => {
@@ -305,7 +344,10 @@ export const handlers = [
     const user = MOCK_TOKENS.get(token)
 
     if (!user) {
-      return res(ctx.status(401), ctx.json({ detail: 'Not authenticated.' }))
+      return res(
+        ctx.status(401),
+        ctx.json(authErrorBody('Could not validate credentials', 'auth.not_authenticated'))
+      )
     }
 
     return res(
