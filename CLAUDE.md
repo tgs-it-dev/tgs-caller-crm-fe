@@ -51,21 +51,52 @@ of truth for a user's role(s); the frontend just reacts to it. This is a hard
 product requirement, not a style preference — don't add a role dropdown/toggle
 anywhere, even for demos.
 
-Contract (frozen in the backend's `src/schemas/auth.py`, implementation may
-still 501 until backend week 2):
+Contract (typed in `lib/generated/schema.d.ts`):
 
-- `POST /auth/login` `{email, password}` → `{access_token, token_type, expires_in_min}`
+- `POST /auth/login` `{email, password}` →
+  `{access_token, refresh_token, token_type, expires_in_min}` — the access token
+  lasts 15 minutes, the refresh token 12 hours.
+- `POST /auth/refresh` `{refresh_token}` → a new pair. **Rotated on every use:**
+  presenting a spent refresh token is treated as theft and ends every session of
+  that user, so a refresh token must never be sent twice.
+- `POST /auth/logout` `{refresh_token}` → 204, whether or not the token was live.
 - `GET /auth/me` (Bearer token) → `{id, email, name, active, roles, created_at}`
 - `RoleName = "fronter" | "closer" | "administrator"` — a user can hold
   multiple roles; frontend picks the landing route by priority
   (`administrator` > `closer` > `fronter`), see `lib/auth.ts`.
+- Every error response is `{detail, code, fields?}`, read with `readApiError()`.
+  Branch on `code`, never on `detail`: `auth.not_authenticated` (token missing,
+  invalid or expired), `auth.invalid_credentials`, `auth.invalid_refresh_token`,
+  `auth.forbidden` (wrong role), `validation_error` (with `fields`).
 
 Frontend pieces:
 
-- `lib/auth.ts` — `login()`, `getCurrentUser()`, `landingRouteForRoles()`,
-  token storage (`localStorage`, key `tgs_crm_access_token`). Token in
-  localStorage is a known trade-off for the pre-backend mock stage (XSS
-  exposure vs. an httpOnly cookie) — revisit once real `/auth/login` ships.
+- `lib/auth.ts` — `login()`, `refreshTokens()`, `revokeRefreshToken()`,
+  `getCurrentUser()`, `landingRouteForRoles()`, and session storage in
+  `localStorage`: `tgs_crm_access_token`, `tgs_crm_refresh_token`,
+  `tgs_crm_access_expires_at`. Every data call reads the access token with
+  `readToken()` when it sends — a poll on every tick, never once for later.
+- `lib/sessionStore.ts` — the same session in IndexedDB, the copy renewals trust.
+  A tab's `localStorage` can lag another tab's write long enough to replay a spent
+  refresh token, which the API answers by ending every session; IndexedDB doesn't.
+- `lib/session.ts` — `refreshSession()` renews once however many callers ask:
+  shared within a tab, and across tabs through a Web Lock, because of rotation.
+  `withSession(call)` renews once on `auth.not_authenticated` and retries.
+  `signOut()` clears the session at once, then revokes the refresh token on the
+  server without waiting.
+- `components/auth/SessionKeeper.tsx` — mounted once in `AppProviders`. Renews the
+  access token about a minute before it expires (and on focus, since timers stop
+  while a laptop sleeps). Sends this tab to `/login` when the session ends: another
+  tab signs out, or a renewal anywhere in this tab finds it over (`lib/session.ts`
+  fires `SESSION_ENDED`). Nothing keeps running without a session.
+- `lib/apiError.ts` — `readApiError(res)` reads any failed response into
+  `{status, code, message, fields}`.
+- **Why localStorage and not an httpOnly cookie:** the API hands tokens back in
+  the response body, authenticates with `Authorization: Bearer`, sets no cookie
+  and doesn't allow credentialed cross-origin requests — so a cookie the browser
+  kept wouldn't be sent with a call anyway. The cookie-plus-Proxy pattern in
+  Next's authentication guide would route every data call through Next — a
+  separate decision, not a storage tweak.
 - `components/auth/RequireRole.tsx` — client guard wrapping a page's content;
   redirects to `/login` if there's no token, the token is invalid, or the
   resolved roles don't include the required one. `RequireAuth` is the same
