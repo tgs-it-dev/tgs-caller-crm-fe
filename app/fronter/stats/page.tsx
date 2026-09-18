@@ -1,8 +1,19 @@
+'use client'
+
+import { useEffect, useState } from 'react'
 import { RequireRole } from '@/components/auth/RequireRole'
 import { StatTile } from '@/components/fronter/StatTile'
 import { TodaysDispositionTable } from '@/components/fronter/TodaysDispositionTable'
+import { Alert } from '@/components/ui/Alert'
 import { PageShell } from '@/components/ui/PageShell'
-import { listTodaysDispositions } from '@/lib/fronterStats'
+import { readToken } from '@/lib/auth'
+import {
+  fetchTodaysStats,
+  summarizeTodaysStats,
+  type TodaysDispositionRow,
+  type TodaysStatsSummary,
+} from '@/lib/fronterStats'
+import { waitForMocking } from '@/lib/mockReady'
 
 /** Lucide `Phone` — Figma My Stats "Calls Today". */
 function CallsTodayIcon() {
@@ -79,22 +90,85 @@ function TransferredIcon() {
   )
 }
 
-export default function FronterStatsPage() {
-  const rows = listTodaysDispositions()
+type LoadState =
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | {
+      status: 'ready'
+      rows: TodaysDispositionRow[]
+      summary: TodaysStatsSummary
+    }
 
+export default function FronterStatsPage() {
   return (
     <RequireRole role="fronter">
-      <PageShell title="My Stats">
+      <MyStats />
+    </RequireRole>
+  )
+}
+
+function MyStats() {
+  const [load, setLoad] = useState<LoadState>({ status: 'loading' })
+
+  useEffect(() => {
+    let cancelled = false
+    const token = readToken()
+    if (!token) return
+
+    waitForMocking()
+      .then(() => fetchTodaysStats(token))
+      .then((payload) => {
+        if (cancelled) return
+        setLoad({
+          status: 'ready',
+          rows: payload.dispositions,
+          summary: summarizeTodaysStats(payload),
+        })
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLoad({ status: 'error', message: 'Unable to load today\'s stats right now.' })
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  return (
+    <PageShell title="My Stats">
+      {load.status === 'loading' && (
+        <p className="rounded-xl border-hairline border-slate bg-white px-4 py-10 text-center text-sm text-slate">
+          Loading today&apos;s stats…
+        </p>
+      )}
+
+      {load.status === 'error' && <Alert>{load.message}</Alert>}
+
+      {load.status === 'ready' && (
         <div className="flex flex-col gap-5">
           <div className="flex flex-col gap-5 sm:flex-row">
-            <StatTile label="Calls Today" value={0} icon={<CallsTodayIcon />} />
-            <StatTile label="Qualified" value={0} icon={<QualifiedIcon />} />
-            <StatTile label="Transferred" value={0} icon={<TransferredIcon />} />
+            <StatTile
+              label="Calls Today"
+              value={load.summary.callsToday}
+              icon={<CallsTodayIcon />}
+            />
+            <StatTile
+              label="Qualified"
+              value={load.summary.qualified}
+              icon={<QualifiedIcon />}
+            />
+            <StatTile
+              label="Transferred"
+              value={load.summary.transferred}
+              icon={<TransferredIcon />}
+            />
           </div>
 
-          <TodaysDispositionTable rows={rows} />
+          <TodaysDispositionTable rows={load.rows} />
         </div>
-      </PageShell>
-    </RequireRole>
+      )}
+    </PageShell>
   )
 }

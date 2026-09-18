@@ -1,48 +1,57 @@
+import { apiUrl } from '@/lib/apiUrl'
 import type { components } from '@/lib/generated/schema'
 
-type InteractionDisposition = components['schemas']['InteractionDispositionResponse']
+/** Re-exports from `lib/generated/schema.d.ts` — do not hand-roll parallel DTOs. */
+export type InteractionDispositionResponse =
+  components['schemas']['InteractionDispositionResponse']
+export type FunnelCounts = components['schemas']['FunnelCounts']
+export type LeadResponse = components['schemas']['LeadResponse']
 
 /**
- * One row on Fronter My Stats → Today's Disposition.
- *
- * Core fields mirror `InteractionDispositionResponse` from the generated
- * OpenAPI schema. Lead name/phone are display fields until an agent-scoped
- * list endpoint exists — `/reporting/funnel` is admin-only and company-wide
- * (see schema note on that path).
+ * PROVISIONAL CONTRACT — agent-scoped My Stats is not in the frozen OpenAPI yet
+ * (`/reporting/funnel` is admin/company-wide). Row fields come from
+ * `InteractionDispositionResponse`; lead display fields stand in until the BE
+ * freezes a dedicated list DTO. Swap the fetch path with no UI change when it ships.
  */
-export type TodaysDispositionRow = {
-  id: InteractionDisposition['id']
-  interaction_id: InteractionDisposition['interaction_id']
-  created_at: InteractionDisposition['created_at']
-  label: InteractionDisposition['label']
-  stage: Extract<InteractionDisposition['stage'], 'fronter'>
+export type TodaysDispositionRow = Pick<
+  InteractionDispositionResponse,
+  'id' | 'interaction_id' | 'created_at' | 'label' | 'stage' | 'actor_user_id'
+> & {
   lead_name: string
-  lead_phone: string
+  lead_phone: LeadResponse['phone_normalized']
 }
 
-/** Fronter-stage labels aligned with the mock catalogue / qualification set. */
-const DISPOSITION_LABELS = [
-  'Qualified — ready to transfer',
-  'Not interested',
-  'Callback requested',
-  'Do not call',
-  'Invalid / wrong number',
-] as const
+/** Screen 5 KPIs — typed against generated `FunnelCounts` field semantics. */
+export type TodaysStatsSummary = {
+  callsToday: FunnelCounts['interactions']
+  qualified: FunnelCounts['qualifications']
+  transferred: FunnelCounts['transfers_initiated']
+}
 
-const LEAD_NAMES = [
-  'Mubeen N.',
-  'Ayesha K.',
-  'Omar R.',
-  'Sara L.',
-  'Daniel P.',
-  'Nina V.',
-  'Chris T.',
-  'Elena M.',
-  'Hassan J.',
-  'Priya S.',
-] as const
+export type TodaysStatsResponse = {
+  dispositions: TodaysDispositionRow[]
+  /** Interaction ids this fronter transferred today (subset of dispositions). */
+  transferred_interaction_ids: InteractionDispositionResponse['interaction_id'][]
+}
 
-function formatClock(iso: string) {
+export const QUALIFIED_LABEL = 'Qualified — ready to transfer'
+
+/**
+ * KPIs are derived only from this user's today payload so tiles match a manual
+ * count of the disposition list (+ which of those calls were transferred).
+ */
+export function summarizeTodaysStats(payload: TodaysStatsResponse): TodaysStatsSummary {
+  const transferred = new Set(payload.transferred_interaction_ids)
+  const qualifiedRows = payload.dispositions.filter((row) => row.label === QUALIFIED_LABEL)
+
+  return {
+    callsToday: payload.dispositions.length,
+    qualified: qualifiedRows.length,
+    transferred: qualifiedRows.filter((row) => transferred.has(row.interaction_id)).length,
+  }
+}
+
+export function formatDispositionTime(iso: string) {
   const d = new Date(iso)
   const hh = String(d.getHours()).padStart(2, '0')
   const mm = String(d.getMinutes()).padStart(2, '0')
@@ -50,29 +59,10 @@ function formatClock(iso: string) {
   return `${hh}:${mm}:${ss}`
 }
 
-/**
- * Mock today's fronter dispositions (50 rows → 10 pages at 5/page, matching
- * the Figma pagination chrome). Replace with a typed fetch once the BE
- * ships an agent-scoped list.
- */
-export function listTodaysDispositions(): TodaysDispositionRow[] {
-  const base = new Date()
-  base.setHours(9, 0, 0, 0)
-
-  return Array.from({ length: 50 }, (_, index) => {
-    const created = new Date(base.getTime() + index * 11 * 60_000)
-    return {
-      id: `idisp-fronter-${index + 1}`,
-      interaction_id: `int-${3000 + index}`,
-      created_at: created.toISOString(),
-      label: DISPOSITION_LABELS[index % DISPOSITION_LABELS.length],
-      stage: 'fronter',
-      lead_name: LEAD_NAMES[index % LEAD_NAMES.length],
-      lead_phone: `+9212345678${String(index).padStart(2, '0')}`,
-    }
+export async function fetchTodaysStats(token: string): Promise<TodaysStatsResponse> {
+  const res = await fetch(apiUrl('/me/stats/today'), {
+    headers: { Authorization: `Bearer ${token}` },
   })
-}
-
-export function formatDispositionTime(iso: string) {
-  return formatClock(iso)
+  if (!res.ok) throw new Error("Unable to load today's stats right now.")
+  return res.json() as Promise<TodaysStatsResponse>
 }
