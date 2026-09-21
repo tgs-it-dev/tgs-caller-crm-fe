@@ -2,6 +2,7 @@ import { rest } from 'msw'
 import type { Role } from '../lib/auth'
 import { CLOSER_DESK_SEEDS } from '../lib/closer'
 import type { InteractionDetail } from '../lib/interactions'
+import { PUSH_INTERVAL_MS, type AgentStatus, type LiveStatus } from '../lib/liveStatus'
 import type { QueueEntry } from '../lib/queue'
 import type { QualificationCreateRequest, QualificationResponse } from '../lib/qualification'
 import type { TransferCreateRequest, TransferResponse } from '../lib/transfers'
@@ -48,6 +49,60 @@ function issueMockTokens(user: MockUser) {
     refresh_token: refreshToken,
     token_type: 'bearer' as const,
     expires_in_min: 15,
+  }
+}
+
+// The live dashboard's agents, in name order as the API sends them. Each steps
+// to its next status every push interval, so mock mode shows the page updating.
+const MOCK_AGENTS: { id: string; name: string; role: 'fronter' | 'closer' }[] = [
+  { id: '5a1f0c3e-0001-4000-8000-000000000001', name: 'Carl Closer', role: 'closer' },
+  { id: '5a1f0c3e-0002-4000-8000-000000000002', name: 'Dana Reyes', role: 'fronter' },
+  { id: '5a1f0c3e-0003-4000-8000-000000000003', name: 'Eli Brooks', role: 'closer' },
+  { id: '5a1f0c3e-0004-4000-8000-000000000004', name: 'Fiona Fronter', role: 'fronter' },
+  { id: '5a1f0c3e-0005-4000-8000-000000000005', name: 'Gwen Park', role: 'fronter' },
+]
+
+const STATUS_CYCLE: Record<'fronter' | 'closer', AgentStatus[]> = {
+  fronter: ['available', 'in_qualification', 'available', 'offline'],
+  closer: ['available', 'on_call', 'on_call', 'offline'],
+}
+
+const isBusy = (status: AgentStatus) => status === 'on_call' || status === 'in_qualification'
+
+function mockLiveStatus(): LiveStatus {
+  const tick = Math.floor(Date.now() / PUSH_INTERVAL_MS)
+  // Every fourth push nobody is on a call, so the quiet dashboard shows up too.
+  const quiet = tick % 4 === 0
+  const since = new Date(tick * PUSH_INTERVAL_MS).toISOString()
+  const agents = MOCK_AGENTS.map((agent, index) => {
+    const cycle = STATUS_CYCLE[agent.role]
+    const next = cycle[(tick + index) % cycle.length]
+    const status = quiet && isBusy(next) ? 'available' : next
+    return {
+      user_id: agent.id,
+      name: agent.name,
+      role: agent.role,
+      status,
+      current_interaction_id: isBusy(status) ? `5a1f0c3e-1000-4000-8000-00000000000${index}` : null,
+      since,
+    }
+  })
+
+  return {
+    generated_at: new Date().toISOString(),
+    timezone: 'America/New_York',
+    agents,
+    active_calls: agents.filter((agent) => isBusy(agent.status)).length,
+    pending_transfers: tick % 3,
+    funnel_today: {
+      leads: 26 + (tick % 20),
+      interactions: 30 + (tick % 20),
+      qualifications: 12 + (tick % 7),
+      transfers_initiated: 8 + (tick % 5),
+      transfers_accepted: 5 + (tick % 3),
+      transfers_rejected: 1 + (tick % 2),
+      sales: 2 + (tick % 2),
+    },
   }
 }
 
@@ -361,6 +416,26 @@ export const handlers = [
         created_at: new Date().toISOString(),
       })
     )
+  }),
+
+  rest.get('/reporting/live', (req, res, ctx) => {
+    const token = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '')
+    const user = MOCK_TOKENS.get(token)
+
+    if (!user) {
+      return res(
+        ctx.status(401),
+        ctx.json(authErrorBody('Could not validate credentials', 'auth.not_authenticated'))
+      )
+    }
+    if (!user.roles.includes('administrator')) {
+      return res(
+        ctx.status(403),
+        ctx.json(authErrorBody('Insufficient role for this operation', 'auth.forbidden'))
+      )
+    }
+
+    return res(ctx.status(200), ctx.json(mockLiveStatus()))
   }),
 
   rest.get('/interactions', (req, res, ctx) => {
