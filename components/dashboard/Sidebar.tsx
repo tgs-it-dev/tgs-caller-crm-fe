@@ -345,7 +345,7 @@ export function Sidebar() {
               (userReady ? (
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold text-ink">{user.name}</p>
-                  <p className="truncate text-xs text-slate">{formatRolesLabel(user.roles)}</p>
+                  {/* <p className="truncate text-xs text-slate">{formatRolesLabel(user.roles)}</p> */}
                   <p className="truncate text-xs text-slate">{user.email}</p>
                 </div>
               ) : (
