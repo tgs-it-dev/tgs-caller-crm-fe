@@ -73,9 +73,52 @@ export async function getCurrentUser(token: string): Promise<CurrentUser> {
 // where the user lands, in order of seniority.
 const ROLE_PRIORITY: Role[] = ['administrator', 'closer', 'fronter']
 
+const DESK_LABEL: Record<Role, string> = {
+  fronter: 'CRM — Fronter',
+  closer: 'CRM — Closer',
+  administrator: 'CRM — Admin',
+}
+
+const ROLE_NAME: Record<Role, string> = {
+  fronter: 'Fronter',
+  closer: 'Closer',
+  administrator: 'Administrator',
+}
+
+export function primaryRole(roles: Role[]): Role | null {
+  return ROLE_PRIORITY.find((role) => roles.includes(role)) ?? null
+}
+
 export function landingRouteForRoles(roles: Role[]): string {
-  const primary = ROLE_PRIORITY.find((role) => roles.includes(role))
+  const primary = primaryRole(roles)
   return primary ? ROLE_LANDING[primary] : '/login'
+}
+
+/** Which desk the current URL belongs to — drives sidebar nav without a hardcoded prop. */
+export function deskRoleFromPath(pathname: string): Role | null {
+  if (pathname === '/admin' || pathname.startsWith('/admin/')) return 'administrator'
+  if (pathname === '/closer' || pathname.startsWith('/closer/')) return 'closer'
+  if (pathname === '/fronter' || pathname.startsWith('/fronter/')) return 'fronter'
+  return null
+}
+
+/** Desk header label for a layout segment (or the user's primary role). */
+export function deskLabelForRole(role: Role): string {
+  return DESK_LABEL[role]
+}
+
+/** Human-readable roles from `/auth/me` (e.g. "Administrator", "Fronter · Closer"). */
+export function formatRolesLabel(roles: Role[]): string {
+  const ordered = ROLE_PRIORITY.filter((role) => roles.includes(role))
+  return ordered.map((role) => ROLE_NAME[role]).join(' · ')
+}
+
+/** Two-letter avatar initials from a display name. */
+export function initialsFromName(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return `${parts[0][0] ?? ''}${parts[parts.length - 1][0] ?? ''}`.toUpperCase()
 }
 
 export const ACCESS_TOKEN_KEY = 'tgs_crm_access_token'

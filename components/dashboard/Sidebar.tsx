@@ -5,10 +5,18 @@ import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { Bell, ChartLine, ListOrdered, LogOut, Menu, Phone } from 'lucide-react'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
-import type { Role } from '@/lib/auth'
-import { readToken } from '@/lib/auth'
+import {
+  deskLabelForRole,
+  deskRoleFromPath,
+  formatRolesLabel,
+  initialsFromName,
+  primaryRole,
+  readToken,
+  type Role,
+} from '@/lib/auth'
 import { listInteractions } from '@/lib/interactions'
 import { waitForMocking } from '@/lib/mockReady'
+import { OutlineIcon } from '../icons/OutlineIcon'
 
 /** Nav Lucide icons — size via className so flex can't fight an inline lock. */
 const NAV_ICON = {
@@ -87,12 +95,6 @@ type NavItem = {
   isActive: (pathname: string) => boolean
 }
 
-const ROLE_LABEL: Record<Role, string> = {
-  fronter: 'CRM — Fronter',
-  closer: 'CRM — Closer',
-  administrator: 'CRM — Admin',
-}
-
 const BASE_PATH: Record<Role, string> = {
   fronter: '/fronter',
   closer: '/closer',
@@ -143,13 +145,39 @@ function deskNav(role: 'fronter' | 'closer', activeCallHref: string): NavItem[] 
   ]
 }
 
-export function Sidebar({ role = 'fronter' }: { role?: Role }) {
+function UserIdentitySkeleton({ lines = 2 }: { lines?: 2 | 3 }) {
+  return (
+    <div className="min-w-0 flex-1 space-y-1.5" aria-hidden>
+      <div className="h-4 w-24 animate-pulse rounded bg-slate/20" />
+      <div className="h-3 w-32 animate-pulse rounded bg-slate/15" />
+      {lines === 3 && <div className="h-3 w-28 animate-pulse rounded bg-slate/10" />}
+    </div>
+  )
+}
+
+function Avatar({ name }: { name?: string }) {
+  return (
+    <div
+      className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-slate/20 text-xs font-semibold text-ink"
+      aria-hidden
+    >
+      {name ? initialsFromName(name) : null}
+    </div>
+  )
+}
+
+export function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
-  const { user, signOut } = useCurrentUser()
+  const { user, status: userStatus, signOut } = useCurrentUser()
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [fallbackActiveId, setFallbackActiveId] = useState<string | null>(null)
+  const userReady = userStatus === 'ready' && user != null
+
+  // Desk from the URL when under a role segment; otherwise primary role from `/auth/me`.
+  const role: Role =
+    deskRoleFromPath(pathname) ?? (userReady ? primaryRole(user.roles) : null) ?? 'fronter'
 
   const basePath = BASE_PATH[role]
   const workspacePathPrefix = `${basePath}/workspace`
@@ -253,13 +281,16 @@ export function Sidebar({ role = 'fronter' }: { role?: Role }) {
               className={`h-4 w-4 transition-transform ${collapsed ? 'rotate-180' : ''}`}
             />
           </button>
-          <div className="h-10 w-10 flex-shrink-0 rounded-full bg-slate/15" aria-hidden />
-          {!collapsed && (
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-ink">{user?.name ?? '[NAME]'}</p>
-              <p className="truncate text-xs text-slate">{ROLE_LABEL[role]}</p>
-            </div>
-          )}
+          <Avatar name={userReady ? user.name : undefined} />
+          {!collapsed &&
+            (userReady ? (
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-ink">{user.name}</p>
+                <p className="truncate text-xs text-slate">{deskLabelForRole(role)}</p>
+              </div>
+            ) : (
+              <UserIdentitySkeleton lines={2} />
+            ))}
         </div>
 
         <nav className={`flex-1 space-y-1 py-4 ${collapsed ? 'lg:py-3 lg:px-2 px-3' : 'px-3'}`}>
@@ -309,13 +340,17 @@ export function Sidebar({ role = 'fronter' }: { role?: Role }) {
               collapsed ? 'lg:justify-center lg:px-2 px-3' : 'px-3'
             }`}
           >
-            <div className="h-10 w-10 flex-shrink-0 rounded-full bg-slate/20" aria-hidden />
-            {!collapsed && (
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-ink">{user?.name ?? 'Jane Doe'}</p>
-                <p className="truncate text-xs text-slate">{user?.email ?? 'jane.doe@gmail.com'}</p>
-              </div>
-            )}
+            <Avatar name={userReady ? user.name : undefined} />
+            {!collapsed &&
+              (userReady ? (
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-ink">{user.name}</p>
+                  <p className="truncate text-xs text-slate">{formatRolesLabel(user.roles)}</p>
+                  <p className="truncate text-xs text-slate">{user.email}</p>
+                </div>
+              ) : (
+                <UserIdentitySkeleton lines={3} />
+              ))}
             <button
               type="button"
               onClick={handleSignOut}

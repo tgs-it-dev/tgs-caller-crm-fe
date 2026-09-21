@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import { Alert } from '@/components/ui/Alert'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -86,6 +87,7 @@ function GoogleIcon() {
 
 export default function LoginPage() {
   const router = useRouter()
+  const { hydrate } = useCurrentUser()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -99,11 +101,14 @@ export default function LoginPage() {
 
     waitForMocking()
       .then(() => withSession(getCurrentUser))
-      .then((user) => router.replace(landingRouteForRoles(user.roles)))
+      .then((user) => {
+        hydrate(user)
+        router.replace(landingRouteForRoles(user.roles))
+      })
       .catch(() => {
         // nothing left to resume — let the user sign in again
       })
-  }, [router])
+  }, [router, hydrate])
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -117,7 +122,9 @@ export default function LoginPage() {
       const tokens = await login({ email, password })
       await storeSession(tokens)
 
+      // Profile for the sidebar / gates — same `GET /auth/me` payload.
       const user = await getCurrentUser(tokens.access_token)
+      hydrate(user)
       router.push(landingRouteForRoles(user.roles))
     } catch (err) {
       setError(loginErrorMessage(err))
