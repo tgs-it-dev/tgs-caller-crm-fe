@@ -30,6 +30,17 @@ export const tokens = {
   bodyText: '#656565',
   /** Figma "Light Grey" — Qualification Snapshot heading rule. */
   lightGrey: '#DCDCDC',
+  /**
+   * Bar fills for the Reports funnel, one per stage. Three repeat status
+   * colours; the funnel is the only place they mean a stage rather than a
+   * state, so they're named for the stage they fill.
+   */
+  funnel: {
+    attempts: '#3E7CB1',
+    connects: '#4F8A5B',
+    qualified: '#7A5FA3',
+    transfers: '#C99A3E',
+  },
   /** Pill fills from Figma — all lighter than a 10% alpha of their text colour. */
   badge: {
     waiting: '#FCFBF2',

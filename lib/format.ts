@@ -26,6 +26,49 @@ export function formatDate(iso: string) {
   })
 }
 
+/**
+ * A calendar day — "Sep 15, 2026" — from a plain `YYYY-MM-DD`.
+ *
+ * Read in UTC, because a date-only string has no time and no zone: taken as an
+ * instant it is UTC midnight, which reads as the day before anywhere west of
+ * Greenwich.
+ */
+function asUtcDay(day: string) {
+  const [year, month, date] = day.split('-').map(Number)
+  return new Date(Date.UTC(year, month - 1, date, 12))
+}
+
+export function formatDay(day: string) {
+  return asUtcDay(day).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  })
+}
+
+/** "Sep 17, 2026" for one day, "Sep 15 – Sep 21, 2026" for more, the year said once. */
+export function formatDayRange(start: string, end: string) {
+  if (start === end) return formatDay(start)
+  const opensAnotherYear = start.slice(0, 4) !== end.slice(0, 4)
+  const from = opensAnotherYear
+    ? formatDay(start)
+    : asUtcDay(start).toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        timeZone: 'UTC',
+      })
+  return `${from} – ${formatDay(end)}`
+}
+
+/** What a zone is called on a given day — "EDT" — since that's how times read here. */
+export function formatZone(day: string, timeZone: string) {
+  const named = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'short' })
+    .formatToParts(asUtcDay(day))
+    .find((part) => part.type === 'timeZoneName')
+  return named ? named.value : timeZone
+}
+
 function elapsedParts(sinceIso: string, nowMs: number) {
   const seconds = Math.max(0, Math.floor((nowMs - new Date(sinceIso).getTime()) / 1000))
   return { minutes: Math.floor(seconds / 60), seconds: seconds % 60 }

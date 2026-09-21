@@ -33,6 +33,13 @@ module.exports = {
         "light-grey": "#DCDCDC",
         accent: {
           blue: "#0088FF"
+        },
+        // Reports funnel bar fills, one per stage — see tokens.funnel.
+        funnel: {
+          attempts: "#3E7CB1",
+          connects: "#4F8A5B",
+          qualified: "#7A5FA3",
+          transfers: "#C99A3E"
         }
       },
       fontFamily: {
