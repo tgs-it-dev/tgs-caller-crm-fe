@@ -56,10 +56,10 @@ function Queue() {
   }, [])
 
   useEffect(() => {
-    const token = readToken()
-    if (!token) return
-
     const id = setInterval(() => {
+      // Read on every tick, not once: the token is renewed while the page stays open.
+      const token = readToken()
+      if (!token) return
       listQueue(token)
         .then((entries) => {
           setLoad((prev) => (prev.status === 'ready' ? { ...prev, entries } : prev))
