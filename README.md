@@ -17,7 +17,8 @@ npm run dev:tailwind
 
 ## What’s included
 
-- App Router routes: `/fronter`, `/closer`, `/admin`, `/dashboard`, `/login`
+- App Router routes: `/fronter`, `/closer`, `/admin` (the live dashboard; other
+  admin pages under `/admin/<page>`), `/login`
 - TypeScript, Tailwind CSS, MUI wrappers under `components/ui/`
 - MSW mocks (`mocks/`, started by `app/providers/MockProvider.tsx`)
 - Auth helpers (`lib/auth.ts`) and route guards (`components/auth/RequireRole.tsx`)

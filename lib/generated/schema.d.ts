@@ -716,8 +716,16 @@ export interface components {
             sales: number;
             /** Transfers Accepted */
             transfers_accepted: number;
-            /** Transfers Initiated */
+            /**
+             * Transfers Initiated
+             * @description Interactions with a transfer put to closers, counted from the moment it is initiated, whatever the outcome.
+             */
             transfers_initiated: number;
+            /**
+             * Transfers Rejected
+             * @description Interactions with a transfer a closer turned down. Timeouts and failures are not rejections.
+             */
+            transfers_rejected: number;
         };
         /**
          * FunnelInteraction
@@ -984,6 +992,11 @@ export interface components {
              * @description Transfers offered and not yet answered.
              */
             pending_transfers: number;
+            /**
+             * Timezone
+             * @description The business time zone. funnel_today is its day; show times in it too, so the page reads as one day.
+             */
+            timezone: string;
         };
         /** LoginRequest */
         LoginRequest: {

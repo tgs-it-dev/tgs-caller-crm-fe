@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type ComponentType } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
+import { OutlineIcon } from '@/components/icons/OutlineIcon'
 import { PhoneIcon } from '@/components/icons/PhoneIcon'
 import type { Role } from '@/lib/auth'
 import { readToken } from '@/lib/auth'
@@ -78,23 +79,109 @@ function MenuIcon() {
   )
 }
 
-type DeskRole = Extract<Role, 'fronter' | 'closer'>
+function DashboardIcon() {
+  return (
+    <OutlineIcon>
+      <rect x="3" y="3" width="7" height="9" rx="1" />
+      <rect x="14" y="3" width="7" height="5" rx="1" />
+      <rect x="14" y="12" width="7" height="9" rx="1" />
+      <rect x="3" y="16" width="7" height="5" rx="1" />
+    </OutlineIcon>
+  )
+}
 
-type NavMatch = 'workspace' | 'queue' | 'stats'
+function ReportsIcon() {
+  return (
+    <OutlineIcon>
+      <path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" />
+      <path d="M14 3v5h5M9 17v-1M12 17v-5M15 17v-3" />
+    </OutlineIcon>
+  )
+}
+
+function ExceptionsIcon() {
+  return (
+    <OutlineIcon>
+      <path d="M10.3 4.2L2.6 17.5a2 2 0 001.7 3h15.4a2 2 0 001.7-3L13.7 4.2a2 2 0 00-3.4 0z" />
+      <path d="M12 9.5v4M12 17h.01" />
+    </OutlineIcon>
+  )
+}
+
+function UsersIcon() {
+  return (
+    <OutlineIcon>
+      <path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
+    </OutlineIcon>
+  )
+}
 
 type NavItem = {
   href: string
   label: string
   icon: ComponentType
-  match: NavMatch
+  isActive: (pathname: string) => boolean
 }
 
-const ROLE_LABEL: Record<DeskRole, string> = {
+const ROLE_LABEL: Record<Role, string> = {
   fronter: 'CRM — Fronter',
   closer: 'CRM — Closer',
+  administrator: 'CRM — Admin',
 }
 
-export function Sidebar({ role = 'fronter' }: { role?: DeskRole }) {
+const BASE_PATH: Record<Role, string> = {
+  fronter: '/fronter',
+  closer: '/closer',
+  administrator: '/admin',
+}
+
+const ADMIN_NAV: NavItem[] = [
+  { href: '/admin', label: 'Dashboard', icon: DashboardIcon, isActive: (p) => p === '/admin' },
+  {
+    href: '/admin/reports',
+    label: 'Reports',
+    icon: ReportsIcon,
+    isActive: (p) => p.startsWith('/admin/reports'),
+  },
+  {
+    href: '/admin/exceptions',
+    label: 'Exceptions',
+    icon: ExceptionsIcon,
+    isActive: (p) => p.startsWith('/admin/exceptions'),
+  },
+  {
+    href: '/admin/users',
+    label: 'Users',
+    icon: UsersIcon,
+    isActive: (p) => p.startsWith('/admin/users'),
+  },
+]
+
+function deskNav(role: 'fronter' | 'closer', activeCallHref: string): NavItem[] {
+  const base = BASE_PATH[role]
+  const workspace = `${base}/workspace`
+  const queue = role === 'closer' ? `${base}/queue` : base
+  return [
+    {
+      href: activeCallHref,
+      label: 'Active Call',
+      icon: PhoneIcon,
+      // A closer's Active Call is the desk itself; a fronter's is always a workspace.
+      isActive: (p) => p.startsWith(workspace) || (role === 'closer' && p === base),
+    },
+    { href: queue, label: 'Queue', icon: QueueIcon, isActive: (p) => p === queue },
+    {
+      href: `${base}/stats`,
+      label: 'My Stats',
+      icon: StatsIcon,
+      isActive: (p) => p.startsWith(`${base}/stats`),
+    },
+  ]
+}
+
+export function Sidebar({ role = 'fronter' }: { role?: Role }) {
   const pathname = usePathname()
   const router = useRouter()
   const { user, signOut } = useCurrentUser()
@@ -102,7 +189,7 @@ export function Sidebar({ role = 'fronter' }: { role?: DeskRole }) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [fallbackActiveId, setFallbackActiveId] = useState<string | null>(null)
 
-  const basePath = role === 'closer' ? '/closer' : '/fronter'
+  const basePath = BASE_PATH[role]
   const workspacePathPrefix = `${basePath}/workspace`
 
   const workspaceIdFromPath = useMemo(() => {
@@ -116,8 +203,9 @@ export function Sidebar({ role = 'fronter' }: { role?: DeskRole }) {
       return
     }
 
-    // Closer's Active Call lands on /closer itself; fronter resolves a live interaction.
-    if (role === 'closer') {
+    // Only a fronter resolves a live interaction: a closer's Active Call is
+    // /closer itself, and an administrator has no desk.
+    if (role !== 'fronter') {
       setFallbackActiveId(null)
       return
     }
@@ -157,16 +245,7 @@ export function Sidebar({ role = 'fronter' }: { role?: DeskRole }) {
       ? `${workspacePathPrefix}/${fallbackActiveId}`
       : basePath
 
-  const navItems: NavItem[] = [
-    { href: activeCallHref, label: 'Active Call', icon: PhoneIcon, match: 'workspace' },
-    {
-      href: role === 'closer' ? `${basePath}/queue` : basePath,
-      label: 'Queue',
-      icon: QueueIcon,
-      match: 'queue',
-    },
-    { href: `${basePath}/stats`, label: 'My Stats', icon: StatsIcon, match: 'stats' },
-  ]
+  const navItems = role === 'administrator' ? ADMIN_NAV : deskNav(role, activeCallHref)
 
   return (
     <>
@@ -222,17 +301,8 @@ export function Sidebar({ role = 'fronter' }: { role?: DeskRole }) {
         </div>
 
         <nav className={`flex-1 space-y-1 py-4 ${collapsed ? 'lg:py-3 lg:px-2 px-3' : 'px-3'}`}>
-          {navItems.map(({ href, label, icon: Icon, match }) => {
-            const active =
-              match === 'queue'
-                ? role === 'closer'
-                  ? pathname === `${basePath}/queue`
-                  : pathname === basePath
-                : match === 'workspace'
-                  ? role === 'closer'
-                    ? pathname === basePath || pathname.startsWith(workspacePathPrefix)
-                    : pathname.startsWith(workspacePathPrefix)
-                  : pathname.startsWith(href)
+          {navItems.map(({ href, label, icon: Icon, isActive }) => {
+            const active = isActive(pathname)
             return (
               <Link
                 key={label}

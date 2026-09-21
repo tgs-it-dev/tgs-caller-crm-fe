@@ -30,7 +30,7 @@ const ROLE_LANDING: Record<Role, string> = {
   administrator: '/admin',
 }
 
-async function authError(res: Response): Promise<AuthError> {
+export async function authError(res: Response): Promise<AuthError> {
   const { status, code, message, fields } = await readApiError(res)
   return new AuthError(message, status, code, fields)
 }
