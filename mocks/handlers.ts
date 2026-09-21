@@ -18,6 +18,8 @@ type MockUser = {
 // Demo accounts for local/dev use only, until the real /auth endpoints ship (week 2).
 const MOCK_USERS: MockUser[] = [
   { id: '1', email: 'fronter@tgs.com', password: 'password1', name: 'Fiona Fronter', roles: ['fronter'] },
+  // Second fronter — proves /me/stats/today is scoped per logged-in user (FE-08 AC).
+  { id: '4', email: 'fronter2@tgs.com', password: 'password1', name: 'Frank Fronter', roles: ['fronter'] },
   { id: '2', email: 'closer@tgs.com', password: 'password1', name: 'Carl Closer', roles: ['closer'] },
   { id: '3', email: 'admin@tgs.com', password: 'password1', name: 'Ana Admin', roles: ['administrator'] },
 ]
@@ -275,6 +277,78 @@ const MOCK_DISPOSITION_CATALOG: MockDisposition[] = [
 const MOCK_INTERACTION_DISPOSITIONS = new Map<string, MockInteractionDisposition[]>()
 let interactionDispositionSeq = 0
 
+/** FE-08 My Stats — provisional `/me/stats/today` seed, keyed by actor user id. */
+type MyStatsDispositionSeed = {
+  id: string
+  interaction_id: string
+  created_at: string
+  label: string
+  stage: 'fronter'
+  actor_user_id: string
+  lead_name: string
+  lead_phone: string
+}
+
+const MY_STATS_LABELS = [
+  'Qualified — ready to transfer',
+  'Not interested',
+  'Callback requested',
+  'Do not call',
+  'Invalid / wrong number',
+] as const
+
+const MY_STATS_LEADS = [
+  'Mubeen N.',
+  'Ayesha K.',
+  'Omar R.',
+  'Sara L.',
+  'Daniel P.',
+  'Nina V.',
+  'Chris T.',
+  'Elena M.',
+  'Hassan J.',
+  'Priya S.',
+] as const
+
+function seedMyStatsForUser(
+  actorUserId: string,
+  rowCount: number,
+  leadOffset: number
+): { dispositions: MyStatsDispositionSeed[]; transferred_interaction_ids: string[] } {
+  const base = new Date()
+  base.setHours(9, 0, 0, 0)
+
+  const dispositions: MyStatsDispositionSeed[] = Array.from({ length: rowCount }, (_, index) => {
+    const created = new Date(base.getTime() + index * 11 * 60_000)
+    return {
+      id: `idisp-${actorUserId}-${index + 1}`,
+      interaction_id: `int-stats-${actorUserId}-${3000 + index}`,
+      created_at: created.toISOString(),
+      label: MY_STATS_LABELS[index % MY_STATS_LABELS.length],
+      stage: 'fronter' as const,
+      actor_user_id: actorUserId,
+      lead_name: MY_STATS_LEADS[(index + leadOffset) % MY_STATS_LEADS.length],
+      lead_phone: `+9212345${actorUserId}${String(index).padStart(3, '0')}`,
+    }
+  })
+
+  // Half of this user's qualified calls were transferred — countable from the payload.
+  const transferred_interaction_ids = dispositions
+    .filter((row) => row.label === 'Qualified — ready to transfer')
+    .filter((_, i) => i % 2 === 0)
+    .map((row) => row.interaction_id)
+
+  return { dispositions, transferred_interaction_ids }
+}
+
+const MOCK_MY_STATS_TODAY: Record<
+  string,
+  { dispositions: MyStatsDispositionSeed[]; transferred_interaction_ids: string[] }
+> = {
+  '1': seedMyStatsForUser('1', 50, 0),
+  '4': seedMyStatsForUser('4', 5, 3),
+}
+
 export const handlers = [
   rest.get('http://localhost:4000/health', (req, res, ctx) => {
     return res(ctx.status(200), ctx.json({ status: 'ok' }))
@@ -370,6 +444,31 @@ export const handlers = [
 
   rest.get('/queue', (req, res, ctx) => {
     return res(ctx.status(200), ctx.json(MOCK_QUEUE))
+  }),
+
+  // PROVISIONAL — FE-08 agent-scoped My Stats (not in frozen OpenAPI yet).
+  rest.get('/me/stats/today', (req, res, ctx) => {
+    const authHeader = req.headers.get('authorization') || ''
+    const token = authHeader.replace(/^Bearer\s+/i, '')
+    const user = MOCK_TOKENS.get(token)
+    if (!user) {
+      return res(
+        ctx.status(401),
+        ctx.json(authErrorBody('Could not validate credentials', 'auth.not_authenticated'))
+      )
+    }
+
+    const empty = { dispositions: [], transferred_interaction_ids: [] as string[] }
+    const payload = MOCK_MY_STATS_TODAY[user.id] ?? empty
+
+    // Never leak another user's rows — seed is already keyed by actor, filter again.
+    const dispositions = payload.dispositions.filter((row) => row.actor_user_id === user.id)
+    const allowed = new Set(dispositions.map((row) => row.interaction_id))
+    const transferred_interaction_ids = payload.transferred_interaction_ids.filter((id) =>
+      allowed.has(id)
+    )
+
+    return res(ctx.status(200), ctx.json({ dispositions, transferred_interaction_ids }))
   }),
 
   rest.get('/interactions/:interactionId', (req, res, ctx) => {
