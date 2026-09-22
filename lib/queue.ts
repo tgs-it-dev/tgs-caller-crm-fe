@@ -35,11 +35,12 @@ export type CloserQueueEntry = {
 }
 
 /**
- * One `/queue?role=` in flight (or just resolved) per role until busted.
- * Coalesces React Strict Mode remounts; pass `bust: true` for the 15s poll
- * so it gets fresh data.
+ * Coalesces concurrent `/queue?role=` calls (e.g. React Strict Mode remounts)
+ * while the request is still in flight. Cleared on settle so a later remount
+ * (navigate away and back) always fetches fresh data. Pass `bust: true` for
+ * the 15s poll so it never joins a still-in-flight call.
  */
-const cachedByRole = new Map<QueueRole, Promise<FronterQueueEntry[] | CloserQueueEntry[]>>()
+const inflightByRole = new Map<QueueRole, Promise<FronterQueueEntry[] | CloserQueueEntry[]>>()
 
 export function listQueue(
   token: string,
@@ -56,22 +57,21 @@ export function listQueue(
   role: QueueRole,
   { bust = false }: { bust?: boolean } = {}
 ): Promise<FronterQueueEntry[] | CloserQueueEntry[]> {
-  if (bust) cachedByRole.delete(role)
+  if (bust) inflightByRole.delete(role)
 
-  let cached = cachedByRole.get(role)
-  if (!cached) {
-    cached = fetch(apiUrl(`/queue?role=${role}`), {
+  let inflight = inflightByRole.get(role)
+  if (!inflight) {
+    inflight = fetch(apiUrl(`/queue?role=${role}`), {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(async (res) => {
         if (!res.ok) throw new Error('Unable to load the queue right now.')
         return res.json() as Promise<FronterQueueEntry[] | CloserQueueEntry[]>
       })
-      .catch((err) => {
-        cachedByRole.delete(role)
-        throw err
+      .finally(() => {
+        if (inflightByRole.get(role) === inflight) inflightByRole.delete(role)
       })
-    cachedByRole.set(role, cached)
+    inflightByRole.set(role, inflight)
   }
-  return cached
+  return inflight
 }
