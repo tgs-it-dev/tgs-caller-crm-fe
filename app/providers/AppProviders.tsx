@@ -3,6 +3,7 @@
 import { ReactNode } from 'react'
 import { AppRouterCacheProvider } from '@mui/material-nextjs/v16-appRouter'
 import { ThemeProvider } from '@mui/material/styles'
+import { CurrentUserProvider } from '@/components/auth/CurrentUserProvider'
 import { SessionKeeper } from '@/components/auth/SessionKeeper'
 import { theme } from '@/lib/theme'
 import MockProvider from './MockProvider'
@@ -16,8 +17,10 @@ export default function AppProviders({ children }: { children: ReactNode }) {
     <AppRouterCacheProvider options={{ prepend: true }}>
       <ThemeProvider theme={theme}>
         <MockProvider>
-          <SessionKeeper />
-          {children}
+          <CurrentUserProvider>
+            <SessionKeeper />
+            {children}
+          </CurrentUserProvider>
         </MockProvider>
       </ThemeProvider>
     </AppRouterCacheProvider>

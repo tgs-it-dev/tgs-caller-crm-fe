@@ -1,57 +1,45 @@
 'use client'
 
-import { ReactNode, useEffect, useState } from 'react'
+import { ReactNode, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import { Alert } from '@/components/ui/Alert'
 import { Button } from '@/components/ui/Button'
-import { AuthError, clearSession, getCurrentUser, readToken, type Role } from '@/lib/auth'
-import { waitForMocking } from '@/lib/mockReady'
-import { withSession } from '@/lib/session'
+import { readToken, type Role } from '@/lib/auth'
 
-type Status = 'checking' | 'authorized' | 'error'
+type GateStatus = 'checking' | 'authorized' | 'error'
 
-function useAuthorization(role?: Role) {
+function useAuthorization(role?: Role): { status: GateStatus; retry: () => void } {
   const router = useRouter()
-  const [status, setStatus] = useState<Status>('checking')
-  const [retryKey, setRetryKey] = useState(0)
+  const { status: userStatus, user, refresh } = useCurrentUser()
 
   useEffect(() => {
-    let cancelled = false
-
     if (!readToken()) {
       router.replace('/login')
       return
     }
 
-    waitForMocking()
-      // An expired token is renewed once before the user is sent to sign in.
-      .then(() => withSession(getCurrentUser))
-      .then((user) => {
-        if (cancelled) return
-        if (role && !user.roles.includes(role)) {
-          router.replace('/login')
-          return
-        }
-        setStatus('authorized')
-      })
-      .catch((err) => {
-        if (cancelled) return
-        // Only treat a confirmed 401 as an invalid session. Network blips,
-        // 5xx, and CORS failures must not wipe a still-valid token.
-        if (err instanceof AuthError && err.status === 401) {
-          clearSession()
-          router.replace('/login')
-          return
-        }
-        setStatus('error')
-      })
-
-    return () => {
-      cancelled = true
+    if (userStatus === 'error') {
+      // No token left after a 401 wipe, or never had one.
+      if (!readToken()) {
+        router.replace('/login')
+      }
+      return
     }
-  }, [router, role, retryKey])
 
-  return { status, retry: () => setRetryKey((k) => k + 1) }
+    if (userStatus === 'ready' && role && !user.roles.includes(role)) {
+      router.replace('/login')
+    }
+  }, [router, role, user, userStatus])
+
+  // No token (never signed in, or wiped after 401): redirect is in flight.
+  if (!readToken()) return { status: 'checking', retry: refresh }
+  if (userStatus === 'loading') return { status: 'checking', retry: refresh }
+  // Token still present → transient failure; Retry reuses the provider fetch.
+  if (userStatus === 'error') return { status: 'error', retry: refresh }
+  if (role && !user.roles.includes(role)) return { status: 'checking', retry: refresh }
+
+  return { status: 'authorized', retry: refresh }
 }
 
 function AuthGate({
@@ -59,7 +47,7 @@ function AuthGate({
   onRetry,
   children,
 }: {
-  status: Status
+  status: GateStatus
   onRetry: () => void
   children: ReactNode
 }) {

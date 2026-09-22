@@ -25,9 +25,25 @@ function startOrReuse(): Promise<void> {
   return readyPromise
 }
 
+async function unregisterLeftoverMockWorker(): Promise<void> {
+  // A prior mock-mode session can leave mockServiceWorker.js registered even
+  // after NEXT_PUBLIC_API_URL is set. It won't intercept cross-origin API
+  // calls, but it can still answer same-origin probes / stray relative fetches.
+  if (!('serviceWorker' in navigator)) return
+  const regs = await navigator.serviceWorker.getRegistrations()
+  await Promise.all(
+    regs
+      .filter((reg) => reg.active?.scriptURL.includes('mockServiceWorker'))
+      .map((reg) => reg.unregister())
+  )
+}
+
 export async function waitForMocking(): Promise<void> {
   if (typeof window === 'undefined') return
-  if (process.env.NEXT_PUBLIC_API_URL) return
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    void unregisterLeftoverMockWorker()
+    return
+  }
 
   await startOrReuse()
 

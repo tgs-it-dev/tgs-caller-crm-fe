@@ -3,7 +3,7 @@ import type { Role } from '../lib/auth'
 import { CLOSER_DESK_SEEDS } from '../lib/closer'
 import type { InteractionDetail } from '../lib/interactions'
 import { PUSH_INTERVAL_MS, type AgentStatus, type LiveStatus } from '../lib/liveStatus'
-import type { QueueEntry } from '../lib/queue'
+import type { CloserQueueEntry, FronterQueueEntry } from '../lib/queue'
 import type { QualificationCreateRequest, QualificationResponse } from '../lib/qualification'
 import type { HistoricalFunnel } from '../lib/reporting'
 import type { TransferCreateRequest, TransferResponse } from '../lib/transfers'
@@ -200,8 +200,8 @@ const MOCK_INTERACTIONS: Record<string, InteractionDetail> = {
 
 // Seed for the fronter Queue screen. Deterministic rather than randomised so
 // the table, wait times, and pagination look identical on every reload, and so
-// nothing depends on ordering luck. `/queue` doesn't exist on the backend yet —
-// see the contract note in lib/queue.ts.
+// nothing depends on ordering luck. `GET /queue?role=fronter|closer` is live on
+// the backend; this mock keeps the fronter dialer shape for local UI work.
 const QUEUE_LEAD_NAMES = [
   'Mubeen N.',
   'Alicia R.',
@@ -223,7 +223,7 @@ const QUEUE_CAMPAIGNS = [
 const QUEUE_SEEDED_AT = Date.now()
 
 // 48 rows so the 5-per-page table paginates across 10 pages like the design.
-const MOCK_QUEUE: QueueEntry[] = Array.from({ length: 48 }, (_, index) => ({
+const MOCK_FRONTER_QUEUE: FronterQueueEntry[] = Array.from({ length: 48 }, (_, index) => ({
   id: `int-${2000 + index}`,
   lead_name: QUEUE_LEAD_NAMES[index % QUEUE_LEAD_NAMES.length],
   lead_phone: `+1323555${(1000 + index).toString().slice(-4)}`,
@@ -231,6 +231,15 @@ const MOCK_QUEUE: QueueEntry[] = Array.from({ length: 48 }, (_, index) => ({
   // Staggered so the top of the queue has waited longest (first row = 03:12).
   queued_at: new Date(QUEUE_SEEDED_AT - (192 - index * 4) * 1000).toISOString(),
   status: index % 7 === 0 ? 'ringing' : 'waiting',
+}))
+
+const MOCK_CLOSER_QUEUE: CloserQueueEntry[] = Array.from({ length: 12 }, (_, index) => ({
+  id: `transfer-${3000 + index}`,
+  interaction_id: `int-${1100 + index}`,
+  lead_phone: `+1323555${(2000 + index).toString().slice(-4)}`,
+  fronter_user_id: index % 3 === 0 ? null : `fronter-${(index % 4) + 1}`,
+  queued_at: new Date(QUEUE_SEEDED_AT - (120 - index * 5) * 1000).toISOString(),
+  status: index % 4 === 0 ? 'offered' : 'initiated',
 }))
 
 const MOCK_QUALIFICATIONS = new Map<string, QualificationResponse>()
@@ -483,7 +492,21 @@ export const handlers = [
   }),
 
   rest.get('/queue', (req, res, ctx) => {
-    return res(ctx.status(200), ctx.json(MOCK_QUEUE))
+    const role = req.url.searchParams.get('role')
+    if (role === 'fronter') {
+      return res(ctx.status(200), ctx.json(MOCK_FRONTER_QUEUE))
+    }
+    if (role === 'closer') {
+      return res(ctx.status(200), ctx.json(MOCK_CLOSER_QUEUE))
+    }
+    return res(
+      ctx.status(422),
+      ctx.json({
+        detail: 'role query param is required',
+        code: 'validation_error',
+        fields: [{ field: 'role', message: 'Input should be fronter or closer' }],
+      })
+    )
   }),
 
   // PROVISIONAL — FE-08 agent-scoped My Stats (not in frozen OpenAPI yet).
