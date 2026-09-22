@@ -34,15 +34,18 @@ function QueueBody({ role }: { role: QueueRole }) {
     if (!token) return
 
     waitForMocking()
-      .then(() =>
-        role === 'fronter' ? listQueue(token, 'fronter') : listQueue(token, 'closer')
-      )
-      .then((entries) => {
-        if (cancelled) return
+      .then(async () => {
         if (role === 'fronter') {
-          setLoad({ status: 'ready', role: 'fronter', entries: entries as FronterQueueEntry[] })
+          return { role: 'fronter' as const, entries: await listQueue(token, 'fronter') }
+        }
+        return { role: 'closer' as const, entries: await listQueue(token, 'closer') }
+      })
+      .then((result) => {
+        if (cancelled) return
+        if (result.role === 'fronter') {
+          setLoad({ status: 'ready', role: 'fronter', entries: result.entries })
         } else {
-          setLoad({ status: 'ready', role: 'closer', entries: entries as CloserQueueEntry[] })
+          setLoad({ status: 'ready', role: 'closer', entries: result.entries })
         }
       })
       .catch(() => {
