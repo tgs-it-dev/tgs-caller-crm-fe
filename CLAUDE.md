@@ -139,6 +139,34 @@ The administrator dashboard (`/admin`) is fed by `lib/liveStatus.ts`:
 - Times show in the business time zone the snapshot names (`timezone`), with its
   abbreviation, so they read in the same day as the counts.
 
+## Reporting
+
+`/admin/reports` reads `GET /reporting/funnel` through `lib/reporting.ts` for an
+inclusive range of business days — Attempts, Connects, Qualified, Transfer
+Attempts.
+
+- **No `timezone` is sent.** A business day is the server's to define; the reply
+  names the zone it counted in, and the page shows it beside the window as the
+  abbreviation ("EDT"), the way the live dashboard writes times. The page opens
+  on today in that zone — except on the very first request, where nothing has
+  named the zone yet, so it uses the browser's day and corrects itself if the
+  reply disagrees, staying on the loading state so a day nobody asked for is
+  never drawn. A window the user picked is never corrected.
+- **The bars needn't narrow.** All four counts share one cohort, so Attempts
+  bounds the rest, but Qualified doesn't require a call leg — with the dialer
+  events unmapped, Connects sits at 0 under a non-zero Qualified. Bars measure
+  against the largest count and the page prints what the server sent; never
+  reshape a figure to keep a funnel silhouette.
+- **The last bar is Transfer Attempts, not the design's "Transferred".** Whether
+  a closer reached the lead isn't recorded anywhere, so the number counts
+  attempts, rejections and timeouts included. Connects and Qualified are
+  stand-ins too, and the page says so in a line under the chart rather than in
+  hover text, which a screen reader never reads.
+- **No drill-down.** A count covers many interactions, so it can only open a
+  list, and no administrator interaction screen exists to land on. The bars are
+  deliberately not clickable; the list arrives with the backend change that
+  gives a row something worth showing.
+
 ## UI conventions
 
 - **MUI is the component layer; Tailwind is for layout/spacing utilities.**

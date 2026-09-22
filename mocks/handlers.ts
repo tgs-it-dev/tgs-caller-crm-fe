@@ -5,6 +5,7 @@ import type { InteractionDetail } from '../lib/interactions'
 import { PUSH_INTERVAL_MS, type AgentStatus, type LiveStatus } from '../lib/liveStatus'
 import type { QueueEntry } from '../lib/queue'
 import type { QualificationCreateRequest, QualificationResponse } from '../lib/qualification'
+import type { HistoricalFunnel } from '../lib/reporting'
 import type { TransferCreateRequest, TransferResponse } from '../lib/transfers'
 
 type MockUser = {
@@ -103,6 +104,45 @@ function mockLiveStatus(): LiveStatus {
       transfers_rejected: 1 + (tick % 2),
       sales: 2 + (tick % 2),
     },
+  }
+}
+
+/** Why an administrator-only route would turn this request away, or null. */
+function adminRefusal(authorization: string | null) {
+  const user = MOCK_TOKENS.get((authorization || '').replace(/^Bearer\s+/i, ''))
+  if (!user) {
+    return {
+      status: 401,
+      body: authErrorBody('Could not validate credentials', 'auth.not_authenticated'),
+    }
+  }
+  if (!user.roles.includes('administrator')) {
+    return {
+      status: 403,
+      body: authErrorBody('Insufficient role for this operation', 'auth.forbidden'),
+    }
+  }
+  return null
+}
+
+/**
+ * Funnel counts for a window, worked out from the window itself so the same
+ * dates always answer the same figures and a different range visibly moves them.
+ */
+function mockFunnel(start: string, end: string): HistoricalFunnel {
+  const days = Math.max(1, Math.round((Date.parse(end) - Date.parse(start)) / 86_400_000) + 1)
+  const attempts = days * 40 + (Number(start.replace(/-/g, '')) % 97)
+  const connects = Math.round(attempts * 0.67)
+  const qualified = Math.round(connects * 0.62)
+
+  return {
+    start,
+    end,
+    timezone: 'America/New_York',
+    attempts,
+    connects,
+    qualified,
+    transfer_attempts: Math.round(qualified * 0.48),
   }
 }
 
@@ -419,23 +459,23 @@ export const handlers = [
   }),
 
   rest.get('/reporting/live', (req, res, ctx) => {
-    const token = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '')
-    const user = MOCK_TOKENS.get(token)
-
-    if (!user) {
-      return res(
-        ctx.status(401),
-        ctx.json(authErrorBody('Could not validate credentials', 'auth.not_authenticated'))
-      )
-    }
-    if (!user.roles.includes('administrator')) {
-      return res(
-        ctx.status(403),
-        ctx.json(authErrorBody('Insufficient role for this operation', 'auth.forbidden'))
-      )
-    }
+    const refused = adminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
 
     return res(ctx.status(200), ctx.json(mockLiveStatus()))
+  }),
+
+  rest.get('/reporting/funnel', (req, res, ctx) => {
+    const refused = adminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const start = req.url.searchParams.get('start')
+    const end = req.url.searchParams.get('end')
+    if (!start || !end) {
+      return res(ctx.status(422), ctx.json(authErrorBody('Field required', 'validation_error')))
+    }
+
+    return res(ctx.status(200), ctx.json(mockFunnel(start, end)))
   }),
 
   rest.get('/interactions', (req, res, ctx) => {
