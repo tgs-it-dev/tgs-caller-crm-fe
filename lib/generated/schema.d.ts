@@ -338,6 +338,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/stats/today": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * This fronter's dispositions and transfers for today's business day
+         * @description My Stats for the signed-in fronter.
+         *
+         *     Scoped to the caller and to the configured business day — never another
+         *     agent's rows, never yesterday's. An empty day is empty arrays, not 404.
+         */
+        get: operations["stats_today_me_stats_today_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/qualification": {
         parameters: {
             query?: never;
@@ -1224,6 +1247,57 @@ export interface components {
              * @description Single-use value for /realtime/ws?ticket=…
              */
             ticket: string;
+        };
+        /**
+         * TodaysDispositionRow
+         * @description One fronter disposition the caller recorded today, with lead display fields.
+         *
+         *     Slimmer than InteractionDispositionResponse: the My Stats table does not need
+         *     disposition_id or version. lead_name/lead_phone are denormalised so the page
+         *     does not N+1 leads.
+         */
+        TodaysDispositionRow: {
+            /**
+             * Actor User Id
+             * Format: uuid
+             */
+            actor_user_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Interaction Id
+             * Format: uuid
+             */
+            interaction_id: string;
+            /** Label */
+            label: string;
+            /** Lead Name */
+            lead_name: string;
+            /** Lead Phone */
+            lead_phone: string;
+            /**
+             * Stage
+             * @enum {string}
+             */
+            stage: "fronter" | "closer";
+        };
+        /**
+         * TodaysStatsResponse
+         * @description The authenticated fronter's dispositions and transfers for the business day.
+         */
+        TodaysStatsResponse: {
+            /** Dispositions */
+            dispositions: components["schemas"]["TodaysDispositionRow"][];
+            /** Transferred Interaction Ids */
+            transferred_interaction_ids: string[];
         };
         /** TokenResponse */
         TokenResponse: {
@@ -2127,6 +2201,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeadResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    stats_today_me_stats_today_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodaysStatsResponse"];
                 };
             };
             /** @description Client Error */

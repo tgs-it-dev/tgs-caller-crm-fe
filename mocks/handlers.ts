@@ -366,7 +366,7 @@ const MOCK_DISPOSITION_CATALOG: MockDisposition[] = [
   { id: 'disp-closer-callback', label: 'Callback requested', stage: 'closer' },
   { id: 'disp-closer-not-interested', label: 'Not interested', stage: 'closer' },
   { id: 'disp-closer-dnc', label: 'Do not call', stage: 'closer' },
-  { id: 'disp-fronter-qualified', label: 'Qualified — ready to transfer', stage: 'fronter' },
+  { id: 'disp-fronter-qualified', label: 'Qualified - Transferred', stage: 'fronter' },
   { id: 'disp-fronter-not-interested', label: 'Not interested', stage: 'fronter' },
   { id: 'disp-fronter-callback', label: 'Callback requested', stage: 'fronter' },
   { id: 'disp-fronter-dnc', label: 'Do not call', stage: 'fronter' },
@@ -376,7 +376,7 @@ const MOCK_DISPOSITION_CATALOG: MockDisposition[] = [
 const MOCK_INTERACTION_DISPOSITIONS = new Map<string, MockInteractionDisposition[]>()
 let interactionDispositionSeq = 0
 
-/** FE-08 My Stats — provisional `/me/stats/today` seed, keyed by actor user id. */
+/** FE-08 My Stats — `/me/stats/today` seed, keyed by actor user id. */
 type MyStatsDispositionSeed = {
   id: string
   interaction_id: string
@@ -389,11 +389,11 @@ type MyStatsDispositionSeed = {
 }
 
 const MY_STATS_LABELS = [
-  'Qualified — ready to transfer',
-  'Not interested',
-  'Callback requested',
-  'Do not call',
-  'Invalid / wrong number',
+  'Qualified - Transferred',
+  'Not Interested',
+  'Callback Requested',
+  'Do Not Call',
+  'Wrong Number',
 ] as const
 
 const MY_STATS_LEADS = [
@@ -433,7 +433,7 @@ function seedMyStatsForUser(
 
   // Half of this user's qualified calls were transferred — countable from the payload.
   const transferred_interaction_ids = dispositions
-    .filter((row) => row.label === 'Qualified — ready to transfer')
+    .filter((row) => row.label === 'Qualified - Transferred')
     .filter((_, i) => i % 2 === 0)
     .map((row) => row.interaction_id)
 
@@ -572,7 +572,7 @@ export const handlers = [
     )
   }),
 
-  // PROVISIONAL — FE-08 agent-scoped My Stats (not in frozen OpenAPI yet).
+  // FE-08 — GET /me/stats/today (agent-scoped My Stats).
   rest.get('/me/stats/today', (req, res, ctx) => {
     const authHeader = req.headers.get('authorization') || ''
     const token = authHeader.replace(/^Bearer\s+/i, '')
@@ -589,9 +589,8 @@ export const handlers = [
 
     // Never leak another user's rows — seed is already keyed by actor, filter again.
     const dispositions = payload.dispositions.filter((row) => row.actor_user_id === user.id)
-    const allowed = new Set(dispositions.map((row) => row.interaction_id))
     const transferred_interaction_ids = payload.transferred_interaction_ids.filter((id) =>
-      allowed.has(id)
+      dispositions.some((row) => row.interaction_id === id)
     )
 
     return res(ctx.status(200), ctx.json({ dispositions, transferred_interaction_ids }))
