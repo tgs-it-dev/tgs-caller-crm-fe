@@ -635,6 +635,26 @@ export const handlers = [
     return res(ctx.status(201), ctx.json(record))
   }),
 
+  rest.get('/transfers/closers', (_req, res, ctx) => {
+    return res(
+      ctx.status(200),
+      ctx.json({
+        items: [
+          {
+            user_id: '5a1f0c3e-0001-4000-8000-000000000001',
+            name: 'Carl Closer',
+            status: 'available',
+          },
+          {
+            user_id: '5a1f0c3e-0003-4000-8000-000000000003',
+            name: 'Eli Brooks',
+            status: 'on_call',
+          },
+        ],
+      })
+    )
+  }),
+
   rest.post('/transfers', async (req, res, ctx) => {
     const body = (await req.json()) as TransferCreateRequest
     const now = new Date().toISOString()

@@ -2,9 +2,12 @@
 
 import { Alert } from '@/components/ui/Alert'
 import { Button } from '@/components/ui/Button'
+import type { AvailableCloserItem } from '@/lib/transfers'
+import { ClosersTable } from './ClosersTable'
 import { OverrideReason } from './OverrideReason'
 
 export function TransferPanel({
+  closers,
   canTransfer,
   needsOverride,
   overrideReason,
@@ -14,6 +17,7 @@ export function TransferPanel({
   transferStatus,
   onTransfer,
 }: {
+  closers: AvailableCloserItem[]
   canTransfer: boolean
   needsOverride: boolean
   overrideReason: string
@@ -29,10 +33,13 @@ export function TransferPanel({
         Transfer
       </h2>
 
-      <p className="mt-4 text-sm leading-[150%] text-body-text">
-        The server assigns an available closer when you transfer — there is no
-        closer picker on this endpoint.
-      </p>
+      <p className="mt-4 text-sm font-medium text-ink">Available Closers</p>
+      <div className="mt-3">
+        <ClosersTable closers={closers} />
+      </div>
+      {/* <p className="mt-2 text-xs text-slate">
+        Read-only — the server assigns an available closer when you transfer.
+      </p> */}
 
       {transferStatus && (
         <p className="mt-3 text-sm text-status-green">Transfer {transferStatus}</p>
@@ -50,7 +57,7 @@ export function TransferPanel({
         </Button>
         <p className="mt-2 text-center text-xs text-slate">
           {needsOverride
-            ? 'Required vehicle fields are incomplete — add an override reason to transfer.'
+            ? "Add an override reason if the checklist isn't complete."
             : 'Complete consent, disposition, and vehicle fields to transfer.'}
         </p>
       </div>

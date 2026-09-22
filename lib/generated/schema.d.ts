@@ -382,6 +382,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List queue for a role */
+        get: operations["get_queue_queue_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/realtime/ticket": {
         parameters: {
             query?: never;
@@ -524,6 +541,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/transfers/closers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List closers for the Active Call Transfer panel
+         * @description Returns active closers with availability matching the transfer gate (``transfer.no_closer_available``). Transfer stays auto-assign: this list is read-only display for the Figma Available Closers table; ``POST /transfers`` does not accept a closer selection.
+         */
+        get: operations["list_closers_transfers_closers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/transfers/{transfer_id}": {
         parameters: {
             query?: never;
@@ -610,6 +647,58 @@ export interface components {
              * Format: uuid
              */
             user_id: string;
+        };
+        /** AvailableCloserItem */
+        AvailableCloserItem: {
+            /** Name */
+            name: string;
+            /**
+             * Status
+             * @description available means free for a new transfer; on_call means busy on an accepted transfer not yet closer-dispositioned — the same rule as transfer.no_closer_available.
+             * @enum {string}
+             */
+            status: "available" | "on_call";
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+        };
+        /** AvailableClosersResponse */
+        AvailableClosersResponse: {
+            /**
+             * Items
+             * @description Active closers only. Empty when nobody is staffed — transfer would then return transfer.no_closer_available. Read-only: POST /transfers does not accept a closer_user_id.
+             */
+            items: components["schemas"]["AvailableCloserItem"][];
+        };
+        /** CloserQueueItem */
+        CloserQueueItem: {
+            /** Fronter User Id */
+            fronter_user_id: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Interaction Id
+             * Format: uuid
+             */
+            interaction_id: string;
+            /** Lead Phone */
+            lead_phone: string;
+            /**
+             * Queued At
+             * Format: date-time
+             */
+            queued_at: string;
+            /**
+             * Status
+             * @description initiated | offered
+             * @enum {string}
+             */
+            status: "initiated" | "offered";
         };
         /**
          * ConsentDnc
@@ -703,6 +792,28 @@ export interface components {
             in: "body" | "query" | "path" | "header" | "cookie" | "qualification";
             /** Message */
             message: string;
+        };
+        /** FronterQueueItem */
+        FronterQueueItem: {
+            /** Campaign Name */
+            campaign_name: string;
+            /** Id */
+            id: string;
+            /** Lead Name */
+            lead_name: string;
+            /** Lead Phone */
+            lead_phone: string;
+            /**
+             * Queued At
+             * Format: date-time
+             */
+            queued_at: string;
+            /**
+             * Status
+             * @description ringing | waiting
+             * @enum {string}
+             */
+            status: "ringing" | "waiting";
         };
         /** FunnelCounts */
         FunnelCounts: {
@@ -2120,6 +2231,47 @@ export interface operations {
             };
         };
     };
+    get_queue_queue_get: {
+        parameters: {
+            query: {
+                /** @description Which queue to return: fronter (dialer) or closer (transfers) */
+                role: "fronter" | "closer";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FronterQueueItem"][] | components["schemas"]["CloserQueueItem"][];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     create_ticket_realtime_ticket_post: {
         parameters: {
             query?: never;
@@ -2347,6 +2499,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TransferResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_closers_transfers_closers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AvailableClosersResponse"];
                 };
             };
             /** @description Client Error */

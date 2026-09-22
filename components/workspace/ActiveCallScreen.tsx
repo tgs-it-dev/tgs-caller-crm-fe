@@ -33,7 +33,7 @@ import {
   type ActiveCallForm,
 } from '@/lib/qualification'
 import { withSession } from '@/lib/session'
-import { createTransfer } from '@/lib/transfers'
+import { createTransfer, type AvailableCloserItem } from '@/lib/transfers'
 
 function LiveCallBadge({ startedAt }: { startedAt: string }) {
   const [elapsed, setElapsed] = useState(() => formatElapsed(startedAt))
@@ -60,6 +60,7 @@ type LoadState =
       status: 'ready'
       interaction: InteractionDetail
       dispositions: DispositionResponse[]
+      closers: AvailableCloserItem[]
     }
 
 export function ActiveCallScreen({ interactionId }: { interactionId: string }) {
@@ -85,7 +86,7 @@ function ActiveCallBody({ interactionId }: { interactionId: string }) {
 
     waitForMocking()
       .then(() => withSession((token) => loadActiveCallWorkspace(interactionId, token)))
-      .then(({ interaction, qualification, dispositions, capturedDispositions }) => {
+      .then(({ interaction, qualification, dispositions, capturedDispositions, closers }) => {
         if (cancelled) return
 
         if (qualification) {
@@ -104,7 +105,7 @@ function ActiveCallBody({ interactionId }: { interactionId: string }) {
         const latest = latestFronterDisposition(capturedDispositions)
         if (latest) setDispositionId(latest.disposition_id)
 
-        setLoad({ status: 'ready', interaction, dispositions })
+        setLoad({ status: 'ready', interaction, dispositions, closers })
       })
       .catch((err) => {
         if (cancelled) return
@@ -206,6 +207,7 @@ function ActiveCallBody({ interactionId }: { interactionId: string }) {
             onDispositionChange={setDispositionId}
           />
           <TransferPanel
+            closers={load.closers}
             canTransfer={eligible}
             needsOverride={needsOverride}
             overrideReason={overrideReason}

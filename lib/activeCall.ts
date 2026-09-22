@@ -9,12 +9,14 @@ import {
   getLatestQualification,
   type QualificationResponse,
 } from '@/lib/qualification'
+import { listAvailableClosers, type AvailableCloserItem } from '@/lib/transfers'
 
 export type ActiveCallWorkspaceData = {
   interaction: InteractionDetail
   qualification: QualificationResponse | null
   dispositions: DispositionResponse[]
   capturedDispositions: InteractionDispositionResponse[]
+  closers: AvailableCloserItem[]
 }
 
 /**
@@ -34,13 +36,17 @@ export function loadActiveCallWorkspace(
       getLatestQualification(interactionId, token),
       listDispositions(token, 'fronter'),
       listInteractionDispositions(interactionId, token),
+      listAvailableClosers(token),
     ])
-      .then(([interaction, qualification, dispositions, capturedDispositions]) => ({
-        interaction,
-        qualification,
-        dispositions,
-        capturedDispositions,
-      }))
+      .then(
+        ([interaction, qualification, dispositions, capturedDispositions, closers]) => ({
+          interaction,
+          qualification,
+          dispositions,
+          capturedDispositions,
+          closers,
+        })
+      )
       .finally(() => {
         if (inflightByInteraction.get(interactionId) === inflight) {
           inflightByInteraction.delete(interactionId)
