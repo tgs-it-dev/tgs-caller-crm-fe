@@ -1,12 +1,15 @@
-"use client"
-import { useEffect } from 'react'
+'use client'
+
+import { ReactNode, useEffect } from 'react'
 import { waitForMocking } from '@/lib/mockReady'
 
-export default function MockProvider({ children }: { children: React.ReactNode }) {
+/**
+ * Starts MSW only when `NEXT_PUBLIC_API_URL` is unset (see `waitForMocking`).
+ * With a live API URL this unregisters any leftover mock service worker and
+ * does not start MSW.
+ */
+export default function MockProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
-    // Kick off MSW early so the first authenticated fetch after a reload
-    // doesn't race worker registration. waitForMocking() is safe to call
-    // repeatedly — it shares one in-flight start and re-activates if needed.
     void waitForMocking()
   }, [])
 
