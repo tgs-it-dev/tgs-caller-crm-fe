@@ -1,22 +1,11 @@
+import type { components } from '@/lib/generated/schema'
 import { apiUrl } from '@/lib/apiUrl'
+import { authError } from '@/lib/auth'
 
-// Matches the backend's frozen contract in src/schemas/transfers.py.
-export type TransferStatus = 'initiated' | 'offered' | 'accepted' | 'rejected' | 'timeout'
-
-export type TransferResponse = {
-  id: string
-  interaction_id: string
-  status: TransferStatus
-  fronter_user_id: string | null
-  closer_user_id: string | null
-  created_at: string
-  updated_at: string
-}
-
-export type TransferCreateRequest = {
-  interaction_id: string
-  fronter_user_id: string
-}
+export type TransferStatus = components['schemas']['TransferResponse']['status']
+export type TransferResponse = components['schemas']['TransferResponse']
+/** Includes optional `override_reason` when vehicle_* fields are missing. */
+export type TransferCreateRequest = components['schemas']['TransferCreateRequest']
 
 export async function createTransfer(
   payload: TransferCreateRequest,
@@ -28,7 +17,7 @@ export async function createTransfer(
     body: JSON.stringify(payload),
   })
 
-  if (!res.ok) throw new Error('Unable to start the transfer. Please try again.')
+  if (!res.ok) throw await authError(res)
 
-  return res.json()
+  return res.json() as Promise<TransferResponse>
 }

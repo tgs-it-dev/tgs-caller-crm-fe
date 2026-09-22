@@ -1,8 +1,8 @@
+import type { components } from '@/lib/generated/schema'
 import { apiUrl } from '@/lib/apiUrl'
+import { authError } from '@/lib/auth'
 
-// Mirrors the backend's frozen contract in src/schemas/qualification.py —
-// keep these Literal-equivalents in sync with src/schemas/common.py.
-export type LeadSource = 'vicidial' | 'ghl'
+export type LeadSource = components['schemas']['LeadResponse']['source']
 
 export const CHECKLIST_ITEMS = [
   { key: 'identityVerified', label: "Verified the caller's identity" },
@@ -24,10 +24,11 @@ export const EMPTY_CHECKLIST: ChecklistState = {
   decisionMakerConfirmed: false,
 }
 
-// `dispositions.py` on the backend is an unbuilt week-4 scaffold with no
-// catalogue yet, so this outcome set is folded into the qualification
-// snapshot rather than a second fabricated CRUD endpoint. Reconcile against
-// the real disposition catalogue once it ships.
+/**
+ * Outcomes still baked into the snapshot for the existing Workspace UI.
+ * Prefer `GET /dispositions?stage=fronter` + `POST .../dispositions` when
+ * wiring Active Call to the catalogue.
+ */
 export const DISPOSITIONS = [
   { value: 'qualified', label: 'Qualified — ready to transfer' },
   { value: 'not_interested', label: 'Not interested' },
@@ -38,29 +39,26 @@ export const DISPOSITIONS = [
 
 export type Disposition = (typeof DISPOSITIONS)[number]['value']
 
-// BE-B-06 override path (assumed; the backend ticket text wasn't available
-// to consult). A fronter can bypass an incomplete checklist to force a
-// transfer, but never bypasses a DNC flag — that's a compliance stop, not a
-// process gate. The reason is recorded so it's auditable.
 export type QualificationOverride = {
   applied: boolean
   reason: string
 }
 
+/** Existing Workspace snapshot. Transfer gate on BE also reads vehicle_* keys. */
 export type QualificationSnapshot = {
   checklist: ChecklistState
   disposition: Disposition | null
   notes: string
   override: QualificationOverride
+  vehicle_year?: string
+  vehicle_make?: string
+  vehicle_model?: string
+  mileage?: string
+  state?: string
+  warranty_status?: string
 }
 
-// Matches src/schemas/qualification.py:ConsentDnc exactly.
-export type ConsentDnc = {
-  consent_given: boolean
-  consent_captured_at: string | null
-  dnc_flagged: boolean
-  dnc_source: string | null
-}
+export type ConsentDnc = components['schemas']['ConsentDnc']
 
 export type QualificationResponse = {
   id: string
@@ -69,13 +67,147 @@ export type QualificationResponse = {
   snapshot_json: QualificationSnapshot
   consent_dnc: ConsentDnc
   created_at: string
-  updated_at: string
+  updated_at?: string
 }
 
 export type QualificationCreateRequest = {
   interaction_id: string
-  snapshot_json: QualificationSnapshot
+  /** Free-form dict — Active Call sends vehicle_*; Workspace may send checklist. */
+  snapshot_json: QualificationSnapshot | Record<string, unknown>
   consent_dnc: ConsentDnc
+}
+
+/** BE transfer required fields (TransferRequiredField / seed). */
+export const REQUIRED_TRANSFER_FIELDS = [
+  'vehicle_year',
+  'vehicle_make',
+  'vehicle_model',
+  'mileage',
+] as const
+
+export type RequiredTransferField = (typeof REQUIRED_TRANSFER_FIELDS)[number]
+
+export function missingRequiredFields(
+  snapshot: Pick<
+    QualificationSnapshot,
+    'vehicle_year' | 'vehicle_make' | 'vehicle_model' | 'mileage'
+  >
+): RequiredTransferField[] {
+  return REQUIRED_TRANSFER_FIELDS.filter((key) => !String(snapshot[key] ?? '').trim())
+}
+
+/** Active Call Figma form — combined vehicle line maps to BE vehicle_* keys. */
+export type ActiveCallForm = {
+  vehicle: string
+  mileage: string
+  state: string
+  warranty_status: string
+  notes: string
+  consent: 'yes' | 'no'
+}
+
+export const EMPTY_ACTIVE_CALL_FORM: ActiveCallForm = {
+  vehicle: '',
+  mileage: '',
+  state: '',
+  warranty_status: '',
+  notes: '',
+  consent: 'yes',
+}
+
+export const WARRANTY_STATUS_OPTIONS = ['Active', 'Expired', 'Expiring soon', 'Unknown'] as const
+
+/** Split "2019 Toyota Camry" → year / make / model for the transfer gate. */
+export function parseVehicleLine(vehicle: string): {
+  vehicle_year: string
+  vehicle_make: string
+  vehicle_model: string
+} {
+  const parts = vehicle.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return { vehicle_year: '', vehicle_make: '', vehicle_model: '' }
+  const yearLike = /^\d{4}$/.test(parts[0] ?? '')
+  if (yearLike) {
+    return {
+      vehicle_year: parts[0] ?? '',
+      vehicle_make: parts[1] ?? '',
+      vehicle_model: parts.slice(2).join(' '),
+    }
+  }
+  return {
+    vehicle_year: '',
+    vehicle_make: parts[0] ?? '',
+    vehicle_model: parts.slice(1).join(' '),
+  }
+}
+
+export function snapshotJsonFromActiveCall(form: ActiveCallForm): Record<string, unknown> {
+  const parsed = parseVehicleLine(form.vehicle)
+  return {
+    vehicle: form.vehicle.trim(),
+    ...parsed,
+    mileage: form.mileage.trim(),
+    state: form.state.trim(),
+    warranty_status: form.warranty_status,
+    notes: form.notes,
+  }
+}
+
+export function consentFromActiveCall(form: ActiveCallForm): ConsentDnc {
+  const given = form.consent === 'yes'
+  return {
+    consent_given: given,
+    consent_captured_at: given ? new Date().toISOString() : null,
+    dnc_flagged: false,
+    dnc_source: null,
+  }
+}
+
+function asString(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  return ''
+}
+
+/** Hydrate the Active Call form from a saved `snapshot_json` + consent. */
+export function activeCallFormFromQualification(
+  snapshot: Record<string, unknown> | null | undefined,
+  consent: ConsentDnc | null | undefined
+): ActiveCallForm {
+  const vehicle =
+    asString(snapshot?.vehicle) ||
+    [snapshot?.vehicle_year, snapshot?.vehicle_make, snapshot?.vehicle_model]
+      .map(asString)
+      .map((p) => p.trim())
+      .filter(Boolean)
+      .join(' ')
+
+  return {
+    vehicle,
+    mileage: asString(snapshot?.mileage),
+    state: asString(snapshot?.state),
+    warranty_status: asString(snapshot?.warranty_status),
+    notes: asString(snapshot?.notes),
+    consent: consent?.consent_given ? 'yes' : consent ? 'no' : 'yes',
+  }
+}
+
+export function missingActiveCallTransferFields(form: ActiveCallForm): RequiredTransferField[] {
+  return missingRequiredFields({
+    ...parseVehicleLine(form.vehicle),
+    mileage: form.mileage,
+  })
+}
+
+/** Client gate for the Transfer button on Active Call. */
+export function canTransferActiveCall(
+  form: ActiveCallForm,
+  opts: { dispositionId: string; overrideReason: string }
+): boolean {
+  if (form.consent !== 'yes') return false
+  if (!opts.dispositionId) return false
+  const missing = missingActiveCallTransferFields(form)
+  if (missing.length === 0) return true
+  return opts.overrideReason.trim().length > 0
 }
 
 export async function getLatestQualification(
@@ -87,9 +219,9 @@ export async function getLatestQualification(
   })
 
   if (res.status === 404) return null
-  if (!res.ok) throw new Error('Unable to load the saved qualification.')
+  if (!res.ok) throw await authError(res)
 
-  return res.json()
+  return res.json() as Promise<QualificationResponse>
 }
 
 export async function submitQualification(
@@ -102,9 +234,9 @@ export async function submitQualification(
     body: JSON.stringify(payload),
   })
 
-  if (!res.ok) throw new Error('Unable to save the qualification. Please try again.')
+  if (!res.ok) throw await authError(res)
 
-  return res.json()
+  return res.json() as Promise<QualificationResponse>
 }
 
 export function isChecklistComplete(checklist: ChecklistState): boolean {
@@ -112,7 +244,7 @@ export function isChecklistComplete(checklist: ChecklistState): boolean {
 }
 
 export function canTransfer(snapshot: QualificationSnapshot, consent: ConsentDnc): boolean {
-  if (consent.dnc_flagged) return false // hard compliance stop — no override bypasses this
+  if (consent.dnc_flagged) return false
   if (snapshot.disposition !== 'qualified') return false
   if (!consent.consent_given) return false
   if (isChecklistComplete(snapshot.checklist)) return true
@@ -127,8 +259,6 @@ export type Requirement = {
   overridable: boolean
 }
 
-// Drives the "what's blocking transfer, and why" panel — one source of truth
-// so the UI never drifts from canTransfer()'s actual gating logic.
 export function transferRequirements(
   snapshot: QualificationSnapshot,
   consent: ConsentDnc
