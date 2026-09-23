@@ -34,7 +34,9 @@ function QueueBody({ role }: { role: QueueRole }) {
     if (!token) return
 
     waitForMocking()
-      .then(() =>
+      // Annotated because listQueue's overloads make this a union of two
+      // promises, which .then() cannot narrow; one promise of a union it can.
+      .then((): Promise<FronterQueueEntry[] | CloserQueueEntry[]> =>
         role === 'fronter' ? listQueue(token, 'fronter') : listQueue(token, 'closer')
       )
       .then((entries) => {
