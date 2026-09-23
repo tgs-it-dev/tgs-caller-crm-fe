@@ -25,6 +25,8 @@ type DataTableProps<T> = {
   columns: DataColumn<T>[]
   getRowId: (row: T) => string
   emptyMessage: string
+  /** Controls for the whole list, sat opposite the title — e.g. "Add User". */
+  actions?: ReactNode
   /** `solid` = My Stats / closer cards; `live` = dashed Queue outline. */
   variant?: 'solid' | 'live'
   pageSize?: number
@@ -41,6 +43,7 @@ export function DataTable<T>({
   columns,
   getRowId,
   emptyMessage,
+  actions,
   variant = 'solid',
   pageSize = DEFAULT_PAGE_SIZE,
 }: DataTableProps<T>) {
@@ -62,11 +65,12 @@ export function DataTable<T>({
 
   return (
     <div className={shell}>
-      <h2
-        className={`mb-5 border-b-hairline ${titleRule} pb-4 text-lg font-medium leading-[120%] text-ink`}
+      <div
+        className={`mb-5 flex items-center justify-between gap-4 border-b-hairline ${titleRule} pb-4`}
       >
-        {title}
-      </h2>
+        <h2 className="text-lg font-medium leading-[120%] text-ink">{title}</h2>
+        {actions}
+      </div>
 
       {rows.length === 0 ? (
         <p className="py-10 text-center text-sm text-slate">{emptyMessage}</p>

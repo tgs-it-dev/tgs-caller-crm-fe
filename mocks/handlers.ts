@@ -1,4 +1,5 @@
 import { rest } from 'msw'
+import type { FieldError } from '../lib/apiError'
 import type { Role } from '../lib/auth'
 import { CLOSER_DESK_SEEDS } from '../lib/closer'
 import type { InteractionDetail } from '../lib/interactions'
@@ -11,28 +12,160 @@ import type { TransferCreateRequest, TransferResponse } from '../lib/transfers'
 type MockUser = {
   id: string
   email: string
-  password: string
+  password: string | null
   name: string
   roles: Role[]
+  active: boolean
+  created_at: string
 }
 
+const SEEDED_AT = new Date(Date.now() - 1000 * 60 * 60 * 24 * 30).toISOString()
+
 // Demo accounts for local/dev use only, until the real /auth endpoints ship (week 2).
+// The admin console reads and writes this same list, so a user added there can
+// sign in, and one deactivated there stops being able to.
 const MOCK_USERS: MockUser[] = [
-  { id: '1', email: 'fronter@tgs.com', password: 'password1', name: 'Fiona Fronter', roles: ['fronter'] },
+  { id: '1', email: 'fronter@tgs.com', password: 'password1', name: 'Fiona Fronter', roles: ['fronter'], active: true, created_at: SEEDED_AT },
   // Second fronter — proves /me/stats/today is scoped per logged-in user (FE-08 AC).
-  { id: '4', email: 'fronter2@tgs.com', password: 'password1', name: 'Frank Fronter', roles: ['fronter'] },
-  { id: '2', email: 'closer@tgs.com', password: 'password1', name: 'Carl Closer', roles: ['closer'] },
-  { id: '3', email: 'admin@tgs.com', password: 'password1', name: 'Ana Admin', roles: ['administrator'] },
+  { id: '4', email: 'fronter2@tgs.com', password: 'password1', name: 'Frank Fronter', roles: ['fronter'], active: true, created_at: SEEDED_AT },
+  { id: '2', email: 'closer@tgs.com', password: 'password1', name: 'Carl Closer', roles: ['closer'], active: true, created_at: SEEDED_AT },
+  { id: '3', email: 'admin@tgs.com', password: 'password1', name: 'Ana Admin', roles: ['administrator'], active: true, created_at: SEEDED_AT },
+  // Deactivated, so the list has something to show in that state from the start.
+  { id: '5', email: 'former@tgs.com', password: 'password1', name: 'Nadia Former', roles: ['closer'], active: false, created_at: SEEDED_AT },
 ]
+
+const KNOWN_ROLES: Role[] = ['fronter', 'closer', 'administrator']
+
+type MockLink = { token: string; userId: string; purpose: 'invite' | 'reset'; state: 'live' | 'used' | 'superseded' | 'expired' }
+
+const MOCK_LINKS: MockLink[] = [
+  // Fixed tokens, openable by hand — mock state lives in the page and does not
+  // survive a reload, so a freshly issued link cannot be followed here:
+  //   /invite/live-link  /invite/expired-link
+  //   /invite/used-link  /invite/superseded-link
+  { token: 'live-link', userId: '1', purpose: 'invite', state: 'live' },
+  { token: 'expired-link', userId: '1', purpose: 'invite', state: 'expired' },
+  { token: 'used-link', userId: '1', purpose: 'invite', state: 'used' },
+  { token: 'superseded-link', userId: '1', purpose: 'invite', state: 'superseded' },
+]
+
+let linkSeq = 0
+
+function issueMockLink(userId: string, purpose: 'invite' | 'reset'): string {
+  for (const link of MOCK_LINKS) {
+    if (link.userId === userId && link.purpose === purpose && link.state === 'live') {
+      link.state = 'superseded'
+    }
+  }
+  const token = `mock-${purpose}-${++linkSeq}`
+  MOCK_LINKS.push({ token, userId, purpose, state: 'live' })
+  // Mock mode has no mail server, so the link goes where the backend's "log"
+  // transport puts it — somewhere a developer can read it.
+  const path = purpose === 'invite' ? 'invite' : 'reset-password'
+  console.info(`[mock email] ${window.location.origin}/${path}/${token}`)
+  return token
+}
+
+/**
+ * A link ready to be spent, or why it cannot be — in the API's own codes.
+ *
+ * Returns the link itself so the caller spends the one that was checked, rather
+ * than looking it up a second time by a looser key.
+ */
+function openLink(token: string, purpose: 'invite' | 'reset') {
+  const refuse = (status: number, detail: string, reason: string) => ({
+    refused: { status, body: authErrorBody(detail, `${purpose}.${reason}`) },
+  })
+  const link = MOCK_LINKS.find((l) => l.token === token && l.purpose === purpose)
+  if (!link) return refuse(404, 'no such link', 'not_found')
+  if (link.state === 'used') return refuse(410, 'already used', 'already_redeemed')
+  if (link.state === 'superseded') return refuse(410, 'superseded', 'superseded')
+  if (link.state === 'expired') return refuse(410, 'expired', 'expired')
+  return { link }
+}
+
+/** The address as the API stores and matches it, everywhere it handles one. */
+function normalizeEmail(value: unknown): string {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+}
+
+/**
+ * The API's 8–72 rule, refused as it would refuse it.
+ *
+ * The floor counts characters and the ceiling counts bytes, because that is
+ * what the two constraints behind it count: a Pydantic `min_length` and
+ * bcrypt's own limit.
+ */
+function passwordRefusal(value: string, field: string) {
+  const message =
+    value.length < 8
+      ? 'String should have at least 8 characters'
+      : new TextEncoder().encode(value).length > 72
+        ? 'password must be at most 72 bytes'
+        : null
+  if (!message) return null
+  return {
+    status: 422,
+    body: authErrorBody(message, 'validation_error', [{ field, in: 'body' as const, message }]),
+  }
+}
+
+let userSeq = MOCK_USERS.length
+
+/** What the API would refuse about a new user, or null. */
+function describeUser(body: { email?: string; name?: string; password?: string; roles?: Role[] }) {
+  const problem = (field: string, message: string) => ({
+    status: 422,
+    body: authErrorBody(message, 'validation_error', [{ field, in: 'body' as const, message }]),
+  })
+
+  if (!body.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)) {
+    return problem('email', 'value is not a valid email address')
+  }
+  if (!body.name || !body.name.trim()) return problem('name', 'String should have at least 1 character')
+  // Optional now: without one the new user is emailed a link instead.
+  if (body.password !== undefined) {
+    const refused = passwordRefusal(body.password, 'password')
+    if (refused) return refused
+  }
+  if (!body.roles || body.roles.length === 0) {
+    return problem('roles', 'List should have at least 1 item')
+  }
+  const unknown = body.roles.filter((role) => !KNOWN_ROLES.includes(role))
+  if (unknown.length > 0) {
+    return {
+      status: 422,
+      body: authErrorBody(`unknown roles: ${unknown.join(', ')}`, 'user.unknown_roles', [
+        { field: 'roles', in: 'body' as const, message: 'unknown role' },
+      ]),
+    }
+  }
+  return null
+}
+
+/** The wire shape of a user — the mock list carries a password the API never returns. */
+function userBody(user: MockUser) {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    active: user.active,
+    roles: user.roles,
+    created_at: user.created_at,
+  }
+}
 
 const MOCK_TOKENS = new Map<string, MockUser>()
 // Rotated like the real API's: each refresh token works once.
 const MOCK_REFRESH_TOKENS = new Map<string, MockUser>()
 
 // The real API's error envelope, with the same codes, so error handling behaves
-// the same against mocks as against it.
-function authErrorBody(detail: string, code: string) {
-  return { detail, code }
+// the same against mocks as against it. `fields` names the input at fault —
+// without it a form has nothing to put its message beside.
+function authErrorBody(detail: string, code: string, fields?: FieldError[]) {
+  return fields ? { detail, code, fields } : { detail, code }
 }
 
 // Not crypto.randomUUID(): it doesn't exist outside a secure context, and the
@@ -110,7 +243,7 @@ function mockLiveStatus(): LiveStatus {
 /** Why an administrator-only route would turn this request away, or null. */
 function adminRefusal(authorization: string | null) {
   const user = MOCK_TOKENS.get((authorization || '').replace(/^Bearer\s+/i, ''))
-  if (!user) {
+  if (!user || !user.active) {
     return {
       status: 401,
       body: authErrorBody('Could not validate credentials', 'auth.not_authenticated'),
@@ -409,7 +542,15 @@ export const handlers = [
 
   rest.post('/auth/login', async (req, res, ctx) => {
     const { email, password } = await req.json()
-    const user = MOCK_USERS.find((u) => u.email === email && u.password === password)
+    // One message for a wrong password, an unknown address and a deactivated
+    // account alike — anything more specific enumerates accounts.
+    const user = MOCK_USERS.find(
+      (u) =>
+        u.email === normalizeEmail(email) &&
+        u.password !== null &&
+        u.password === password &&
+        u.active
+    )
 
     if (!user) {
       return res(
@@ -447,24 +588,184 @@ export const handlers = [
     const token = authHeader.replace(/^Bearer\s+/i, '')
     const user = MOCK_TOKENS.get(token)
 
-    if (!user) {
+    // Deactivation takes hold on the next request, as it does against the real
+    // API: the account is read again rather than trusted from the token.
+    if (!user || !user.active) {
       return res(
         ctx.status(401),
         ctx.json(authErrorBody('Could not validate credentials', 'auth.not_authenticated'))
       )
     }
 
+    return res(ctx.status(200), ctx.json(userBody(user)))
+  }),
+
+  rest.post('/auth/invitations/lookup', async (req, res, ctx) => {
+    const { token } = (await req.json()) as { token?: string }
+    const opened = openLink(String(token), 'invite')
+    if ('refused' in opened) return res(ctx.status(opened.refused.status), ctx.json(opened.refused.body))
+
+    const user = MOCK_USERS.find((u) => u.id === opened.link.userId)!
+    return res(ctx.status(200), ctx.json({ email: user.email, name: user.name }))
+  }),
+
+  rest.post('/auth/invitations/accept', async (req, res, ctx) => {
+    const { token, password } = (await req.json()) as { token?: string; password?: string }
+    const opened = openLink(String(token), 'invite')
+    if ('refused' in opened) return res(ctx.status(opened.refused.status), ctx.json(opened.refused.body))
+
+    const tooLong = passwordRefusal(String(password), 'password')
+    if (tooLong) return res(ctx.status(tooLong.status), ctx.json(tooLong.body))
+
+    const user = MOCK_USERS.find((u) => u.id === opened.link.userId)!
+    user.password = String(password)
+    opened.link.state = 'used'
+    return res(ctx.status(200), ctx.json(issueMockTokens(user)))
+  }),
+
+  rest.post('/auth/password/forgot', async (req, res, ctx) => {
+    const { email } = (await req.json()) as { email?: string }
+    const user = MOCK_USERS.find((u) => u.email === normalizeEmail(email) && u.active)
+    // Issued only for a real, active account — but the answer never says so.
+    if (user) issueMockLink(user.id, 'reset')
+    return res(ctx.status(202))
+  }),
+
+  rest.post('/auth/password/reset', async (req, res, ctx) => {
+    const { token, new_password } = (await req.json()) as {
+      token?: string
+      new_password?: string
+    }
+    const opened = openLink(String(token), 'reset')
+    if ('refused' in opened) return res(ctx.status(opened.refused.status), ctx.json(opened.refused.body))
+
+    const tooLong = passwordRefusal(String(new_password), 'new_password')
+    if (tooLong) return res(ctx.status(tooLong.status), ctx.json(tooLong.body))
+
+    const user = MOCK_USERS.find((u) => u.id === opened.link.userId)!
+    user.password = String(new_password)
+    opened.link.state = 'used'
+    return res(ctx.status(200), ctx.json(issueMockTokens(user)))
+  }),
+
+  rest.get('/auth/users', (req, res, ctx) => {
+    const refused = adminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const params = req.url.searchParams
+    const limit = Number(params.get('limit') ?? 50)
+    const offset = Number(params.get('offset') ?? 0)
+    const active = params.get('active')
+    const role = params.get('role')
+    const search = (params.get('search') ?? '').toLowerCase()
+
+    const matching = MOCK_USERS.filter((user) => {
+      if (active !== null && user.active !== (active === 'true')) return false
+      if (role && !user.roles.includes(role as Role)) return false
+      if (search && !`${user.name} ${user.email}`.toLowerCase().includes(search)) return false
+      return true
+    })
+
     return res(
       ctx.status(200),
       ctx.json({
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        active: true,
-        roles: user.roles,
-        created_at: new Date().toISOString(),
+        // The total counts the filters but not the paging, so a caller can tell
+        // how many pages there are.
+        items: matching.slice(offset, offset + limit).map(userBody),
+        total: matching.length,
+        limit,
+        offset,
       })
     )
+  }),
+
+  rest.post('/auth/users', async (req, res, ctx) => {
+    const refused = adminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const body = (await req.json()) as {
+      email?: string
+      name?: string
+      password?: string
+      roles?: Role[]
+    }
+
+    const invalid = describeUser(body)
+    if (invalid) return res(ctx.status(invalid.status), ctx.json(invalid.body))
+
+    const email = normalizeEmail(body.email)
+    if (MOCK_USERS.some((user) => user.email === email)) {
+      return res(
+        ctx.status(409),
+        ctx.json(
+          authErrorBody(`user already exists: ${email}`, 'user.already_exists', [
+            { field: 'email', in: 'body', message: 'already in use' },
+          ])
+        )
+      )
+    }
+
+    const created: MockUser = {
+      id: String(++userSeq),
+      email,
+      // null until they follow their invitation and choose one.
+      password: body.password ? String(body.password) : null,
+      name: String(body.name),
+      roles: body.roles as Role[],
+      active: true,
+      created_at: new Date().toISOString(),
+    }
+    MOCK_USERS.push(created)
+    if (!body.password) issueMockLink(created.id, 'invite')
+    return res(ctx.status(201), ctx.json(userBody(created)))
+  }),
+
+  rest.patch('/auth/users/:userId', async (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = adminRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const actor = MOCK_TOKENS.get((authorization || '').replace(/^Bearer\s+/i, ''))
+    const user = MOCK_USERS.find((u) => u.id === req.params.userId)
+    if (!user) {
+      return res(ctx.status(404), ctx.json(authErrorBody('user not found', 'user.not_found')))
+    }
+
+    const body = (await req.json()) as { name?: string; roles?: Role[]; active?: boolean }
+
+    if (body.roles) {
+      const unknown = body.roles.filter((role) => !KNOWN_ROLES.includes(role))
+      if (unknown.length > 0 || body.roles.length === 0) {
+        return res(
+          ctx.status(422),
+          ctx.json(
+            authErrorBody(`unknown roles: ${unknown.join(', ')}`, 'user.unknown_roles', [
+              { field: 'roles', in: 'body', message: 'unknown role' },
+            ])
+          )
+        )
+      }
+    }
+
+    // The API refuses to let an administrator lock themselves out.
+    const losingOwnAdmin = body.roles && !body.roles.includes('administrator')
+    if (actor?.id === user.id && (body.active === false || losingOwnAdmin)) {
+      return res(
+        ctx.status(400),
+        ctx.json(
+          authErrorBody(
+            'cannot deactivate yourself or drop your own administrator role',
+            'user.cannot_demote_self'
+          )
+        )
+      )
+    }
+
+    if (body.name !== undefined) user.name = body.name
+    if (body.roles !== undefined) user.roles = body.roles
+    if (body.active !== undefined) user.active = body.active
+
+    return res(ctx.status(200), ctx.json(userBody(user)))
   }),
 
   rest.get('/reporting/live', (req, res, ctx) => {
