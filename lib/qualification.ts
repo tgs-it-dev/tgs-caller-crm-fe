@@ -104,6 +104,9 @@ export type ActiveCallForm = {
   warranty_status: string
   notes: string
   consent: 'yes' | 'no'
+  /** Hard compliance stop — transfer must not bypass this. */
+  dnc_flagged: boolean
+  dnc_source: string | null
 }
 
 export const EMPTY_ACTIVE_CALL_FORM: ActiveCallForm = {
@@ -113,6 +116,8 @@ export const EMPTY_ACTIVE_CALL_FORM: ActiveCallForm = {
   warranty_status: '',
   notes: '',
   consent: 'yes',
+  dnc_flagged: false,
+  dnc_source: null,
 }
 
 export const WARRANTY_STATUS_OPTIONS = ['Active', 'Expired', 'Expiring soon', 'Unknown'] as const
@@ -157,8 +162,10 @@ export function consentFromActiveCall(form: ActiveCallForm): ConsentDnc {
   return {
     consent_given: given,
     consent_captured_at: given ? new Date().toISOString() : null,
-    dnc_flagged: false,
-    dnc_source: null,
+    dnc_flagged: form.dnc_flagged,
+    dnc_source: form.dnc_flagged
+      ? form.dnc_source ?? 'fronter_active_call'
+      : null,
   }
 }
 
@@ -188,6 +195,8 @@ export function activeCallFormFromQualification(
     warranty_status: asString(snapshot?.warranty_status),
     notes: asString(snapshot?.notes),
     consent: consent?.consent_given ? 'yes' : consent ? 'no' : 'yes',
+    dnc_flagged: consent?.dnc_flagged ?? false,
+    dnc_source: consent?.dnc_source ?? null,
   }
 }
 
@@ -203,6 +212,8 @@ export function canTransferActiveCall(
   form: ActiveCallForm,
   opts: { dispositionId: string; overrideReason: string }
 ): boolean {
+  // Hard compliance stop — no override bypasses this (same as canTransfer).
+  if (form.dnc_flagged) return false
   if (form.consent !== 'yes') return false
   if (!opts.dispositionId) return false
   const missing = missingActiveCallTransferFields(form)

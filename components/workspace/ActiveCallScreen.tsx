@@ -132,7 +132,11 @@ function ActiveCallBody({ interactionId }: { interactionId: string }) {
       setTransferError('Unable to identify the current agent. Please refresh and try again.')
       return
     }
-  
+    if (form.dnc_flagged) {
+      setTransferError('This lead is flagged Do Not Call. Transfer is blocked.')
+      return
+    }
+
     setIsTransferring(true)
     setTransferError(null)
     try {
@@ -215,6 +219,7 @@ function ActiveCallBody({ interactionId }: { interactionId: string }) {
             closers={load.closers}
             canTransfer={eligible}
             needsOverride={needsOverride}
+            dncFlagged={form.dnc_flagged}
             overrideReason={overrideReason}
             onOverrideReasonChange={setOverrideReason}
             isTransferring={isTransferring}

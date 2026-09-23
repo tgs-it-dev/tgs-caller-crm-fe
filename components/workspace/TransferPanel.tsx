@@ -10,6 +10,7 @@ export function TransferPanel({
   closers,
   canTransfer,
   needsOverride,
+  dncFlagged = false,
   overrideReason,
   onOverrideReasonChange,
   isTransferring,
@@ -20,6 +21,7 @@ export function TransferPanel({
   closers: AvailableCloserItem[]
   canTransfer: boolean
   needsOverride: boolean
+  dncFlagged?: boolean
   overrideReason: string
   onOverrideReasonChange: (value: string) => void
   isTransferring: boolean
@@ -56,13 +58,17 @@ export function TransferPanel({
           {isTransferring ? 'Transferring…' : 'Transfer to Closer'}
         </Button>
         <p className="mt-2 text-center text-xs text-slate">
-          {needsOverride
-            ? "Add an override reason if the checklist isn't complete."
-            : 'Complete consent, disposition, and vehicle fields to transfer.'}
+          {dncFlagged
+            ? 'Do Not Call is flagged — transfer is blocked and cannot be overridden.'
+            : needsOverride
+              ? "Add an override reason if the checklist isn't complete."
+              : 'Complete consent, disposition, and vehicle fields to transfer.'}
         </p>
       </div>
 
-      <OverrideReason reason={overrideReason} onReasonChange={onOverrideReasonChange} />
+      {!dncFlagged && (
+        <OverrideReason reason={overrideReason} onReasonChange={onOverrideReasonChange} />
+      )}
     </div>
   )
 }

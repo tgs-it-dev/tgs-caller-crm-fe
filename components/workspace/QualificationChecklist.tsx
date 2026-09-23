@@ -5,6 +5,7 @@ import FormControlLabel from '@mui/material/FormControlLabel'
 import FormLabel from '@mui/material/FormLabel'
 import Radio from '@mui/material/Radio'
 import RadioGroup from '@mui/material/RadioGroup'
+import { Checkbox } from '@/components/ui/Checkbox'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
@@ -92,6 +93,27 @@ export function QualificationChecklist({
             <FormControlLabel value="no" control={<Radio size="small" color="primary" />} label="No" />
           </RadioGroup>
         </FormControl>
+
+        <div className="space-y-2.5">
+          <Checkbox
+            label="Flag as Do Not Call"
+            checked={form.dnc_flagged}
+            onChange={(e) =>
+              onChange({
+                dnc_flagged: e.target.checked,
+                dnc_source: e.target.checked ? 'fronter_active_call' : null,
+              })
+            }
+          />
+          {form.dnc_flagged && (
+            <p
+              role="status"
+              className="rounded-lg border border-status-red/30 bg-status-red/10 px-3 py-2 text-xs text-status-red"
+            >
+              This lead is flagged Do Not Call. Transfer is blocked and cannot be overridden.
+            </p>
+          )}
+        </div>
 
         <Textarea
           id="call-notes"
