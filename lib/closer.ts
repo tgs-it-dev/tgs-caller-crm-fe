@@ -139,7 +139,19 @@ export function listTodaysDispositions(
 }
 
 function snapString(value: unknown): string {
-  return typeof value === 'string' ? value : ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  return ''
+}
+
+function vehicleFromSnap(snap: Record<string, unknown>): string {
+  const combined = snapString(snap.vehicle)
+  if (combined.trim()) return combined
+  return [snap.vehicle_year, snap.vehicle_make, snap.vehicle_model]
+    .map(snapString)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(' ')
 }
 
 export function snapshotFromQualification(
@@ -147,7 +159,7 @@ export function snapshotFromQualification(
 ): CloserQualificationSnapshot | null {
   if (!qualification) return null
 
-  const snap = qualification.snapshot_json
+  const snap = qualification.snapshot_json as Record<string, unknown>
   const consent = qualification.consent_dnc
   const consent_label = consent.dnc_flagged
     ? 'DNC flagged'
@@ -156,7 +168,7 @@ export function snapshotFromQualification(
       : 'Not confirmed'
 
   return {
-    vehicle: snapString(snap.vehicle),
+    vehicle: vehicleFromSnap(snap),
     mileage: snapString(snap.mileage),
     state: snapString(snap.state),
     warranty_status: snapString(snap.warranty_status),

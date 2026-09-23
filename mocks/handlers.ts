@@ -2,7 +2,8 @@ import { rest } from 'msw'
 import type { FieldError } from '../lib/apiError'
 import type { Role } from '../lib/auth'
 import { CLOSER_DESK_SEEDS } from '../lib/closer'
-import type { InteractionDetail } from '../lib/interactions'
+import type { InteractionDetailResponse } from '../lib/interactions'
+import type { LeadResponse } from '../lib/leads'
 import { PUSH_INTERVAL_MS, type AgentStatus, type LiveStatus } from '../lib/liveStatus'
 import type { CloserQueueEntry, FronterQueueEntry } from '../lib/queue'
 import type { QualificationCreateRequest, QualificationResponse } from '../lib/qualification'
@@ -280,55 +281,99 @@ function mockFunnel(start: string, end: string): HistoricalFunnel {
 }
 
 // Seed data for the fronter workspace screen (FE-02). Standing in for the
-// backend's `/interactions`, `/qualification`, and `/transfers` endpoints,
-// none of which are implemented yet (interactions/dispositions aren't even
-// contract-frozen). Swap this block out with no frontend code changes once
-// those ship for real.
-const MOCK_INTERACTIONS: Record<string, InteractionDetail> = {
+// Thin BE interaction detail + separate leads. Queue workspace links use
+// `int-2000+` / closer seeds — synthesize anything not listed explicitly.
+const MOCK_LEADS: Record<string, LeadResponse> = {
+  'lead-1': {
+    id: 'lead-1',
+    phone_normalized: '+13235550142',
+    source: 'vicidial',
+    created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3).toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  'lead-2': {
+    id: 'lead-2',
+    phone_normalized: '+14085550199',
+    source: 'ghl',
+    created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 12).toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  'lead-1102': {
+    id: 'lead-1102',
+    phone_normalized: '+13105550188',
+    source: 'vicidial',
+    created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5).toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  'lead-1103': {
+    id: 'lead-1103',
+    phone_normalized: '+18135550177',
+    source: 'ghl',
+    created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 8).toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+}
+
+const MOCK_INTERACTIONS: Record<string, InteractionDetailResponse> = {
   'int-1001': {
     id: 'int-1001',
-    status: 'active',
-    started_at: new Date(Date.now() - 4 * 60 * 1000).toISOString(),
-    lead: {
-      id: 'lead-1',
-      phone_normalized: '+13235550142',
-      source: 'vicidial',
-      created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3).toISOString(),
-    },
+    lead_id: 'lead-1',
+    created_at: new Date(Date.now() - 4 * 60 * 1000).toISOString(),
+    updated_at: new Date().toISOString(),
+    qualification: null,
   },
   'int-1002': {
     id: 'int-1002',
-    status: 'active',
-    started_at: new Date(Date.now() - 90 * 1000).toISOString(),
-    lead: {
-      id: 'lead-2',
-      phone_normalized: '+14085550199',
-      source: 'ghl',
-      created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 12).toISOString(),
-    },
+    lead_id: 'lead-2',
+    created_at: new Date(Date.now() - 90 * 1000).toISOString(),
+    updated_at: new Date().toISOString(),
+    qualification: null,
   },
   'int-1102': {
     id: 'int-1102',
-    status: 'active',
-    started_at: new Date(Date.now() - 6 * 60 * 1000).toISOString(),
-    lead: {
-      id: 'lead-1102',
-      phone_normalized: '+13105550188',
-      source: 'vicidial',
-      created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5).toISOString(),
-    },
+    lead_id: 'lead-1102',
+    created_at: new Date(Date.now() - 6 * 60 * 1000).toISOString(),
+    updated_at: new Date().toISOString(),
+    qualification: null,
   },
   'int-1103': {
     id: 'int-1103',
-    status: 'active',
-    started_at: new Date(Date.now() - 12 * 60 * 1000).toISOString(),
-    lead: {
-      id: 'lead-1103',
-      phone_normalized: '+18135550177',
-      source: 'ghl',
-      created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 8).toISOString(),
-    },
+    lead_id: 'lead-1103',
+    created_at: new Date(Date.now() - 12 * 60 * 1000).toISOString(),
+    updated_at: new Date().toISOString(),
+    qualification: null,
   },
+}
+
+function synthesizeLead(interactionId: string): LeadResponse {
+  const leadId = `lead-for-${interactionId}`
+  const existing = MOCK_LEADS[leadId]
+  if (existing) return existing
+  const digits = interactionId.replace(/\D/g, '').slice(-4).padStart(4, '0')
+  const lead: LeadResponse = {
+    id: leadId,
+    phone_normalized: `+1323555${digits}`,
+    source: Number(digits) % 2 === 0 ? 'vicidial' : 'ghl',
+    created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(),
+    updated_at: new Date().toISOString(),
+  }
+  MOCK_LEADS[leadId] = lead
+  return lead
+}
+
+function interactionDetail(interactionId: string): InteractionDetailResponse | null {
+  const known = MOCK_INTERACTIONS[interactionId]
+  if (known) return known
+  // Queue rows and unknown workspace ids still need a usable Active Call shell.
+  if (!interactionId) return null
+  const lead = synthesizeLead(interactionId)
+  return {
+    id: interactionId,
+    lead_id: lead.id,
+    created_at: new Date(Date.now() - 3 * 60 * 1000).toISOString(),
+    updated_at: new Date().toISOString(),
+    qualification: null,
+  }
 }
 
 // Seed for the fronter Queue screen. Deterministic rather than randomised so
@@ -390,8 +435,6 @@ const MOCK_TRANSFERS = new Map<string, TransferResponse>()
       id: `qual-seed-${seed.interaction_id}`,
       interaction_id: seed.interaction_id,
       version: 1,
-      // Closer snapshot fields live alongside the fronter checklist until BE
-      // freezes a dedicated closer read DTO.
       snapshot_json: {
         checklist: {
           identityVerified: true,
@@ -404,7 +447,10 @@ const MOCK_TRANSFERS = new Map<string, TransferResponse>()
         notes: seed.snapshot.notes,
         override: { applied: false, reason: '' },
         vehicle: seed.snapshot.vehicle,
-        mileage: seed.snapshot.mileage,
+        vehicle_year: seed.snapshot.vehicle.split(/\s+/)[0] ?? '',
+        vehicle_make: seed.snapshot.vehicle.split(/\s+/)[1] ?? '',
+        vehicle_model: seed.snapshot.vehicle.split(/\s+/).slice(2).join(' '),
+        mileage: seed.snapshot.mileage.replace(/,/g, ''),
         state: seed.snapshot.state,
         warranty_status: seed.snapshot.warranty_status,
       } as QualificationResponse['snapshot_json'],
@@ -453,13 +499,17 @@ const MOCK_DISPOSITION_CATALOG: MockDisposition[] = [
   { id: 'disp-closer-callback', label: 'Callback requested', stage: 'closer' },
   { id: 'disp-closer-not-interested', label: 'Not interested', stage: 'closer' },
   { id: 'disp-closer-dnc', label: 'Do not call', stage: 'closer' },
-  { id: 'disp-fronter-qualified', label: 'Qualified — ready to transfer', stage: 'fronter' },
+  { id: 'disp-fronter-qualified', label: 'Qualified - Transferred', stage: 'fronter' },
+  { id: 'disp-fronter-not-interested', label: 'Not interested', stage: 'fronter' },
+  { id: 'disp-fronter-callback', label: 'Callback requested', stage: 'fronter' },
+  { id: 'disp-fronter-dnc', label: 'Do not call', stage: 'fronter' },
+  { id: 'disp-fronter-invalid', label: 'Invalid / wrong number', stage: 'fronter' },
 ]
 
 const MOCK_INTERACTION_DISPOSITIONS = new Map<string, MockInteractionDisposition[]>()
 let interactionDispositionSeq = 0
 
-/** FE-08 My Stats — provisional `/me/stats/today` seed, keyed by actor user id. */
+/** FE-08 My Stats — `/me/stats/today` seed, keyed by actor user id. */
 type MyStatsDispositionSeed = {
   id: string
   interaction_id: string
@@ -472,11 +522,11 @@ type MyStatsDispositionSeed = {
 }
 
 const MY_STATS_LABELS = [
-  'Qualified — ready to transfer',
-  'Not interested',
-  'Callback requested',
-  'Do not call',
-  'Invalid / wrong number',
+  'Qualified - Transferred',
+  'Not Interested',
+  'Callback Requested',
+  'Do Not Call',
+  'Wrong Number',
 ] as const
 
 const MY_STATS_LEADS = [
@@ -516,7 +566,7 @@ function seedMyStatsForUser(
 
   // Half of this user's qualified calls were transferred — countable from the payload.
   const transferred_interaction_ids = dispositions
-    .filter((row) => row.label === 'Qualified — ready to transfer')
+    .filter((row) => row.label === 'Qualified - Transferred')
     .filter((_, i) => i % 2 === 0)
     .map((row) => row.interaction_id)
 
@@ -788,8 +838,21 @@ export const handlers = [
     return res(ctx.status(200), ctx.json(mockFunnel(start, end)))
   }),
 
-  rest.get('/interactions', (req, res, ctx) => {
+  rest.get('/interactions', (_req, res, ctx) => {
     return res(ctx.status(200), ctx.json(Object.values(MOCK_INTERACTIONS)))
+  }),
+
+  rest.get('/leads/:leadId', (req, res, ctx) => {
+    const lead =
+      MOCK_LEADS[req.params.leadId as string] ??
+      Object.values(MOCK_LEADS).find((row) => row.id === req.params.leadId)
+    if (!lead) {
+      return res(
+        ctx.status(404),
+        ctx.json({ detail: 'Lead not found.', code: 'lead.not_found' })
+      )
+    }
+    return res(ctx.status(200), ctx.json(lead))
   }),
 
   rest.get('/queue', (req, res, ctx) => {
@@ -810,7 +873,7 @@ export const handlers = [
     )
   }),
 
-  // PROVISIONAL — FE-08 agent-scoped My Stats (not in frozen OpenAPI yet).
+  // FE-08 — GET /me/stats/today (agent-scoped My Stats).
   rest.get('/me/stats/today', (req, res, ctx) => {
     const authHeader = req.headers.get('authorization') || ''
     const token = authHeader.replace(/^Bearer\s+/i, '')
@@ -827,18 +890,20 @@ export const handlers = [
 
     // Never leak another user's rows — seed is already keyed by actor, filter again.
     const dispositions = payload.dispositions.filter((row) => row.actor_user_id === user.id)
-    const allowed = new Set(dispositions.map((row) => row.interaction_id))
     const transferred_interaction_ids = payload.transferred_interaction_ids.filter((id) =>
-      allowed.has(id)
+      dispositions.some((row) => row.interaction_id === id)
     )
 
     return res(ctx.status(200), ctx.json({ dispositions, transferred_interaction_ids }))
   }),
 
   rest.get('/interactions/:interactionId', (req, res, ctx) => {
-    const interaction = MOCK_INTERACTIONS[req.params.interactionId as string]
+    const interaction = interactionDetail(req.params.interactionId as string)
     if (!interaction) {
-      return res(ctx.status(404), ctx.json({ detail: 'Interaction not found.' }))
+      return res(
+        ctx.status(404),
+        ctx.json({ detail: 'Interaction not found.', code: 'interaction.not_found' })
+      )
     }
     return res(ctx.status(200), ctx.json(interaction))
   }),
@@ -860,7 +925,7 @@ export const handlers = [
       id: existing?.id ?? `qual-${++qualificationSeq}`,
       interaction_id: body.interaction_id,
       version: (existing?.version ?? 0) + 1,
-      snapshot_json: body.snapshot_json,
+      snapshot_json: body.snapshot_json as QualificationResponse['snapshot_json'],
       consent_dnc: body.consent_dnc,
       created_at: existing?.created_at ?? now,
       updated_at: now,
@@ -868,6 +933,26 @@ export const handlers = [
     MOCK_QUALIFICATIONS.set(body.interaction_id, record)
 
     return res(ctx.status(201), ctx.json(record))
+  }),
+
+  rest.get('/transfers/closers', (_req, res, ctx) => {
+    return res(
+      ctx.status(200),
+      ctx.json({
+        items: [
+          {
+            user_id: '5a1f0c3e-0001-4000-8000-000000000001',
+            name: 'Carl Closer',
+            status: 'available',
+          },
+          {
+            user_id: '5a1f0c3e-0003-4000-8000-000000000003',
+            name: 'Eli Brooks',
+            status: 'on_call',
+          },
+        ],
+      })
+    )
   }),
 
   rest.post('/transfers', async (req, res, ctx) => {

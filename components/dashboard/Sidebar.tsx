@@ -14,8 +14,8 @@ import {
   readToken,
   type Role,
 } from '@/lib/auth'
-import { listInteractions } from '@/lib/interactions'
 import { waitForMocking } from '@/lib/mockReady'
+import { listQueue } from '@/lib/queue'
 import { OutlineIcon } from '../icons/OutlineIcon'
 
 /** Nav Lucide icons — size via className so flex can't fight an inline lock. */
@@ -205,11 +205,10 @@ export function Sidebar() {
     if (!token) return
 
     waitForMocking()
-      .then(() => listInteractions(token))
+      .then(() => listQueue(token, 'fronter', { bust: true }))
       .then((queue) => {
         if (cancelled) return
-        const active = queue.find((item) => item.status === 'active') ?? queue[0]
-        setFallbackActiveId(active?.id ?? null)
+        setFallbackActiveId(queue[0]?.id ?? null)
       })
       .catch(() => {})
 
