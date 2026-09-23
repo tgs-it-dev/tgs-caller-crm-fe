@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import { Alert } from '@/components/ui/Alert'
 import { Button } from '@/components/ui/Button'
@@ -201,9 +202,12 @@ export default function LoginPage() {
               />
               Remember me
             </label>
-            <a href="#" className="text-sm font-medium text-status-blue transition-colors hover:underline">
+            <Link
+              href="/forgot-password"
+              className="text-sm font-medium text-status-blue transition-colors hover:underline"
+            >
               Forgot Password?
-            </a>
+            </Link>
           </div>
 
           <Button type="submit" isLoading={isSubmitting} loadingText="Signing in…">

@@ -7,6 +7,9 @@ import InputAdornment from '@mui/material/InputAdornment'
 type InputProps = InputHTMLAttributes<HTMLInputElement> & {
   label: string
   endAdornment?: ReactNode
+  /** Marks the field at fault — pair it with `helperText` saying what to fix. */
+  error?: boolean
+  helperText?: ReactNode
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
@@ -15,6 +18,10 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
     id,
     className,
     endAdornment,
+    // Destructured rather than spread: neither is a DOM attribute, and MUI
+    // wants both on the wrapper.
+    error,
+    helperText,
     type = 'text',
     // Props MUI needs on the wrapper to drive its own disabled/required state;
     // everything else goes straight to the <input>.
@@ -44,6 +51,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
       fullWidth
       variant="outlined"
       className={className}
+      // Helper and error text line up with the field, not with MUI's default inset.
+      sx={{ '& .MuiFormHelperText-root': { marginLeft: 0, marginRight: 0 } }}
       inputRef={ref}
       value={value}
       defaultValue={defaultValue}
@@ -56,6 +65,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
       autoFocus={autoFocus}
       disabled={disabled}
       required={required}
+      error={error}
+      helperText={helperText}
       slotProps={{
         htmlInput: htmlInputProps,
         input: {

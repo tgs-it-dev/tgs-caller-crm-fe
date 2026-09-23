@@ -51,6 +51,12 @@ of truth for a user's role(s); the frontend just reacts to it. This is a hard
 product requirement, not a style preference — don't add a role dropdown/toggle
 anywhere, even for demos.
 
+That rule is about somebody choosing **their own** role. An administrator
+setting **someone else's** is a different thing entirely: it goes through
+`PATCH /auth/users/{user_id}`, which the API authorizes and audits, and it lives
+on `/admin/users` (see Users below). The role checkboxes there are the sanctioned
+path, not an exception to this rule.
+
 Contract (typed in `lib/generated/schema.d.ts`):
 
 - `POST /auth/login` `{email, password}` →
@@ -166,6 +172,60 @@ Attempts.
   list, and no administrator interaction screen exists to land on. The bars are
   deliberately not clickable; the list arrives with the backend change that
   gives a row something worth showing.
+
+## Users
+
+`/admin/users` administers accounts through `lib/users.ts` — `GET /auth/users`
+to list, `POST` to add, `PATCH /auth/users/{id}` to change a name, roles or
+state. Administrator-only, like the rest of `/admin`.
+
+- **There is no delete.** Deactivating is `PATCH {active: false}`, and it
+  revokes that person's refresh tokens as it commits: they are signed out on
+  their next request, not at their next login. The wording on screen says so.
+- **An email address cannot be changed** — `UpdateUserRequest` carries name,
+  roles and active, and nothing else. The field is shown disabled rather than
+  hidden, so nobody goes looking for it.
+- **Nobody here sets anybody's password.** The create body carries no password;
+  the API issues an invitation and emails a link, and the new user chooses their
+  own. Adding the field back would switch the invitation off — the backend only
+  invites when it is absent.
+- **Roles are checkboxes, not a picker**: `roles` is an array in every DTO and
+  someone may hold more than one. The list comes from a `Record<Role, string>`
+  in `lib/users.ts`, so a role added to the contract fails the build here rather
+  than quietly missing from the form.
+- **You cannot demote yourself.** The API refuses with
+  `user.cannot_demote_self`; the form disables your own Administrator and Active
+  controls and says why, so the refusal is never a surprise.
+- Failures land on the input they name: the API's `fields` array is mapped onto
+  the matching control (a duplicate address shows under Email), and anything
+  unnamed falls back to the dialog's `<Alert>`.
+
+## Emailed links
+
+`/invite/[token]`, `/reset-password/[token]` and `/forgot-password` are how a
+password ever gets set. The first two are one component —
+`components/auth/SetPasswordScreen.tsx` with a `mode` — and all three call
+`lib/invitations.ts`.
+
+- **The token goes in the request body, never the URL.** The API is built that
+  way so a live credential stays out of access logs; a call that put it back in
+  a path would undo it. The page reads it from its own address and posts it.
+- **These pages have no session**, so they sit outside `RequireRole` and outside
+  `withSession` — the one place in `lib/` that calls `fetch` without it. There
+  is nothing to renew.
+- **Forgot-password must never reveal whether an address exists.** The API
+  answers 202 for an unknown or deactivated address exactly as for a real one,
+  and the screen shows the same confirmation either way. "No account with that
+  email" would hand back precisely what the API withholds.
+- **A refused link explains itself instead of showing a form.** `.superseded`
+  says a newer email exists, `.already_redeemed` offers sign-in, `.expired` and
+  an unknown token offer a fresh one. A link can also go stale between opening
+  the page and submitting, so 404/410 on submit falls into the same state.
+- **Both accepts return a session**, so the user lands on their desk signed in
+  rather than at a login form typing the password they just chose.
+- Mock handlers seed four tokens — `live-link`, `expired-link`, `used-link`,
+  `superseded-link` — and a newly issued invitation logs its URL to the console,
+  the mock equivalent of the backend's `log` transport.
 
 ## UI conventions
 

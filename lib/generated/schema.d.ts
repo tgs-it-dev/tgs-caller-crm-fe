@@ -4,6 +4,53 @@
  */
 
 export interface paths {
+    "/auth/invitations/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set a password from an invitation
+         * @description Spend the link, set the password, and sign them in.
+         *
+         *     Signing in here rather than sending them to the login form: they have just
+         *     proved they hold the address the invitation went to, and typing the
+         *     password they chose a second time proves nothing more.
+         */
+        post: operations["accept_invitation_auth_invitations_accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/invitations/lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Who an invitation is for
+         * @description Check a link before asking for a password, so the page can say who it is for.
+         *
+         *     A POST that changes nothing, because the token belongs in a body rather
+         *     than in a URL an access log would keep.
+         */
+        post: operations["read_invitation_auth_invitations_lookup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/login": {
         parameters: {
             query?: never;
@@ -49,6 +96,79 @@ export interface paths {
         get: operations["me_auth_me_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/password/change": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change your own password
+         * @description Swap the password for somebody who knows the current one.
+         *
+         *     Every other session ends — a password is changed because it might have
+         *     leaked, and leaving them alive would keep whoever took it signed in. The one
+         *     making the change is handed a new session so the device in front of them
+         *     keeps working.
+         */
+        post: operations["change_password_auth_password_change_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/password/forgot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask for a password reset link
+         * @description Email a reset link, if there is anywhere to send one.
+         *
+         *     The answer is 202 whatever happens — for a real account, for an address
+         *     nobody holds, and for one that has been deactivated. Anything that told
+         *     those apart would be a way to find out who has an account here, which is the
+         *     same reason /auth/login gives one message for three different failures.
+         */
+        post: operations["forgot_password_auth_password_forgot_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/password/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set a new password from a reset link
+         * @description Spend the link, set the password, and sign them in.
+         *
+         *     A reset is usually a response to something going wrong, so every session the
+         *     old password opened ends here — see set_password.
+         */
+        post: operations["reset_password_auth_password_reset_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -114,6 +234,29 @@ export interface paths {
          *     killed at commit, so `/auth/refresh` cannot mint a new pair.
          */
         patch: operations["update_user_auth_users__user_id__patch"];
+        trace?: never;
+    };
+    "/auth/users/{user_id}/invite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a fresh invitation (administrators only)
+         * @description Issue another invitation, superseding any the user has not used.
+         *
+         *     202 rather than 204: the link exists the moment this returns, but the email
+         *     carrying it has not gone out yet.
+         */
+        post: operations["invite_user_auth_users__user_id__invite_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/dispositions": {
@@ -642,6 +785,13 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AcceptInvitationRequest */
+        AcceptInvitationRequest: {
+            /** Password */
+            password: string;
+            /** Token */
+            token: string;
+        };
         /** AgentLiveStatus */
         AgentLiveStatus: {
             /** Current Interaction Id */
@@ -694,6 +844,16 @@ export interface components {
              * @description Active closers only. Empty when nobody is staffed — transfer would then return transfer.no_closer_available. Read-only: POST /transfers does not accept a closer_user_id.
              */
             items: components["schemas"]["AvailableCloserItem"][];
+        };
+        /**
+         * ChangePasswordRequest
+         * @description Proving you know the current one is what makes this different from a reset.
+         */
+        ChangePasswordRequest: {
+            /** Current Password */
+            current_password: string;
+            /** New Password */
+            new_password: string;
         };
         /** CloserQueueItem */
         CloserQueueItem: {
@@ -750,7 +910,7 @@ export interface components {
             /** Name */
             name: string;
             /** Password */
-            password: string;
+            password?: string | null;
             /** Roles */
             roles: ("fronter" | "closer" | "administrator")[];
         };
@@ -815,6 +975,14 @@ export interface components {
             in: "body" | "query" | "path" | "header" | "cookie" | "qualification";
             /** Message */
             message: string;
+        };
+        /** ForgotPasswordRequest */
+        ForgotPasswordRequest: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
         };
         /** FronterQueueItem */
         FronterQueueItem: {
@@ -1057,6 +1225,34 @@ export interface components {
             /** Version */
             version: number;
         };
+        /**
+         * InvitationLookupRequest
+         * @description The token from the link, in the body.
+         *
+         *     Never in the path: an access log records every URL it is asked for, and
+         *     this one sets somebody's password. Hashing it in the database would count
+         *     for little if the raw value sat in a log beside it.
+         */
+        InvitationLookupRequest: {
+            /** Token */
+            token: string;
+        };
+        /**
+         * InvitationResponse
+         * @description Who a live invitation is for, so the page can greet them.
+         *
+         *     Deliberately thin: this is answered to anyone holding the link, so it says
+         *     no more than the email it arrived in already did.
+         */
+        InvitationResponse: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** Name */
+            name: string;
+        };
         /** LeadCreateRequest */
         LeadCreateRequest: {
             /**
@@ -1234,6 +1430,16 @@ export interface components {
         RefreshRequest: {
             /** Refresh Token */
             refresh_token: string;
+        };
+        /**
+         * ResetPasswordRequest
+         * @description The token from the emailed link, and what to set the password to.
+         */
+        ResetPasswordRequest: {
+            /** New Password */
+            new_password: string;
+            /** Token */
+            token: string;
         };
         /** TicketResponse */
         TicketResponse: {
@@ -1431,6 +1637,90 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    accept_invitation_auth_invitations_accept_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcceptInvitationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    read_invitation_auth_invitations_lookup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InvitationLookupRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     login_auth_login_post: {
         parameters: {
             query?: never;
@@ -1529,6 +1819,130 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    change_password_auth_password_change_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    forgot_password_auth_password_forgot_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForgotPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    reset_password_auth_password_reset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResetPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenResponse"];
                 };
             };
             /** @description Client Error */
@@ -1745,6 +2159,44 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["UserResponse"];
                 };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    invite_user_auth_users__user_id__invite_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Client Error */
             "4XX": {
