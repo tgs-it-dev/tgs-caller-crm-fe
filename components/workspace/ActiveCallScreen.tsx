@@ -132,12 +132,12 @@ function ActiveCallBody({ interactionId }: { interactionId: string }) {
       setTransferError('Unable to identify the current agent. Please refresh and try again.')
       return
     }
-
+  
     setIsTransferring(true)
     setTransferError(null)
     try {
-      const transfer = await withSession(async (token) => {
-        await submitQualification(
+      await withSession((token) =>
+        submitQualification(
           {
             interaction_id: interactionId,
             snapshot_json: snapshotJsonFromActiveCall(form),
@@ -145,14 +145,18 @@ function ActiveCallBody({ interactionId }: { interactionId: string }) {
           },
           token
         )
-
-        if (dispositionId) {
-          await captureDisposition(interactionId, { disposition_id: dispositionId }, token)
-        }
-
-        const missing = missingActiveCallTransferFields(form)
-        const reason = overrideReason.trim()
-        return createTransfer(
+      )
+  
+      if (dispositionId) {
+        await withSession((token) =>
+          captureDisposition(interactionId, { disposition_id: dispositionId }, token)
+        )
+      }
+  
+      const missing = missingActiveCallTransferFields(form)
+      const reason = overrideReason.trim()
+      const transfer = await withSession((token) =>
+        createTransfer(
           {
             interaction_id: interactionId,
             fronter_user_id: user.id,
@@ -160,7 +164,8 @@ function ActiveCallBody({ interactionId }: { interactionId: string }) {
           },
           token
         )
-      })
+      )
+  
       setTransferStatus(transfer.status)
     } catch (err) {
       setTransferError(err instanceof Error ? err.message : 'Unable to transfer. Please try again.')
