@@ -1,31 +1,29 @@
 'use client'
 
-import { useCallback, useEffect, useReducer, useState } from 'react'
+import { useCallback, useEffect, useReducer, useState, type ReactNode } from 'react'
 import { RequireRole } from '@/components/auth/RequireRole'
+import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import { CloserDispositionCard } from '@/components/closer/CloserDispositionCard'
 import { QualificationSnapshot } from '@/components/closer/QualificationSnapshot'
 import { TodaysDispositionTable } from '@/components/closer/TodaysDispositionTable'
 import { Alert } from '@/components/ui/Alert'
 import { Badge } from '@/components/ui/Badge'
 import { PageShell } from '@/components/ui/PageShell'
-import { readToken } from '@/lib/auth'
 import {
-  CLOSER_DEFAULT_INTERACTION_ID,
+  closerTodaysRowsFromStats,
   createCloserDisposition,
-  getLatestQualification,
-  getTransfer,
+  fetchCloserTodaysStats,
   latestCloserDisposition,
-  listCloserDispositionOptions,
   listInteractionDispositions,
-  listTodaysDispositions,
+  loadCloserWorkspace,
   snapshotFromQualification,
-  transferIdForInteraction,
   type CloserQualificationSnapshot,
   type DispositionResponse,
   type TodaysDispositionRow,
   type TransferResponse,
 } from '@/lib/closer'
 import { waitForMocking } from '@/lib/mockReady'
+import { withSession } from '@/lib/session'
 
 type TransferStatusLabel = TransferResponse['status']
 
@@ -107,58 +105,122 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
   }
 }
 
-function loadErrorFor(
-  qualification: Awaited<ReturnType<typeof getLatestQualification>>,
-  transfer: Awaited<ReturnType<typeof getTransfer>>
+function softLoadHint(
+  qualification: Awaited<ReturnType<typeof loadCloserWorkspace>>['qualification'],
+  transfer: TransferResponse
 ): string | null {
-  if (!qualification && !transfer) {
-    return 'No accepted transfer or qualification snapshot found for this interaction.'
+  if (!qualification && transfer.status === 'accepted') {
+    return 'No qualification snapshot found for this interaction.'
   }
-  if (!transfer) return 'No transfer found for this interaction.'
-  if (!qualification) return 'No qualification snapshot found for this interaction.'
   return null
 }
 
+type TodaysLoad =
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'ready'; rows: TodaysDispositionRow[] }
+
+function useCloserTodaysDispositions(refreshKey = 0) {
+  const [load, setLoad] = useState<TodaysLoad>({ status: 'loading' })
+
+  useEffect(() => {
+    let cancelled = false
+
+    waitForMocking()
+      .then(() => withSession(fetchCloserTodaysStats))
+      .then((payload) => {
+        if (cancelled) return
+        setLoad({ status: 'ready', rows: closerTodaysRowsFromStats(payload) })
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setLoad({
+          status: 'error',
+          message:
+            err instanceof Error
+              ? err.message
+              : "Unable to load today's dispositions.",
+        })
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [refreshKey])
+
+  return load
+}
+
 export function CloserActiveCallScreen({
-  interactionId = CLOSER_DEFAULT_INTERACTION_ID,
+  interactionId,
+  transferId,
 }: {
   interactionId?: string
-}) {
+  transferId?: string
+} = {}) {
   return (
     <RequireRole role="closer">
-      <CloserActiveCallContent interactionId={interactionId} />
+      <CloserActiveCallContent interactionId={interactionId} transferId={transferId} />
     </RequireRole>
   )
 }
 
-function CloserActiveCallContent({ interactionId }: { interactionId: string }) {
-  // Survives workspace URL changes so Today's Disposition keeps saved labels.
-  const [dispositionLabels, setDispositionLabels] = useState<Record<string, string | null>>({})
-  const rows: TodaysDispositionRow[] = listTodaysDispositions(dispositionLabels)
-  const onDispositionLabel = useCallback((id: string, label: string | null) => {
-    setDispositionLabels((prev) => ({ ...prev, [id]: label }))
+function CloserActiveCallContent({
+  interactionId,
+  transferId,
+}: {
+  interactionId?: string
+  transferId?: string
+}) {
+  const [todaysRefreshKey, setTodaysRefreshKey] = useState(0)
+  const todays = useCloserTodaysDispositions(todaysRefreshKey)
+
+  const refreshTodays = useCallback(() => {
+    setTodaysRefreshKey((n) => n + 1)
   }, [])
+
+  const todaysTable = (
+    <TodaysDispositionTable
+      rows={todays.status === 'ready' ? todays.rows : []}
+      isLoading={todays.status === 'loading'}
+      error={todays.status === 'error' ? todays.message : null}
+    />
+  )
+
+  if (!interactionId || !transferId) {
+    return (
+      <PageShell title="Active Call">
+        <Alert>
+          No active transfer. Open a row from the Queue to accept the offer and load the workspace.
+        </Alert>
+        <div className="mt-4">{todaysTable}</div>
+      </PageShell>
+    )
+  }
 
   return (
     <CloserActiveCallWorkspace
-      key={interactionId}
+      key={`${interactionId}:${transferId}`}
       interactionId={interactionId}
-      rows={rows}
-      onDispositionLabel={onDispositionLabel}
+      transferId={transferId}
+      todaysTable={todaysTable}
+      onDispositionSaved={refreshTodays}
     />
   )
 }
 
 function CloserActiveCallWorkspace({
   interactionId,
-  rows,
-  onDispositionLabel,
+  transferId,
+  todaysTable,
+  onDispositionSaved,
 }: {
   interactionId: string
-  rows: TodaysDispositionRow[]
-  onDispositionLabel: (interactionId: string, label: string | null) => void
+  transferId: string
+  todaysTable: ReactNode
+  onDispositionSaved: () => void
 }) {
-  const transferId = transferIdForInteraction(interactionId)
+  const { user, status: userStatus } = useCurrentUser()
   const [workspace, dispatch] = useReducer(workspaceReducer, initialWorkspace)
   const [isSaving, setIsSaving] = useState(false)
 
@@ -175,19 +237,26 @@ function CloserActiveCallWorkspace({
 
   useEffect(() => {
     let cancelled = false
-    const token = readToken()
-    if (!token) return
 
-    // Remount via key={interactionId} resets reducer to initialWorkspace — no
-    // synchronous setState cascade here (react-hooks/set-state-in-effect).
+    if (userStatus === 'loading') return
+    if (!user) {
+      dispatch({
+        type: 'load_error',
+        message: 'Unable to identify the current closer. Please sign in again.',
+      })
+      return
+    }
+
     waitForMocking()
-      .then(async () => {
-        const [qualification, transfer, catalog, captured] = await Promise.all([
-          getLatestQualification(interactionId, token),
-          getTransfer(transferId, token),
-          listCloserDispositionOptions(token),
-          listInteractionDispositions(interactionId, token),
-        ])
+      .then(() =>
+        withSession((token) =>
+          loadCloserWorkspace(
+            { interactionId, transferId, closerUserId: user.id },
+            token
+          )
+        )
+      )
+      .then(({ transfer, qualification, options: catalog, captured }) => {
         if (cancelled) return
 
         const latest = latestCloserDisposition(captured)
@@ -197,48 +266,45 @@ function CloserActiveCallWorkspace({
           type: 'load_success',
           snapshot: snapshotFromQualification(qualification),
           options: catalog,
-          transferStatus: transfer?.status ?? null,
+          transferStatus: transfer.status,
           savedLabel: nextLabel,
           dispositionId: latest?.disposition_id ?? '',
-          loadError: loadErrorFor(qualification, transfer),
+          loadError: softLoadHint(qualification, transfer),
         })
-        onDispositionLabel(interactionId, nextLabel)
       })
-      .catch(() => {
+      .catch((err) => {
         if (cancelled) return
         dispatch({
           type: 'load_error',
-          message: 'Unable to load the accepted transfer workspace.',
+          message:
+            err instanceof Error
+              ? err.message
+              : 'Unable to load the accepted transfer workspace.',
         })
       })
 
     return () => {
       cancelled = true
     }
-  }, [interactionId, transferId, onDispositionLabel])
+  }, [interactionId, transferId, user, userStatus])
 
   async function handleSaveDisposition() {
     if (!dispositionId || isSaving) return
-
-    const token = readToken()
-    if (!token) {
-      dispatch({
-        type: 'save_error',
-        message: 'Your session expired. Please sign in again.',
-      })
-      return
-    }
 
     setIsSaving(true)
     dispatch({ type: 'save_start' })
     try {
       await waitForMocking()
-      await createCloserDisposition(interactionId, { disposition_id: dispositionId }, token)
-      const captured = await listInteractionDispositions(interactionId, token)
+      await withSession((token) =>
+        createCloserDisposition(interactionId, { disposition_id: dispositionId }, token)
+      )
+      const captured = await withSession((token) =>
+        listInteractionDispositions(interactionId, token)
+      )
       const latest = latestCloserDisposition(captured)
       const nextLabel = latest?.label ?? null
       dispatch({ type: 'save_success', savedLabel: nextLabel })
-      onDispositionLabel(interactionId, nextLabel)
+      onDispositionSaved()
     } catch (err) {
       dispatch({
         type: 'save_error',
@@ -250,7 +316,7 @@ function CloserActiveCallWorkspace({
   }
 
   const statusText = isLoading
-    ? 'Transfer Accepted'
+    ? 'Accepting transfer…'
     : transferStatus
       ? (STATUS_LABEL[transferStatus] ?? 'Transfer Accepted')
       : 'Transfer not found'
@@ -281,7 +347,7 @@ function CloserActiveCallWorkspace({
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-12">
         <div className="flex flex-col gap-4 lg:col-span-7">
           <QualificationSnapshot snapshot={snapshot} isLoading={isLoading} />
-          <TodaysDispositionTable rows={rows} />
+          {todaysTable}
         </div>
         <div className="lg:col-span-5">
           <CloserDispositionCard

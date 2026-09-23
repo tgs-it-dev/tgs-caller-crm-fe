@@ -417,7 +417,8 @@ const MOCK_CLOSER_QUEUE: CloserQueueEntry[] = Array.from({ length: 12 }, (_, ind
   lead_phone: `+1323555${(2000 + index).toString().slice(-4)}`,
   fronter_user_id: index % 3 === 0 ? null : `fronter-${(index % 4) + 1}`,
   queued_at: new Date(QUEUE_SEEDED_AT - (120 - index * 5) * 1000).toISOString(),
-  status: index % 4 === 0 ? 'offered' : 'initiated',
+  // Mix pending offers with this closer's open accepted call (index 1).
+  status: index === 1 ? 'accepted' : index % 4 === 0 ? 'offered' : 'initiated',
 }))
 
 const MOCK_QUALIFICATIONS = new Map<string, QualificationResponse>()
@@ -426,42 +427,60 @@ let transferSeq = 0
 
 const MOCK_TRANSFERS = new Map<string, TransferResponse>()
 
+function seedCloserQualification(
+  interactionId: string,
+  snapshot: {
+    vehicle: string
+    mileage: string
+    state: string
+    warranty_status: string
+    notes: string
+  },
+  consent: { consent_given: boolean; dnc_flagged: boolean }
+) {
+  const now = new Date().toISOString()
+  MOCK_QUALIFICATIONS.set(interactionId, {
+    id: `qual-seed-${interactionId}`,
+    interaction_id: interactionId,
+    version: 1,
+    snapshot_json: {
+      checklist: {
+        identityVerified: true,
+        vehicleDetailsConfirmed: true,
+        warrantyNeedConfirmed: true,
+        budgetDiscussed: true,
+        decisionMakerConfirmed: true,
+      },
+      disposition: 'qualified',
+      notes: snapshot.notes,
+      override: { applied: false, reason: '' },
+      vehicle: snapshot.vehicle,
+      vehicle_year: snapshot.vehicle.split(/\s+/)[0] ?? '',
+      vehicle_make: snapshot.vehicle.split(/\s+/)[1] ?? '',
+      vehicle_model: snapshot.vehicle.split(/\s+/).slice(2).join(' '),
+      mileage: snapshot.mileage.replace(/,/g, ''),
+      state: snapshot.state,
+      warranty_status: snapshot.warranty_status,
+    } as QualificationResponse['snapshot_json'],
+    consent_dnc: {
+      consent_given: consent.consent_given,
+      consent_captured_at: consent.consent_given ? now : null,
+      dnc_flagged: consent.dnc_flagged,
+      dnc_source: null,
+    },
+    created_at: now,
+    updated_at: now,
+  })
+}
+
 // Seed Today's Disposition rows so each closer workspace link has a matching
 // qualification + already-accepted transfer. Keep in sync with CLOSER_DESK_SEEDS.
 ;(() => {
   const now = new Date().toISOString()
   for (const seed of CLOSER_DESK_SEEDS) {
-    MOCK_QUALIFICATIONS.set(seed.interaction_id, {
-      id: `qual-seed-${seed.interaction_id}`,
-      interaction_id: seed.interaction_id,
-      version: 1,
-      snapshot_json: {
-        checklist: {
-          identityVerified: true,
-          vehicleDetailsConfirmed: true,
-          warrantyNeedConfirmed: true,
-          budgetDiscussed: true,
-          decisionMakerConfirmed: true,
-        },
-        disposition: 'qualified',
-        notes: seed.snapshot.notes,
-        override: { applied: false, reason: '' },
-        vehicle: seed.snapshot.vehicle,
-        vehicle_year: seed.snapshot.vehicle.split(/\s+/)[0] ?? '',
-        vehicle_make: seed.snapshot.vehicle.split(/\s+/)[1] ?? '',
-        vehicle_model: seed.snapshot.vehicle.split(/\s+/).slice(2).join(' '),
-        mileage: seed.snapshot.mileage.replace(/,/g, ''),
-        state: seed.snapshot.state,
-        warranty_status: seed.snapshot.warranty_status,
-      } as QualificationResponse['snapshot_json'],
-      consent_dnc: {
-        consent_given: seed.consent_given,
-        consent_captured_at: seed.consent_given ? now : null,
-        dnc_flagged: seed.dnc_flagged,
-        dnc_source: null,
-      },
-      created_at: now,
-      updated_at: now,
+    seedCloserQualification(seed.interaction_id, seed.snapshot, {
+      consent_given: seed.consent_given,
+      dnc_flagged: seed.dnc_flagged,
     })
 
     MOCK_TRANSFERS.set(seed.transfer_id, {
@@ -474,6 +493,30 @@ const MOCK_TRANSFERS = new Map<string, TransferResponse>()
       created_at: now,
       updated_at: now,
     })
+  }
+
+  // Pending/accepted closer queue rows — GET + accept must resolve these transfer ids.
+  for (const entry of MOCK_CLOSER_QUEUE) {
+    MOCK_TRANSFERS.set(entry.id, {
+      id: entry.id,
+      interaction_id: entry.interaction_id,
+      status: entry.status,
+      fronter_user_id: entry.fronter_user_id,
+      closer_user_id: entry.status === 'accepted' ? '2' : null,
+      created_at: entry.queued_at,
+      updated_at: entry.queued_at,
+    })
+    seedCloserQualification(
+      entry.interaction_id,
+      {
+        vehicle: '2018 Nissan Altima',
+        mileage: '71000',
+        state: 'CA',
+        warranty_status: 'Expired',
+        notes: 'Queued transfer — fronter qualification snapshot',
+      },
+      { consent_given: true, dnc_flagged: false }
+    )
   }
 })()
 
@@ -515,7 +558,7 @@ type MyStatsDispositionSeed = {
   interaction_id: string
   created_at: string
   label: string
-  stage: 'fronter'
+  stage: 'fronter' | 'closer'
   actor_user_id: string
   lead_name: string
   lead_phone: string
@@ -527,6 +570,13 @@ const MY_STATS_LABELS = [
   'Callback Requested',
   'Do Not Call',
   'Wrong Number',
+] as const
+
+const CLOSER_STATS_LABELS = [
+  'Sale completed',
+  'Callback requested',
+  'Not interested',
+  'Do not call',
 ] as const
 
 const MY_STATS_LEADS = [
@@ -545,10 +595,12 @@ const MY_STATS_LEADS = [
 function seedMyStatsForUser(
   actorUserId: string,
   rowCount: number,
-  leadOffset: number
+  leadOffset: number,
+  stage: 'fronter' | 'closer' = 'fronter'
 ): { dispositions: MyStatsDispositionSeed[]; transferred_interaction_ids: string[] } {
   const base = new Date()
   base.setHours(9, 0, 0, 0)
+  const labels = stage === 'closer' ? CLOSER_STATS_LABELS : MY_STATS_LABELS
 
   const dispositions: MyStatsDispositionSeed[] = Array.from({ length: rowCount }, (_, index) => {
     const created = new Date(base.getTime() + index * 11 * 60_000)
@@ -556,19 +608,22 @@ function seedMyStatsForUser(
       id: `idisp-${actorUserId}-${index + 1}`,
       interaction_id: `int-stats-${actorUserId}-${3000 + index}`,
       created_at: created.toISOString(),
-      label: MY_STATS_LABELS[index % MY_STATS_LABELS.length],
-      stage: 'fronter' as const,
+      label: labels[index % labels.length],
+      stage,
       actor_user_id: actorUserId,
       lead_name: MY_STATS_LEADS[(index + leadOffset) % MY_STATS_LEADS.length],
       lead_phone: `+9212345${actorUserId}${String(index).padStart(3, '0')}`,
     }
   })
 
-  // Half of this user's qualified calls were transferred — countable from the payload.
-  const transferred_interaction_ids = dispositions
-    .filter((row) => row.label === 'Qualified - Transferred')
-    .filter((_, i) => i % 2 === 0)
-    .map((row) => row.interaction_id)
+  // Fronter: half of qualified calls transferred. Closer: every disposition was answered.
+  const transferred_interaction_ids =
+    stage === 'closer'
+      ? dispositions.map((row) => row.interaction_id)
+      : dispositions
+          .filter((row) => row.label === 'Qualified - Transferred')
+          .filter((_, i) => i % 2 === 0)
+          .map((row) => row.interaction_id)
 
   return { dispositions, transferred_interaction_ids }
 }
@@ -577,8 +632,10 @@ const MOCK_MY_STATS_TODAY: Record<
   string,
   { dispositions: MyStatsDispositionSeed[]; transferred_interaction_ids: string[] }
 > = {
-  '1': seedMyStatsForUser('1', 50, 0),
-  '4': seedMyStatsForUser('4', 5, 3),
+  '1': seedMyStatsForUser('1', 50, 0, 'fronter'),
+  '4': seedMyStatsForUser('4', 5, 3, 'fronter'),
+  // Carl Closer — Active Call Today's Disposition.
+  '2': seedMyStatsForUser('2', 3, 1, 'closer'),
 }
 
 export const handlers = [
@@ -873,7 +930,7 @@ export const handlers = [
     )
   }),
 
-  // FE-08 — GET /me/stats/today (agent-scoped My Stats).
+  // Agent-scoped My Stats — fronter or closer via ?stage=.
   rest.get('/me/stats/today', (req, res, ctx) => {
     const authHeader = req.headers.get('authorization') || ''
     const token = authHeader.replace(/^Bearer\s+/i, '')
@@ -885,13 +942,42 @@ export const handlers = [
       )
     }
 
+    const roles = new Set(user.roles)
+    const stageParam = req.url.searchParams.get('stage')
+    let stage: 'fronter' | 'closer' | null =
+      stageParam === 'fronter' || stageParam === 'closer' ? stageParam : null
+
+    if (stage && !roles.has(stage)) {
+      return res(
+        ctx.status(403),
+        ctx.json(authErrorBody('Insufficient role for this operation', 'auth.forbidden'))
+      )
+    }
+    if (!stage) {
+      const held = [...roles].filter((r): r is 'fronter' | 'closer' => r === 'fronter' || r === 'closer')
+      if (held.length === 2) {
+        return res(
+          ctx.status(422),
+          ctx.json({
+            detail: 'stage is required when the caller holds both fronter and closer',
+            code: 'validation.stage_required',
+          })
+        )
+      }
+      stage = held[0] === 'closer' ? 'closer' : 'fronter'
+    }
+
     const empty = { dispositions: [], transferred_interaction_ids: [] as string[] }
     const payload = MOCK_MY_STATS_TODAY[user.id] ?? empty
 
     // Never leak another user's rows — seed is already keyed by actor, filter again.
-    const dispositions = payload.dispositions.filter((row) => row.actor_user_id === user.id)
+    const dispositions = payload.dispositions.filter(
+      (row) => row.actor_user_id === user.id && row.stage === stage
+    )
     const transferred_interaction_ids = payload.transferred_interaction_ids.filter((id) =>
-      dispositions.some((row) => row.interaction_id === id)
+      stage === 'closer'
+        ? true
+        : dispositions.some((row) => row.interaction_id === id)
     )
 
     return res(ctx.status(200), ctx.json({ dispositions, transferred_interaction_ids }))
@@ -973,25 +1059,44 @@ export const handlers = [
     return res(ctx.status(201), ctx.json(transfer))
   }),
 
-  // Accept/reject offer UI is out of scope for FE-03 / Screen 6 (workspace
-  // assumes an already-accepted transfer). Keep these routes for a later
-  // closer-offer screen rather than inventing that UI here.
+  // Closer workspace accepts pending offers on open (queue → Active Call).
   rest.post('/transfers/:transferId/accept', async (req, res, ctx) => {
     const transferId = req.params.transferId as string
     const body = (await req.json()) as { closer_user_id: string }
     const existing = MOCK_TRANSFERS.get(transferId)
-    const now = new Date().toISOString()
+    if (!existing) {
+      return res(
+        ctx.status(404),
+        ctx.json({ detail: 'transfer not found', code: 'transfer.not_found' })
+      )
+    }
+    if (existing.status !== 'initiated' && existing.status !== 'offered') {
+      return res(
+        ctx.status(409),
+        ctx.json({
+          detail: `this transfer is already ${existing.status}`,
+          code: 'transfer.not_answerable',
+        })
+      )
+    }
 
+    const now = new Date().toISOString()
     const transfer: TransferResponse = {
-      id: transferId,
-      interaction_id: existing?.interaction_id ?? 'int-1001',
+      ...existing,
       status: 'accepted',
-      fronter_user_id: existing?.fronter_user_id ?? '1',
       closer_user_id: body.closer_user_id,
-      created_at: existing?.created_at ?? now,
       updated_at: now,
     }
     MOCK_TRANSFERS.set(transferId, transfer)
+
+    // Accepted stays on the closer queue as "On Call" until dispositioned.
+    const queueIdx = MOCK_CLOSER_QUEUE.findIndex((row) => row.id === transferId)
+    if (queueIdx >= 0) {
+      MOCK_CLOSER_QUEUE[queueIdx] = {
+        ...MOCK_CLOSER_QUEUE[queueIdx],
+        status: 'accepted',
+      }
+    }
 
     return res(ctx.status(200), ctx.json(transfer))
   }),
@@ -1000,18 +1105,33 @@ export const handlers = [
     const transferId = req.params.transferId as string
     const body = (await req.json()) as { closer_user_id: string }
     const existing = MOCK_TRANSFERS.get(transferId)
-    const now = new Date().toISOString()
+    if (!existing) {
+      return res(
+        ctx.status(404),
+        ctx.json({ detail: 'transfer not found', code: 'transfer.not_found' })
+      )
+    }
+    if (existing.status !== 'initiated' && existing.status !== 'offered') {
+      return res(
+        ctx.status(409),
+        ctx.json({
+          detail: `this transfer is already ${existing.status}`,
+          code: 'transfer.not_answerable',
+        })
+      )
+    }
 
+    const now = new Date().toISOString()
     const transfer: TransferResponse = {
-      id: transferId,
-      interaction_id: existing?.interaction_id ?? 'int-1001',
+      ...existing,
       status: 'rejected',
-      fronter_user_id: existing?.fronter_user_id ?? '1',
       closer_user_id: body.closer_user_id,
-      created_at: existing?.created_at ?? now,
       updated_at: now,
     }
     MOCK_TRANSFERS.set(transferId, transfer)
+
+    const queueIdx = MOCK_CLOSER_QUEUE.findIndex((row) => row.id === transferId)
+    if (queueIdx >= 0) MOCK_CLOSER_QUEUE.splice(queueIdx, 1)
 
     return res(ctx.status(200), ctx.json(transfer))
   }),
@@ -1019,7 +1139,10 @@ export const handlers = [
   rest.get('/transfers/:transferId', (req, res, ctx) => {
     const transfer = MOCK_TRANSFERS.get(req.params.transferId as string)
     if (!transfer) {
-      return res(ctx.status(404), ctx.json({ detail: 'Transfer not found.' }))
+      return res(
+        ctx.status(404),
+        ctx.json({ detail: 'transfer not found', code: 'transfer.not_found' })
+      )
     }
     return res(ctx.status(200), ctx.json(transfer))
   }),

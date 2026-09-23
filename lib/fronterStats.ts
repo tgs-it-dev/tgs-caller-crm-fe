@@ -39,8 +39,18 @@ export function formatDispositionTime(iso: string) {
   return `${hh}:${mm}:${ss}`
 }
 
-export async function fetchTodaysStats(token: string): Promise<TodaysStatsResponse> {
-  const res = await fetch(apiUrl('/me/stats/today'), {
+export type StatsStage = TodaysDispositionRow['stage']
+
+/**
+ * Agent-scoped today payload. Pass `stage` when the caller may hold both
+ * fronter and closer (required by BE); a single-role user can omit it.
+ */
+export async function fetchTodaysStats(
+  token: string,
+  stage?: StatsStage
+): Promise<TodaysStatsResponse> {
+  const path = stage ? `/me/stats/today?stage=${stage}` : '/me/stats/today'
+  const res = await fetch(apiUrl(path), {
     headers: { Authorization: `Bearer ${token}` },
   })
   if (!res.ok) {

@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { Badge } from '@/components/ui/Badge'
 import { DataTable, type DataColumn } from '@/components/ui/DataTable'
 import { formatPhone, formatWaitTime, formatWaitTimeLabel } from '@/lib/format'
+import { closerWorkspaceHref } from '@/lib/closer'
 import type {
   CloserQueueEntry,
   CloserQueueStatus,
@@ -16,9 +17,13 @@ const FRONTER_STATUS: Record<FronterQueueStatus, { label: string; tone: 'signal'
   waiting: { label: 'Waiting', tone: 'caution' },
 }
 
-const CLOSER_STATUS: Record<CloserQueueStatus, { label: string; tone: 'signal' | 'caution' }> = {
+const CLOSER_STATUS: Record<
+  CloserQueueStatus,
+  { label: string; tone: 'signal' | 'caution' | 'accepted' }
+> = {
   offered: { label: 'Offered', tone: 'signal' },
   initiated: { label: 'Initiated', tone: 'caution' },
+  accepted: { label: 'On Call', tone: 'accepted' },
 }
 
 function fronterColumns(now: number): DataColumn<FronterQueueEntry>[] {
@@ -71,7 +76,7 @@ function closerColumns(now: number): DataColumn<CloserQueueEntry>[] {
       header: 'Lead',
       render: (entry) => (
         <Link
-          href={`/closer/workspace/${entry.interaction_id}`}
+          href={closerWorkspaceHref(entry.interaction_id, entry.id)}
           className="font-medium hover:text-navy hover:underline"
         >
           {formatPhone(entry.lead_phone)}
@@ -98,7 +103,10 @@ function closerColumns(now: number): DataColumn<CloserQueueEntry>[] {
       id: 'status',
       header: 'Status',
       render: (entry) => (
-        <Badge tone={CLOSER_STATUS[entry.status].tone} dot={entry.status === 'offered'}>
+        <Badge
+          tone={CLOSER_STATUS[entry.status].tone}
+          dot={entry.status === 'offered' || entry.status === 'accepted'}
+        >
           {CLOSER_STATUS[entry.status].label}
         </Badge>
       ),

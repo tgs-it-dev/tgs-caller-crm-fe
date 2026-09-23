@@ -878,10 +878,10 @@ export interface components {
             queued_at: string;
             /**
              * Status
-             * @description initiated | offered
+             * @description initiated | offered = waiting for any closer; accepted = this closer's open call (not yet closer-dispositioned)
              * @enum {string}
              */
-            status: "initiated" | "offered";
+            status: "initiated" | "offered" | "accepted";
         };
         /**
          * ConsentDnc
