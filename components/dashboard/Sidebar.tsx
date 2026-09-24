@@ -173,6 +173,7 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [fallbackActiveId, setFallbackActiveId] = useState<string | null>(null)
+  const [activeTransferId, setActiveTransferId] = useState<string | null>(null)
   const userReady = userStatus === 'ready' && user != null
 
   // Desk from the URL when under a role segment; otherwise primary role from `/auth/me`.
@@ -188,8 +189,14 @@ export function Sidebar() {
   }, [pathname, workspacePathPrefix])
 
   useEffect(() => {
+    if (typeof window === 'undefined') return
+    const transferId = new URLSearchParams(window.location.search).get('transferId')
+
     if (workspaceIdFromPath) {
       setFallbackActiveId(workspaceIdFromPath)
+      // Always sync from the query — clearing when absent avoids pairing a
+      // new interaction id with a stale transferId from a prior workspace.
+      setActiveTransferId(transferId)
       return
     }
 
@@ -197,6 +204,7 @@ export function Sidebar() {
     // /closer itself, and an administrator has no desk.
     if (role !== 'fronter') {
       setFallbackActiveId(null)
+      setActiveTransferId(null)
       return
     }
 
@@ -209,13 +217,14 @@ export function Sidebar() {
       .then((queue) => {
         if (cancelled) return
         setFallbackActiveId(queue[0]?.id ?? null)
+        setActiveTransferId(null)
       })
       .catch(() => {})
 
     return () => {
       cancelled = true
     }
-  }, [workspaceIdFromPath, role])
+  }, [workspaceIdFromPath, role, pathname])
 
   useEffect(() => {
     setMobileOpen(false)
@@ -226,13 +235,14 @@ export function Sidebar() {
     router.push('/login')
   }
 
-  // Closers keep fallbackActiveId null (Active Call = /closer); fronters may
-  // resolve a live interaction. Same href formula for both roles.
-  const activeCallHref = workspaceIdFromPath
-    ? `${workspacePathPrefix}/${workspaceIdFromPath}`
-    : fallbackActiveId
-      ? `${workspacePathPrefix}/${fallbackActiveId}`
-      : basePath
+  // Closers keep fallbackActiveId null (Active Call = /closer) unless they
+  // already opened a workspace; fronters may resolve a live interaction.
+  const activeInteractionId = workspaceIdFromPath ?? fallbackActiveId
+  const activeCallHref = activeInteractionId
+    ? activeTransferId && role === 'closer'
+      ? `${workspacePathPrefix}/${activeInteractionId}?transferId=${encodeURIComponent(activeTransferId)}`
+      : `${workspacePathPrefix}/${activeInteractionId}`
+    : basePath
 
   const navItems = role === 'administrator' ? ADMIN_NAV : deskNav(role, activeCallHref)
 

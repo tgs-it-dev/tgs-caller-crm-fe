@@ -1,13 +1,17 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { usePathname } from 'next/navigation'
 import { RequireRole } from '@/components/auth/RequireRole'
+import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import { StatTile } from '@/components/fronter/StatTile'
 import { TodaysDispositionTable } from '@/components/fronter/TodaysDispositionTable'
 import { Alert } from '@/components/ui/Alert'
 import { PageShell } from '@/components/ui/PageShell'
+import { deskRoleFromPath } from '@/lib/auth'
 import {
   fetchTodaysStats,
+  statsStageForUser,
   summarizeTodaysStats,
   type TodaysDispositionRow,
   type TodaysStatsSummary,
@@ -108,13 +112,23 @@ export default function FronterStatsPage() {
 }
 
 function MyStats() {
+  const pathname = usePathname()
+  const { user, status: userStatus } = useCurrentUser()
+  const desk = deskRoleFromPath(pathname)
+  const stage = user ? statsStageForUser(user.roles, desk) : null
   const [load, setLoad] = useState<LoadState>({ status: 'loading' })
 
   useEffect(() => {
+    if (userStatus === 'loading') return
+    if (!user) {
+      setLoad({ status: 'error', message: "Unable to load today's stats right now." })
+      return
+    }
+
     let cancelled = false
 
     waitForMocking()
-      .then(() => withSession(fetchTodaysStats))
+      .then(() => withSession((token) => fetchTodaysStats(token, stage)))
       .then((payload) => {
         if (cancelled) return
         setLoad({
@@ -132,7 +146,7 @@ function MyStats() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [userStatus, user, stage])
 
   return (
     <PageShell title="My Stats">

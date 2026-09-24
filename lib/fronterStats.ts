@@ -1,6 +1,6 @@
 import { apiUrl } from '@/lib/apiUrl'
 import { readApiError } from '@/lib/apiError'
-import { AuthError } from '@/lib/auth'
+import { AuthError, type Role } from '@/lib/auth'
 import type { components } from '@/lib/generated/schema'
 
 export type TodaysDispositionRow = components['schemas']['TodaysDispositionRow']
@@ -39,8 +39,42 @@ export function formatDispositionTime(iso: string) {
   return `${hh}:${mm}:${ss}`
 }
 
-export async function fetchTodaysStats(token: string): Promise<TodaysStatsResponse> {
-  const res = await fetch(apiUrl('/me/stats/today'), {
+export type StatsStage = TodaysDispositionRow['stage']
+
+function isStatsStage(role: Role): role is StatsStage {
+  return role === 'fronter' || role === 'closer'
+}
+
+/**
+ * Resolve `/me/stats/today` stage from `GET /auth/me` roles.
+ *
+ * - One agent role → that stage (BE also allows omitting stage in this case).
+ * - Both fronter + closer → desk URL disambiguates (required by BE).
+ * - Neither (admin-only) → null.
+ *
+ * Do not persist roles in localStorage — `CurrentUserProvider` already caches
+ * the `/auth/me` payload for the tab.
+ */
+export function statsStageForUser(
+  roles: Role[],
+  desk?: Role | null
+): StatsStage | null {
+  const agentRoles = roles.filter(isStatsStage)
+  if (agentRoles.length === 1) return agentRoles[0]
+  if (agentRoles.length > 1 && desk && isStatsStage(desk)) return desk
+  return null
+}
+
+/**
+ * Agent-scoped today payload. Pass stage from `statsStageForUser(user.roles, desk)`
+ * so dual-role callers stay correct; omit only when stage is null/undefined.
+ */
+export async function fetchTodaysStats(
+  token: string,
+  stage?: StatsStage | null
+): Promise<TodaysStatsResponse> {
+  const path = stage ? `/me/stats/today?stage=${stage}` : '/me/stats/today'
+  const res = await fetch(apiUrl(path), {
     headers: { Authorization: `Bearer ${token}` },
   })
   if (!res.ok) {

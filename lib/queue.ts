@@ -4,7 +4,8 @@ import { apiUrl } from '@/lib/apiUrl'
 export type QueueRole = 'fronter' | 'closer'
 
 export type FronterQueueStatus = 'ringing' | 'waiting'
-export type CloserQueueStatus = 'initiated' | 'offered'
+/** Pending offers, plus this closer's open accepted call (not yet dispositioned). */
+export type CloserQueueStatus = 'initiated' | 'offered' | 'accepted'
 
 /** @deprecated Prefer `FronterQueueStatus` — kept for existing fronter imports. */
 export type QueueStatus = FronterQueueStatus

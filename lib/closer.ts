@@ -1,13 +1,28 @@
 import type { components } from '@/lib/generated/schema'
-import { apiUrl } from '@/lib/apiUrl'
+import { AuthError } from '@/lib/auth'
+import {
+  captureDisposition,
+  listDispositions,
+  listInteractionDispositions,
+  type DispositionCaptureRequest,
+  type DispositionResponse,
+  type InteractionDispositionResponse,
+} from '@/lib/dispositions'
+import {
+  formatDispositionTime,
+  type TodaysStatsResponse,
+} from '@/lib/fronterStats'
+import { getLatestQualification, type QualificationResponse } from '@/lib/qualification'
+import {
+  acceptTransfer,
+  getTransfer,
+  isPendingTransfer,
+  type TransferResponse,
+} from '@/lib/transfers'
 
-export type QualificationResponse = components['schemas']['QualificationResponse']
-export type TransferResponse = components['schemas']['TransferResponse']
+export type { DispositionResponse, DispositionCaptureRequest, InteractionDispositionResponse }
+export type { TransferResponse }
 export type ConsentDnc = components['schemas']['ConsentDnc']
-export type DispositionResponse = components['schemas']['DispositionResponse']
-export type DispositionCaptureRequest = components['schemas']['DispositionCaptureRequest']
-export type InteractionDispositionResponse =
-  components['schemas']['InteractionDispositionResponse']
 
 /**
  * Closer-facing read model for the Qualification Snapshot card.
@@ -24,25 +39,43 @@ export type CloserQualificationSnapshot = {
   notes: string
 }
 
-/** Row for Today's Disposition — accepted transfers on the closer desk. */
+/**
+ * Row for Today's Disposition on closer Active Call.
+ * Built from `GET /me/stats/today?stage=closer` — dispositions plus answered
+ * transfers that may not have a closer disposition yet.
+ */
 export type TodaysDispositionRow = {
-  transfer_id: TransferResponse['id']
-  interaction_id: TransferResponse['interaction_id']
-  status: TransferResponse['status']
+  interaction_id: string
+  /** Lead display name (phone stand-in until leads carry names). */
   from_name: string
-  accepted_at: string
-  /** Latest closer-stage disposition label when one has been captured. */
+  /** Disposition time clock when known; answered-but-undispositioned rows omit it. */
+  accepted_at: string | null
   disposition_label: string | null
+}
+
+export type CloserWorkspaceData = {
+  transfer: TransferResponse
+  qualification: QualificationResponse | null
+  options: DispositionResponse[]
+  captured: InteractionDispositionResponse[]
 }
 
 const DEFAULT_INTERACTION_ID = 'int-1001'
 
+/** MSW desk seed helper — not used against the live API. */
 export function transferIdForInteraction(interactionId: string) {
   return `transfer-for-${interactionId}`
 }
 
 export const CLOSER_DEFAULT_INTERACTION_ID = DEFAULT_INTERACTION_ID
 export const CLOSER_DEFAULT_TRANSFER_ID = transferIdForInteraction(DEFAULT_INTERACTION_ID)
+
+/** Workspace URL; `transferId` is required to accept/load against the real API. */
+export function closerWorkspaceHref(interactionId: string, transferId?: string | null): string {
+  const base = `/closer/workspace/${encodeURIComponent(interactionId)}`
+  if (!transferId) return base
+  return `${base}?transferId=${encodeURIComponent(transferId)}`
+}
 
 /** Seeded snapshot matching the Figma Closer Active Call frame. */
 export const MOCK_CLOSER_SNAPSHOT: CloserQualificationSnapshot = {
@@ -110,30 +143,33 @@ export const CLOSER_DESK_SEEDS: readonly CloserDeskSeed[] = [
   },
 ]
 
-function formatAcceptedClock(iso: string) {
-  const d = new Date(iso)
-  const hh = String(d.getHours()).padStart(2, '0')
-  const mm = String(d.getMinutes()).padStart(2, '0')
-  const ss = String(d.getSeconds()).padStart(2, '0')
-  return `${hh}:${mm}:${ss}`
-}
+/**
+ * Map closer today stats onto the Active Call table.
+ * Prefer answered transfers; overlay disposition label/time/lead when present.
+ */
+export function closerTodaysRowsFromStats(payload: TodaysStatsResponse): TodaysDispositionRow[] {
+  const byInteraction = new Map(
+    payload.dispositions.map((row) => [row.interaction_id, row] as const)
+  )
 
-/** Today's accepted transfers for the closer desk (mock until a list endpoint ships). */
-export function listTodaysDispositions(
-  dispositionByInteraction: Record<string, string | null> = {}
-): TodaysDispositionRow[] {
-  const base = new Date()
-  base.setHours(14, 22, 7, 0)
+  const orderedIds: string[] = []
+  const seen = new Set<string>()
+  for (const id of [
+    ...payload.transferred_interaction_ids,
+    ...payload.dispositions.map((row) => row.interaction_id),
+  ]) {
+    if (seen.has(id)) continue
+    seen.add(id)
+    orderedIds.push(id)
+  }
 
-  return CLOSER_DESK_SEEDS.map((seed) => {
-    const accepted = new Date(base.getTime() + seed.accepted_offset_min * 60_000)
+  return orderedIds.map((interaction_id) => {
+    const disposition = byInteraction.get(interaction_id)
     return {
-      transfer_id: seed.transfer_id,
-      interaction_id: seed.interaction_id,
-      status: 'accepted' as const,
-      from_name: seed.from_name,
-      accepted_at: formatAcceptedClock(accepted.toISOString()),
-      disposition_label: dispositionByInteraction[seed.interaction_id] ?? null,
+      interaction_id,
+      from_name: disposition?.lead_name ?? interaction_id.slice(0, 8),
+      accepted_at: disposition ? formatDispositionTime(disposition.created_at) : null,
+      disposition_label: disposition?.label ?? null,
     }
   })
 }
@@ -186,89 +222,80 @@ export function latestCloserDisposition(
   return closer.reduce((best, item) => (item.version > best.version ? item : best))
 }
 
-class CloserApiError extends Error {
-  readonly status: number
+/**
+ * Accept a pending transfer when needed, then load qualification + dispositions.
+ * Coalesces concurrent loads (Strict Mode remount) for the same transfer.
+ */
+const inflightByTransfer = new Map<string, Promise<CloserWorkspaceData>>()
 
-  constructor(status: number, message: string) {
-    super(message)
-    this.name = 'CloserApiError'
-    this.status = status
+export function loadCloserWorkspace(
+  opts: { interactionId: string; transferId: string; closerUserId: string },
+  token: string
+): Promise<CloserWorkspaceData> {
+  const key = `${opts.transferId}:${opts.closerUserId}`
+  let inflight = inflightByTransfer.get(key)
+  if (!inflight) {
+    inflight = resolveCloserWorkspace(opts, token).finally(() => {
+      if (inflightByTransfer.get(key) === inflight) {
+        inflightByTransfer.delete(key)
+      }
+    })
+    inflightByTransfer.set(key, inflight)
   }
+  return inflight
 }
 
-type AuthJsonInit = RequestInit & {
-  errorMessage?: string
-}
-
-async function authJson<T>(path: string, token: string, init: AuthJsonInit = {}): Promise<T> {
-  const { errorMessage, headers, ...rest } = init
-  const res = await fetch(apiUrl(path), {
-    ...rest,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(rest.body ? { 'Content-Type': 'application/json' } : {}),
-      ...headers,
-    },
-  })
-  if (!res.ok) {
-    throw new CloserApiError(
-      res.status,
-      errorMessage ?? `Request failed (${res.status}) for ${path}`
+async function resolveCloserWorkspace(
+  opts: { interactionId: string; transferId: string; closerUserId: string },
+  token: string
+): Promise<CloserWorkspaceData> {
+  let transfer = await getTransfer(opts.transferId, token)
+  if (!transfer) {
+    throw new AuthError('No transfer found for this interaction.', 404, 'transfer.not_found')
+  }
+  if (transfer.interaction_id !== opts.interactionId) {
+    throw new AuthError(
+      'This transfer does not belong to the requested interaction.',
+      422,
+      'transfer.interaction_mismatch'
     )
   }
-  return res.json() as Promise<T>
-}
 
-async function authJsonOrNull<T>(
-  path: string,
-  token: string,
-  init: AuthJsonInit = {}
-): Promise<T | null> {
-  try {
-    return await authJson<T>(path, token, init)
-  } catch (err) {
-    if (err instanceof CloserApiError && err.status === 404) return null
-    throw err
+  if (isPendingTransfer(transfer.status)) {
+    try {
+      transfer = await acceptTransfer(
+        opts.transferId,
+        { closer_user_id: opts.closerUserId },
+        token
+      )
+    } catch (err) {
+      // Two tabs / Strict Mode: offer already answered — refetch.
+      if (err instanceof AuthError && err.code === 'transfer.not_answerable') {
+        const again = await getTransfer(opts.transferId, token)
+        if (again?.status === 'accepted') {
+          transfer = again
+        } else {
+          throw err
+        }
+      } else {
+        throw err
+      }
+    }
+  } else if (transfer.status !== 'accepted') {
+    throw new AuthError(
+      `This transfer is ${transfer.status} and cannot be opened.`,
+      409,
+      'transfer.not_answerable'
+    )
   }
-}
 
-export async function getLatestQualification(
-  interactionId: string,
-  token: string
-): Promise<QualificationResponse | null> {
-  return authJsonOrNull<QualificationResponse>(`/qualification/${interactionId}`, token, {
-    errorMessage: 'Unable to load the qualification snapshot.',
-  })
-}
+  const [qualification, options, captured] = await Promise.all([
+    getLatestQualification(opts.interactionId, token),
+    listDispositions(token, 'closer'),
+    listInteractionDispositions(opts.interactionId, token),
+  ])
 
-export async function getTransfer(
-  transferId: string,
-  token: string
-): Promise<TransferResponse | null> {
-  return authJsonOrNull<TransferResponse>(`/transfers/${transferId}`, token, {
-    errorMessage: 'Unable to load the transfer.',
-  })
-}
-
-export async function listCloserDispositionOptions(
-  token: string
-): Promise<DispositionResponse[]> {
-  const data = await authJson<{ items: DispositionResponse[] }>(
-    '/dispositions?stage=closer',
-    token
-  )
-  return data.items
-}
-
-export async function listInteractionDispositions(
-  interactionId: string,
-  token: string
-): Promise<InteractionDispositionResponse[]> {
-  const data = await authJson<{ items: InteractionDispositionResponse[] }>(
-    `/interactions/${interactionId}/dispositions`,
-    token
-  )
-  return data.items
+  return { transfer, qualification, options, captured }
 }
 
 export async function createCloserDisposition(
@@ -276,17 +303,13 @@ export async function createCloserDisposition(
   payload: DispositionCaptureRequest,
   token: string
 ): Promise<InteractionDispositionResponse> {
-  return authJson<InteractionDispositionResponse>(
-    `/interactions/${interactionId}/dispositions`,
-    token,
-    {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      errorMessage: 'Unable to save the disposition.',
-    }
-  )
+  return captureDisposition(interactionId, payload, token)
 }
 
-// Accept/reject offer client helpers are out of scope for FE-03 / Screen 6
-// (workspace assumes an already-accepted transfer). Reintroduce when the
-// closer-offer UI ships.
+export async function listCloserDispositionOptions(
+  token: string
+): Promise<DispositionResponse[]> {
+  return listDispositions(token, 'closer')
+}
+
+export { listInteractionDispositions, getLatestQualification }

@@ -2,9 +2,17 @@ import { CloserActiveCallScreen } from '@/components/closer/CloserActiveCallScre
 
 export default async function CloserWorkspacePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ interactionId: string }>
+  searchParams: Promise<{ transferId?: string | string[] }>
 }) {
   const { interactionId } = await params
-  return <CloserActiveCallScreen interactionId={interactionId} />
+  const query = await searchParams
+  const raw = query.transferId
+  const transferId = Array.isArray(raw) ? raw[0] : raw
+
+  return (
+    <CloserActiveCallScreen interactionId={interactionId} transferId={transferId} />
+  )
 }
