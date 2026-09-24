@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState, type ComponentType, type SVGProps } from 'react'
-import { useRouter, usePathname } from 'next/navigation'
+import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Bell, ChartLine, ListOrdered, LogOut, Menu, Phone } from 'lucide-react'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
@@ -177,13 +177,22 @@ function Avatar({ name }: { name?: string }) {
 
 export function Sidebar() {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const router = useRouter()
   const { user, status: userStatus, signOut } = useCurrentUser()
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [fallbackActiveId, setFallbackActiveId] = useState<string | null>(null)
-  const [activeTransferId, setActiveTransferId] = useState<string | null>(null)
+  const [prevPathname, setPrevPathname] = useState(pathname)
   const userReady = userStatus === 'ready' && user != null
+
+  // Reset the mobile nav on route change without an effect — an effect would
+  // fire one render late; deriving during render (React's documented pattern
+  // for "adjusting state when a prop changes") closes it in the same render.
+  if (pathname !== prevPathname) {
+    setPrevPathname(pathname)
+    setMobileOpen(false)
+  }
 
   // Desk from the URL when under a role segment; otherwise primary role from `/auth/me`.
   const role: Role =
@@ -197,25 +206,11 @@ export function Sidebar() {
     return match?.[1] ?? null
   }, [pathname, workspacePathPrefix])
 
+  // Only a fronter resolves a live interaction when the URL itself doesn't
+  // name one: a closer's Active Call is /closer itself, and an administrator
+  // has no desk.
   useEffect(() => {
-    if (typeof window === 'undefined') return
-    const transferId = new URLSearchParams(window.location.search).get('transferId')
-
-    if (workspaceIdFromPath) {
-      setFallbackActiveId(workspaceIdFromPath)
-      // Always sync from the query — clearing when absent avoids pairing a
-      // new interaction id with a stale transferId from a prior workspace.
-      setActiveTransferId(transferId)
-      return
-    }
-
-    // Only a fronter resolves a live interaction: a closer's Active Call is
-    // /closer itself, and an administrator has no desk.
-    if (role !== 'fronter') {
-      setFallbackActiveId(null)
-      setActiveTransferId(null)
-      return
-    }
+    if (workspaceIdFromPath || role !== 'fronter') return
 
     let cancelled = false
     const token = readToken()
@@ -226,18 +221,13 @@ export function Sidebar() {
       .then((queue) => {
         if (cancelled) return
         setFallbackActiveId(queue[0]?.id ?? null)
-        setActiveTransferId(null)
       })
       .catch(() => {})
 
     return () => {
       cancelled = true
     }
-  }, [workspaceIdFromPath, role, pathname])
-
-  useEffect(() => {
-    setMobileOpen(false)
-  }, [pathname])
+  }, [workspaceIdFromPath, role])
 
   function handleSignOut() {
     signOut()
@@ -246,7 +236,8 @@ export function Sidebar() {
 
   // Closers keep fallbackActiveId null (Active Call = /closer) unless they
   // already opened a workspace; fronters may resolve a live interaction.
-  const activeInteractionId = workspaceIdFromPath ?? fallbackActiveId
+  const activeInteractionId = workspaceIdFromPath ?? (role === 'fronter' ? fallbackActiveId : null)
+  const activeTransferId = workspaceIdFromPath ? searchParams.get('transferId') : null
   const activeCallHref = activeInteractionId
     ? activeTransferId && role === 'closer'
       ? `${workspacePathPrefix}/${activeInteractionId}?transferId=${encodeURIComponent(activeTransferId)}`
