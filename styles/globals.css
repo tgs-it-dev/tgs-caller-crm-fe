@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #__next {
+  height: 100%;
+}
+
+/* Keep decorative stroke icons square — flex rows can squash SVG height. */
+svg[aria-hidden="true"] {
+  aspect-ratio: 1 / 1;
+  flex-shrink: 0;
+}
+
+/* end */
