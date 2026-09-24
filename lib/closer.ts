@@ -9,7 +9,6 @@ import {
   type InteractionDispositionResponse,
 } from '@/lib/dispositions'
 import {
-  fetchTodaysStats,
   formatDispositionTime,
   type TodaysStatsResponse,
 } from '@/lib/fronterStats'
@@ -173,10 +172,6 @@ export function closerTodaysRowsFromStats(payload: TodaysStatsResponse): TodaysD
       disposition_label: disposition?.label ?? null,
     }
   })
-}
-
-export function fetchCloserTodaysStats(token: string): Promise<TodaysStatsResponse> {
-  return fetchTodaysStats(token, 'closer')
 }
 
 function snapString(value: unknown): string {

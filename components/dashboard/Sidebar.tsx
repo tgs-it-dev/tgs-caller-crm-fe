@@ -194,7 +194,9 @@ export function Sidebar() {
 
     if (workspaceIdFromPath) {
       setFallbackActiveId(workspaceIdFromPath)
-      if (transferId) setActiveTransferId(transferId)
+      // Always sync from the query — clearing when absent avoids pairing a
+      // new interaction id with a stale transferId from a prior workspace.
+      setActiveTransferId(transferId)
       return
     }
 

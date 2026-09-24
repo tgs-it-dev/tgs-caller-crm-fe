@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useReducer, useState, type ReactNode } from 'react'
+import { usePathname } from 'next/navigation'
 import { RequireRole } from '@/components/auth/RequireRole'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import { CloserDispositionCard } from '@/components/closer/CloserDispositionCard'
@@ -9,10 +10,10 @@ import { TodaysDispositionTable } from '@/components/closer/TodaysDispositionTab
 import { Alert } from '@/components/ui/Alert'
 import { Badge } from '@/components/ui/Badge'
 import { PageShell } from '@/components/ui/PageShell'
+import { deskRoleFromPath } from '@/lib/auth'
 import {
   closerTodaysRowsFromStats,
   createCloserDisposition,
-  fetchCloserTodaysStats,
   latestCloserDisposition,
   listInteractionDispositions,
   loadCloserWorkspace,
@@ -22,6 +23,7 @@ import {
   type TodaysDispositionRow,
   type TransferResponse,
 } from '@/lib/closer'
+import { fetchTodaysStats, statsStageForUser } from '@/lib/fronterStats'
 import { waitForMocking } from '@/lib/mockReady'
 import { withSession } from '@/lib/session'
 
@@ -121,13 +123,26 @@ type TodaysLoad =
   | { status: 'ready'; rows: TodaysDispositionRow[] }
 
 function useCloserTodaysDispositions(refreshKey = 0) {
+  const pathname = usePathname()
+  const { user, status: userStatus } = useCurrentUser()
+  const desk = deskRoleFromPath(pathname)
+  const stage = user ? statsStageForUser(user.roles, desk) : null
   const [load, setLoad] = useState<TodaysLoad>({ status: 'loading' })
 
   useEffect(() => {
+    if (userStatus === 'loading') return
+    if (!user) {
+      setLoad({
+        status: 'error',
+        message: "Unable to load today's dispositions.",
+      })
+      return
+    }
+
     let cancelled = false
 
     waitForMocking()
-      .then(() => withSession(fetchCloserTodaysStats))
+      .then(() => withSession((token) => fetchTodaysStats(token, stage)))
       .then((payload) => {
         if (cancelled) return
         setLoad({ status: 'ready', rows: closerTodaysRowsFromStats(payload) })
@@ -146,7 +161,7 @@ function useCloserTodaysDispositions(refreshKey = 0) {
     return () => {
       cancelled = true
     }
-  }, [refreshKey])
+  }, [refreshKey, userStatus, user, stage])
 
   return load
 }
