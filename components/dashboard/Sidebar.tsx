@@ -113,7 +113,11 @@ const ADMIN_NAV: NavItem[] = [
     href: '/admin/exceptions',
     label: 'Exceptions',
     icon: ExceptionsIcon,
-    isActive: (p) => p.startsWith('/admin/exceptions'),
+    // Interaction detail is a shared screen with no section of its own, and
+    // the queue is the only way into it today — so the nav keeps saying where
+    // the reader came from. The ticket that adds the funnel's list has a second
+    // way in, and has to decide this properly then.
+    isActive: (p) => p.startsWith('/admin/exceptions') || p.startsWith('/admin/interactions'),
   },
   {
     href: '/admin/users',

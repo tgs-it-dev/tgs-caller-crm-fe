@@ -408,6 +408,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/interactions/{interaction_id}/call-legs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Call legs recorded for an interaction
+         * @description Administrator-only, like the rest of the review view.
+         *
+         *     An empty list is the expected answer today and not an error: nothing
+         *     populates call_legs while the dialer's push carries no call id, so this
+         *     reads empty until that mapping lands. See ADR 0004.
+         */
+        get: operations["list_call_legs_interactions__interaction_id__call_legs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/interactions/{interaction_id}/dispositions": {
         parameters: {
             query?: never;
@@ -433,6 +457,53 @@ export interface paths {
          *     becomes the next version and the earlier one stays on record.
          */
         post: operations["create_disposition_interactions__interaction_id__dispositions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/interactions/{interaction_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Raw inbound events recorded against an interaction
+         * @description The payloads this interaction was derived from, newest first.
+         *
+         *     Only events the worker linked. One stored before the link existed, one still
+         *     unprocessed, and one identifying no interaction all read as absent, so an
+         *     empty list means none were recorded rather than none arrived.
+         */
+        get: operations["list_events_interactions__interaction_id__events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/interactions/{interaction_id}/transfers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Transfer history for an interaction
+         * @description Every attempt, not just the live one.
+         *
+         *     A rejected or timed-out transfer releases the interaction to be retried, so
+         *     the attempts are the history somebody reviewing this came to see.
+         */
+        get: operations["list_transfers_interactions__interaction_id__transfers_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -597,8 +668,12 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List unreconciled interaction mismatches
+         * List interaction mismatches awaiting review
          * @description Queryable admin exception view — one row per (interaction, reason).
+         *
+         *     Outstanding only by default. The queue is a list of work to do, and
+         *     something dealt with last month is not that; ask for "resolved" or "any"
+         *     to see the rest.
          */
         get: operations["list_exceptions_reconciliation_exceptions_get"];
         put?: never;
@@ -607,6 +682,31 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/reconciliation/exceptions/{exception_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Record that a mismatch was dealt with, or put it back
+         * @description A judgement, not an observation.
+         *
+         *     These mismatches cannot heal — an interaction with two legs and no transfer
+         *     still has both tomorrow — so resolving means somebody looked and dealt with
+         *     it, and the sweep leaves that alone rather than reopening it every five
+         *     minutes.
+         */
+        patch: operations["resolve_exception_reconciliation_exceptions__exception_id__patch"];
         trace?: never;
     };
     "/reporting/funnel": {
@@ -844,6 +944,38 @@ export interface components {
              * @description Active closers only. Empty when nobody is staffed — transfer would then return transfer.no_closer_available. Read-only: POST /transfers does not accept a closer_user_id.
              */
             items: components["schemas"]["AvailableCloserItem"][];
+        };
+        /**
+         * CallLegItem
+         * @description One leg. started_at/ended_at are null until the dialer mapping lands.
+         *
+         *     created_at is when the row was written, which is not when the call began —
+         *     it is here because it is the only timestamp that is never null, and it is
+         *     what the list is ordered by when started_at is missing. Do not render it as
+         *     the start: an absent start is worth showing as absent.
+         */
+        CallLegItem: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Ended At */
+            ended_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Started At */
+            started_at: string | null;
+            /** Vicidial Call Id */
+            vicidial_call_id: string;
+        };
+        /** CallLegListResponse */
+        CallLegListResponse: {
+            /** Items */
+            items: components["schemas"]["CallLegItem"][];
         };
         /**
          * ChangePasswordRequest
@@ -1212,6 +1344,55 @@ export interface components {
             version: number;
         };
         /**
+         * InteractionEventItem
+         * @description A raw inbound event this interaction was derived from.
+         */
+        InteractionEventItem: {
+            /** Error */
+            error: string | null;
+            /** Event Id */
+            event_id: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+            /** Processed At */
+            processed_at: string | null;
+            /**
+             * Received At
+             * Format: date-time
+             */
+            received_at: string;
+            /** Skipped Reason */
+            skipped_reason: string | null;
+            /** Source */
+            source: string;
+        };
+        /**
+         * InteractionEventListResponse
+         * @description Events linked to this interaction, newest first.
+         *
+         *     An empty list means "none recorded", never "none happened": events applied
+         *     before the link existed carry no interaction_id and cannot be recovered, and
+         *     nothing links an event that identifies no interaction. The client says so
+         *     rather than implying the interaction had none.
+         */
+        InteractionEventListResponse: {
+            /** Items */
+            items: components["schemas"]["InteractionEventItem"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
+        /**
          * InteractionQualificationSummary
          * @description Just enough of a qualification to audit consent — not the full snapshot.
          */
@@ -1224,6 +1405,49 @@ export interface components {
             id: string;
             /** Version */
             version: number;
+        };
+        /**
+         * InteractionTransferItem
+         * @description A transfer, with the two people named rather than referenced.
+         *
+         *     The names are resolved here because the client has no bulk user lookup and
+         *     the alternative is a request per row. Null where the transfer never had a
+         *     closer — a failed offer — or where the account has since been deleted.
+         */
+        InteractionTransferItem: {
+            /** Closer Name */
+            closer_name: string | null;
+            /** Closer User Id */
+            closer_user_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Fronter Name */
+            fronter_name: string | null;
+            /** Fronter User Id */
+            fronter_user_id: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "initiated" | "offered" | "accepted" | "rejected" | "timeout" | "failed";
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** InteractionTransferListResponse */
+        InteractionTransferListResponse: {
+            /** Items */
+            items: components["schemas"]["InteractionTransferItem"][];
         };
         /**
          * InvitationLookupRequest
@@ -1414,6 +1638,12 @@ export interface components {
              * @enum {string}
              */
             reason: "multi_leg_without_transfer" | "late_event_after_finalization";
+            /** Resolution Note */
+            resolution_note: string | null;
+            /** Resolved At */
+            resolved_at: string | null;
+            /** Resolved By */
+            resolved_by: string | null;
         };
         /** ReconciliationExceptionListResponse */
         ReconciliationExceptionListResponse: {
@@ -1440,6 +1670,20 @@ export interface components {
             new_password: string;
             /** Token */
             token: string;
+        };
+        /**
+         * ResolveExceptionRequest
+         * @description Mark an exception dealt with, or put it back on the queue.
+         *
+         *     The note is optional and only kept while resolved: reopening clears it,
+         *     because an explanation for a resolution that no longer stands is worse than
+         *     none. The audit trail keeps every version regardless.
+         */
+        ResolveExceptionRequest: {
+            /** Note */
+            note?: string | null;
+            /** Resolved */
+            resolved: boolean;
         };
         /** TicketResponse */
         TicketResponse: {
@@ -2467,6 +2711,46 @@ export interface operations {
             };
         };
     };
+    list_call_legs_interactions__interaction_id__call_legs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallLegListResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     list_dispositions_interactions__interaction_id__dispositions_get: {
         parameters: {
             query?: never;
@@ -2529,6 +2813,89 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InteractionDispositionResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_events_interactions__interaction_id__events_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                interaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InteractionEventListResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_transfers_interactions__interaction_id__transfers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InteractionTransferListResponse"];
                 };
             };
             /** @description Client Error */
@@ -2879,6 +3246,9 @@ export interface operations {
             query?: {
                 limit?: number;
                 offset?: number;
+                /** @description Which slice of the queue: outstanding, dealt with, or both */
+                resolution?: "open" | "resolved" | "any";
+                reason?: ("multi_leg_without_transfer" | "late_event_after_finalization") | null;
             };
             header?: never;
             path?: never;
@@ -2893,6 +3263,50 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReconciliationExceptionListResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    resolve_exception_reconciliation_exceptions__exception_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                exception_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveExceptionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReconciliationExceptionItem"];
                 };
             };
             /** @description Client Error */

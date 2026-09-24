@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { Fragment, useState, type ReactNode } from 'react'
 import Table from '@mui/material/Table'
 import TableBody from '@mui/material/TableBody'
 import TableCell from '@mui/material/TableCell'
@@ -18,6 +18,17 @@ export type DataColumn<T> = {
   render: (row: T) => ReactNode
 }
 
+/**
+ * Paging the caller does against the server: `rows` is already one page, and
+ * the footer moves `offset`. Without it the table pages `rows` in the browser.
+ */
+export type ServerPaging = {
+  total: number
+  limit: number
+  offset: number
+  onOffsetChange: (offset: number) => void
+}
+
 type DataTableProps<T> = {
   title: string
   ariaLabel: string
@@ -30,6 +41,19 @@ type DataTableProps<T> = {
   /** `solid` = My Stats / closer cards; `live` = dashed Queue outline. */
   variant?: 'solid' | 'live'
   pageSize?: number
+  paging?: ServerPaging
+  /**
+   * A full-width row beneath the open one. The caller owns both the control
+   * that opens it and which row is open, so the trigger can say what it does.
+   */
+  expandedRowId?: string | null
+  renderExpanded?: (row: T) => ReactNode
+  /**
+   * A floor for the table's width, e.g. `'max-content'` where cells must not
+   * wrap. Below it the card scrolls sideways instead of squeezing columns
+   * until their contents overlap.
+   */
+  minWidth?: number | string
 }
 
 /**
@@ -46,14 +70,27 @@ export function DataTable<T>({
   actions,
   variant = 'solid',
   pageSize = DEFAULT_PAGE_SIZE,
+  paging,
+  expandedRowId = null,
+  renderExpanded,
+  minWidth,
 }: DataTableProps<T>) {
   const [page, setPage] = useState(1)
 
-  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize))
+  const localTotalPages = Math.max(1, Math.ceil(rows.length / pageSize))
   // Live lists can shrink under us; never render past the last page.
-  const currentPage = Math.min(page, totalPages)
-  const offset = (currentPage - 1) * pageSize
-  const visible = rows.slice(offset, offset + pageSize)
+  const localPage = Math.min(page, localTotalPages)
+  const localOffset = (localPage - 1) * pageSize
+
+  const totalPages = paging ? Math.max(1, Math.ceil(paging.total / paging.limit)) : localTotalPages
+  const currentPage = paging ? Math.floor(paging.offset / paging.limit) + 1 : localPage
+  const offset = paging ? paging.offset : localOffset
+  const visible = paging ? rows : rows.slice(localOffset, localOffset + pageSize)
+
+  const goTo = (nextOffset: number) => {
+    if (paging) paging.onOffsetChange(nextOffset)
+    else setPage(Math.floor(nextOffset / pageSize) + 1)
+  }
 
   const shell =
     variant === 'live'
@@ -76,9 +113,17 @@ export function DataTable<T>({
         <p className="py-10 text-center text-sm text-slate">{emptyMessage}</p>
       ) : (
         <>
+          {/* Cells a column won't wrap (an id, a timestamp) scroll here rather
+              than pushing the page sideways — a card sat in a half-width
+              column has less room than the table wants. */}
+          <div className="overflow-x-auto">
           <Table
             aria-label={ariaLabel}
             sx={{
+              // MUI lays tables out fixed, which divides the width it is given
+              // and ignores what is in the cells. A table asking for room has
+              // to be measured by its content for `minWidth` to mean anything.
+              ...(minWidth !== undefined && { minWidth, tableLayout: 'auto' }),
               '& tbody td': {
                 paddingTop: '16px',
                 paddingBottom: '16px',
@@ -96,17 +141,37 @@ export function DataTable<T>({
               </TableRow>
             </TableHead>
             <TableBody>
-              {visible.map((row) => (
-                <TableRow key={getRowId(row)}>
-                  {columns.map((col) => (
-                    <TableCell key={col.id} align={col.align}>
-                      {col.render(row)}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))}
+              {visible.map((row) => {
+                const rowId = getRowId(row)
+                const expanded = renderExpanded && rowId === expandedRowId
+
+                return (
+                  <Fragment key={rowId}>
+                    <TableRow>
+                      {columns.map((col) => (
+                        <TableCell key={col.id} align={col.align}>
+                          {col.render(row)}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                    {expanded && (
+                      <TableRow>
+                        <TableCell colSpan={columns.length}>
+                          {/* `w-0 min-w-full` keeps this panel out of the
+                              table's intrinsic width: a paragraph in here
+                              would otherwise widen every column under
+                              `minWidth: max-content` and push the last one
+                              off the card. It still renders full width. */}
+                          <div className="w-0 min-w-full">{renderExpanded(row)}</div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </Fragment>
+                )
+              })}
             </TableBody>
           </Table>
+          </div>
 
           <div className="flex h-[37px] items-center rounded-md bg-table-strip px-6">
             <Pagination
@@ -115,8 +180,8 @@ export function DataTable<T>({
               totalPages={totalPages}
               rangeStart={offset + 1}
               rangeEnd={offset + visible.length}
-              onPrevious={() => setPage(Math.max(1, currentPage - 1))}
-              onNext={() => setPage(Math.min(totalPages, currentPage + 1))}
+              onPrevious={() => goTo(Math.max(0, offset - (paging?.limit ?? pageSize)))}
+              onNext={() => goTo(offset + (paging?.limit ?? pageSize))}
             />
           </div>
         </>

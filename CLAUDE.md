@@ -168,10 +168,72 @@ Attempts.
   attempts, rejections and timeouts included. Connects and Qualified are
   stand-ins too, and the page says so in a line under the chart rather than in
   hover text, which a screen reader never reads.
-- **No drill-down.** A count covers many interactions, so it can only open a
-  list, and no administrator interaction screen exists to land on. The bars are
-  deliberately not clickable; the list arrives with the backend change that
-  gives a row something worth showing.
+- **No drill-down yet.** A count covers many interactions, so a bar can only
+  open a list, and that list is a separate ticket. What blocked it — nowhere for
+  a row to land — is gone: `/admin/interactions/[interactionId]` exists, and the
+  list links there with `?from=funnel`. The bars stay unclickable until it does.
+
+## Exceptions and interaction detail
+
+`/admin/exceptions` works the reconciliation queue through `lib/exceptions.ts`;
+`/admin/interactions/[interactionId]` is the record behind a row, read through
+`lib/interactionDetail.ts`. Administrator-only, like the rest of `/admin`.
+
+- **Reconciliation makes no call to VICIdial.** It is a self-consistency audit of
+  the CRM's own tables against the raw event inbox, swept every five minutes by
+  the backend worker. Two reasons exist: `multi_leg_without_transfer` (two or
+  more call legs and no transfer row of any status) and
+  `late_event_after_finalization` (an event arrived more than the grace window
+  after the interaction was dispositioned). The Issue column is human copy from
+  a `Record<ExceptionReason, …>` in `lib/exceptions.ts`, so a third reason fails
+  the build here rather than reaching the screen as its enum.
+- **`details` is the only place the evidence appears**, and the expanded row is
+  the only place `details` is rendered. That is the point of the screen: the
+  reviewer sees what the sweep saw without leaving the row. Its shape follows
+  `reason` and nothing else publishes it.
+- **Resolving records a judgement, not an observation.** These mismatches cannot
+  heal — an interaction with two legs and no transfer still has both tomorrow —
+  so the sweep leaves a resolved row alone instead of reopening it every five
+  minutes. The copy on screen says so. Reopening clears the note with the
+  timestamp, as the API does.
+- **The list defaults to outstanding.** `resolution` is `open` | `resolved` |
+  `any`, not a boolean: a tri-state boolean cannot say "either" in a query
+  string. The queue pages against the server (`limit`/`offset`) rather than
+  reading whole the way `/admin/users` does — a staff roster is bounded and an
+  exception queue only grows while nothing is resolved.
+- **An empty Call Legs table is correct, not a bug.** Nothing populates
+  `call_legs` while the dialer's push carries no call id, so live interactions
+  record none; the panel says that in a line rather than leaving a bare "No
+  rows". The Raw Event Log says the matching thing: empty means none were
+  *recorded*, never that none arrived.
+- **Nothing on these screens is fabricated.** Where the backend has no data the
+  panel is empty and explains itself. This is the screen an administrator opens
+  precisely because they do not trust the data; invented rows with plausible
+  timestamps would be indistinguishable from real ones.
+- **The detail screen is shared, and carries no exception chrome.** No reason
+  badge, no resolve control — a reader arriving from the reports funnel (a
+  separate ticket) has no exception and must not see gaps where one would have
+  been. The back link is driven by `?from=`, mapped in one `ORIGINS` record in
+  `components/admin/InteractionDetailScreen.tsx`; a new caller adds its entry
+  and passes the param. An unrecognised or absent `from` falls back to the
+  dashboard, which is what a bookmarked link gets.
+- **Times here name the zone they are drawn in**, because these answers carry
+  no business zone the way `/reporting/*` does. They are instants, not business
+  days — but a bare local-time string would read as one, which is the confusion
+  `/admin/reports` already had to fix. A single timestamp says it inline
+  (`formatInstant`); a table of them says it once beside the card title
+  (`localZoneName`), because repeating it in every cell costs more width than
+  the data and pushes columns into each other.
+- **A table whose cells must not wrap passes `minWidth` to `DataTable`.** MUI
+  lays tables out fixed — it divides the width it is given and ignores the
+  cells — so without it a `whitespace-nowrap` id simply overlaps the next
+  column. With it the table is measured by its content and the card scrolls.
+- **`GET /interactions/{id}` has one caller**, `getInteractionDetailResponse()`
+  in `lib/interactions.ts`, which the workspaces and this screen share.
+  `lib/interactionDetail.ts` holds only the three panel reads and the
+  admin-side qualification read, which that file has no reason to know about.
+  A missing interaction arrives as `InteractionNotFoundError`, not an
+  `AuthError` — branch on the type, not on a code string.
 
 ## Users
 
