@@ -1,14 +1,12 @@
-'use client'
+import { InviteClient } from './client'
 
-import { useParams } from 'next/navigation'
-import { SetPasswordScreen } from '@/components/auth/SetPasswordScreen'
+export const metadata = { title: 'Set up your account — TGS Caller CRM' }
 
+/** Static shell at `/invite/`; token comes from the path or `?token=`. */
 export function generateStaticParams() {
-  return []
+  return [{ token: [] }]
 }
 
 export default function InvitePage() {
-  const params = useParams<{ token?: string[] }>()
-  const token = params.token?.[0] ?? ''
-  return <SetPasswordScreen mode="invite" token={token} />
+  return <InviteClient />
 }

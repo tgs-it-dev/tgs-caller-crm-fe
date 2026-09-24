@@ -1,14 +1,12 @@
-'use client'
+import { ResetPasswordClient } from './client'
 
-import { useParams } from 'next/navigation'
-import { SetPasswordScreen } from '@/components/auth/SetPasswordScreen'
+export const metadata = { title: 'Choose a new password — TGS Caller CRM' }
 
+/** Static shell at `/reset-password/`; token comes from the path or `?token=`. */
 export function generateStaticParams() {
-  return []
+  return [{ token: [] }]
 }
 
 export default function ResetPasswordPage() {
-  const params = useParams<{ token?: string[] }>()
-  const token = params.token?.[0] ?? ''
-  return <SetPasswordScreen mode="reset" token={token} />
+  return <ResetPasswordClient />
 }

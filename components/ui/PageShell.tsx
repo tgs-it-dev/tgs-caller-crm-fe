@@ -21,7 +21,12 @@ export function PageShell({
   actions,
   children,
 }: {
-  title: string
+  /**
+   * Usually a string. A screen whose heading is its back control (see
+   * `/admin/interactions/[interactionId]`) passes the whole link, so the words
+   * are part of the control rather than sat beside it.
+   */
+  title: ReactNode
   /** Status content aligned opposite the title, e.g. a live badge. */
   actions?: ReactNode
   children: ReactNode

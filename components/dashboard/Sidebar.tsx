@@ -113,7 +113,11 @@ const ADMIN_NAV: NavItem[] = [
     href: '/admin/exceptions',
     label: 'Exceptions',
     icon: ExceptionsIcon,
-    isActive: (p) => p.startsWith('/admin/exceptions'),
+    // Interaction detail is a shared screen with no section of its own, and
+    // the queue is the only way into it today — so the nav keeps saying where
+    // the reader came from. The ticket that adds the funnel's list has a second
+    // way in, and has to decide this properly then.
+    isActive: (p) => p.startsWith('/admin/exceptions') || p.startsWith('/admin/interactions'),
   },
   {
     href: '/admin/users',
@@ -122,6 +126,11 @@ const ADMIN_NAV: NavItem[] = [
     isActive: (p) => p.startsWith('/admin/users'),
   },
 ]
+
+/** `trailingSlash: true` makes usePathname() return `/fronter/`; nav hrefs stay `/fronter`. */
+function normalizePath(pathname: string): string {
+  return pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname
+}
 
 function deskNav(role: 'fronter' | 'closer', activeCallHref: string): NavItem[] {
   const base = BASE_PATH[role]
@@ -173,6 +182,7 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [fallbackActiveId, setFallbackActiveId] = useState<string | null>(null)
+  const [activeTransferId, setActiveTransferId] = useState<string | null>(null)
   const userReady = userStatus === 'ready' && user != null
 
   // Desk from the URL when under a role segment; otherwise primary role from `/auth/me`.
@@ -188,8 +198,14 @@ export function Sidebar() {
   }, [pathname, workspacePathPrefix])
 
   useEffect(() => {
+    if (typeof window === 'undefined') return
+    const transferId = new URLSearchParams(window.location.search).get('transferId')
+
     if (workspaceIdFromPath) {
       setFallbackActiveId(workspaceIdFromPath)
+      // Always sync from the query — clearing when absent avoids pairing a
+      // new interaction id with a stale transferId from a prior workspace.
+      setActiveTransferId(transferId)
       return
     }
 
@@ -197,6 +213,7 @@ export function Sidebar() {
     // /closer itself, and an administrator has no desk.
     if (role !== 'fronter') {
       setFallbackActiveId(null)
+      setActiveTransferId(null)
       return
     }
 
@@ -209,13 +226,14 @@ export function Sidebar() {
       .then((queue) => {
         if (cancelled) return
         setFallbackActiveId(queue[0]?.id ?? null)
+        setActiveTransferId(null)
       })
       .catch(() => {})
 
     return () => {
       cancelled = true
     }
-  }, [workspaceIdFromPath, role])
+  }, [workspaceIdFromPath, role, pathname])
 
   useEffect(() => {
     setMobileOpen(false)
@@ -226,13 +244,14 @@ export function Sidebar() {
     router.push('/login')
   }
 
-  // Closers keep fallbackActiveId null (Active Call = /closer); fronters may
-  // resolve a live interaction. Same href formula for both roles.
-  const activeCallHref = workspaceIdFromPath
-    ? `${workspacePathPrefix}/${workspaceIdFromPath}`
-    : fallbackActiveId
-      ? `${workspacePathPrefix}/${fallbackActiveId}`
-      : basePath
+  // Closers keep fallbackActiveId null (Active Call = /closer) unless they
+  // already opened a workspace; fronters may resolve a live interaction.
+  const activeInteractionId = workspaceIdFromPath ?? fallbackActiveId
+  const activeCallHref = activeInteractionId
+    ? activeTransferId && role === 'closer'
+      ? `${workspacePathPrefix}/${activeInteractionId}?transferId=${encodeURIComponent(activeTransferId)}`
+      : `${workspacePathPrefix}/${activeInteractionId}`
+    : basePath
 
   const navItems = role === 'administrator' ? ADMIN_NAV : deskNav(role, activeCallHref)
 
@@ -294,7 +313,7 @@ export function Sidebar() {
 
         <nav className={`flex-1 space-y-1 py-4 ${collapsed ? 'lg:py-3 lg:px-2 px-3' : 'px-3'}`}>
           {navItems.map(({ href, label, icon: Icon, isActive }) => {
-            const active = isActive(pathname)
+            const active = isActive(normalizePath(pathname))
             return (
               <Link
                 key={label}

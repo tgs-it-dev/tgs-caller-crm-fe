@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import { Alert } from '@/components/ui/Alert'
 import { Button } from '@/components/ui/Button'
+import { FullPageLoader } from '@/components/ui/FullPageLoader'
 import { readToken, type Role } from '@/lib/auth'
 
 type GateStatus = 'checking' | 'authorized' | 'error'
@@ -64,7 +65,7 @@ function AuthGate({
       </main>
     )
   }
-  return null
+  return <FullPageLoader label="Checking session…" />
 }
 
 export function RequireRole({ role, children }: { role: Role; children: ReactNode }) {

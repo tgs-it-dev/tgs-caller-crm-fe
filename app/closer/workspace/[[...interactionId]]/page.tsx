@@ -1,14 +1,10 @@
-'use client'
+import { CloserWorkspaceClient } from './client'
 
-import { useParams } from 'next/navigation'
-import { CloserActiveCallScreen } from '@/components/closer/CloserActiveCallScreen'
-
+/** See fronter workspace page — same static-export shell pattern. */
 export function generateStaticParams() {
-  return []
+  return [{ interactionId: [] }]
 }
 
 export default function CloserWorkspacePage() {
-  const params = useParams<{ interactionId?: string[] }>()
-  const interactionId = params.interactionId?.[0] ?? ''
-  return <CloserActiveCallScreen interactionId={interactionId} />
+  return <CloserWorkspaceClient />
 }

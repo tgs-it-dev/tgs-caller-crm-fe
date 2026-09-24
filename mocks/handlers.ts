@@ -2,6 +2,8 @@ import { rest } from 'msw'
 import type { FieldError } from '../lib/apiError'
 import type { Role } from '../lib/auth'
 import { CLOSER_DESK_SEEDS } from '../lib/closer'
+import type { ReconciliationException } from '../lib/exceptions'
+import type { CallLeg, InteractionEvent, InteractionTransfer } from '../lib/interactionDetail'
 import type { InteractionDetailResponse } from '../lib/interactions'
 import type { LeadResponse } from '../lib/leads'
 import { PUSH_INTERVAL_MS, type AgentStatus, type LiveStatus } from '../lib/liveStatus'
@@ -42,8 +44,8 @@ type MockLink = { token: string; userId: string; purpose: 'invite' | 'reset'; st
 const MOCK_LINKS: MockLink[] = [
   // Fixed tokens, openable by hand — mock state lives in the page and does not
   // survive a reload, so a freshly issued link cannot be followed here:
-  //   /invite/live-link  /invite/expired-link
-  //   /invite/used-link  /invite/superseded-link
+  //   /invite/?token=live-link  /invite/?token=expired-link
+  //   /invite/?token=used-link  /invite/?token=superseded-link
   { token: 'live-link', userId: '1', purpose: 'invite', state: 'live' },
   { token: 'expired-link', userId: '1', purpose: 'invite', state: 'expired' },
   { token: 'used-link', userId: '1', purpose: 'invite', state: 'used' },
@@ -63,7 +65,8 @@ function issueMockLink(userId: string, purpose: 'invite' | 'reset'): string {
   // Mock mode has no mail server, so the link goes where the backend's "log"
   // transport puts it — somewhere a developer can read it.
   const path = purpose === 'invite' ? 'invite' : 'reset-password'
-  console.info(`[mock email] ${window.location.origin}/${path}/${token}`)
+  // Query token so the static S3 export can open the shell without a pre-built path.
+  console.info(`[mock email] ${window.location.origin}/${path}/?token=${encodeURIComponent(token)}`)
   return token
 }
 
@@ -417,7 +420,8 @@ const MOCK_CLOSER_QUEUE: CloserQueueEntry[] = Array.from({ length: 12 }, (_, ind
   lead_phone: `+1323555${(2000 + index).toString().slice(-4)}`,
   fronter_user_id: index % 3 === 0 ? null : `fronter-${(index % 4) + 1}`,
   queued_at: new Date(QUEUE_SEEDED_AT - (120 - index * 5) * 1000).toISOString(),
-  status: index % 4 === 0 ? 'offered' : 'initiated',
+  // Mix pending offers with this closer's open accepted call (index 1).
+  status: index === 1 ? 'accepted' : index % 4 === 0 ? 'offered' : 'initiated',
 }))
 
 const MOCK_QUALIFICATIONS = new Map<string, QualificationResponse>()
@@ -426,42 +430,60 @@ let transferSeq = 0
 
 const MOCK_TRANSFERS = new Map<string, TransferResponse>()
 
+function seedCloserQualification(
+  interactionId: string,
+  snapshot: {
+    vehicle: string
+    mileage: string
+    state: string
+    warranty_status: string
+    notes: string
+  },
+  consent: { consent_given: boolean; dnc_flagged: boolean }
+) {
+  const now = new Date().toISOString()
+  MOCK_QUALIFICATIONS.set(interactionId, {
+    id: `qual-seed-${interactionId}`,
+    interaction_id: interactionId,
+    version: 1,
+    snapshot_json: {
+      checklist: {
+        identityVerified: true,
+        vehicleDetailsConfirmed: true,
+        warrantyNeedConfirmed: true,
+        budgetDiscussed: true,
+        decisionMakerConfirmed: true,
+      },
+      disposition: 'qualified',
+      notes: snapshot.notes,
+      override: { applied: false, reason: '' },
+      vehicle: snapshot.vehicle,
+      vehicle_year: snapshot.vehicle.split(/\s+/)[0] ?? '',
+      vehicle_make: snapshot.vehicle.split(/\s+/)[1] ?? '',
+      vehicle_model: snapshot.vehicle.split(/\s+/).slice(2).join(' '),
+      mileage: snapshot.mileage.replace(/,/g, ''),
+      state: snapshot.state,
+      warranty_status: snapshot.warranty_status,
+    } as QualificationResponse['snapshot_json'],
+    consent_dnc: {
+      consent_given: consent.consent_given,
+      consent_captured_at: consent.consent_given ? now : null,
+      dnc_flagged: consent.dnc_flagged,
+      dnc_source: null,
+    },
+    created_at: now,
+    updated_at: now,
+  })
+}
+
 // Seed Today's Disposition rows so each closer workspace link has a matching
 // qualification + already-accepted transfer. Keep in sync with CLOSER_DESK_SEEDS.
 ;(() => {
   const now = new Date().toISOString()
   for (const seed of CLOSER_DESK_SEEDS) {
-    MOCK_QUALIFICATIONS.set(seed.interaction_id, {
-      id: `qual-seed-${seed.interaction_id}`,
-      interaction_id: seed.interaction_id,
-      version: 1,
-      snapshot_json: {
-        checklist: {
-          identityVerified: true,
-          vehicleDetailsConfirmed: true,
-          warrantyNeedConfirmed: true,
-          budgetDiscussed: true,
-          decisionMakerConfirmed: true,
-        },
-        disposition: 'qualified',
-        notes: seed.snapshot.notes,
-        override: { applied: false, reason: '' },
-        vehicle: seed.snapshot.vehicle,
-        vehicle_year: seed.snapshot.vehicle.split(/\s+/)[0] ?? '',
-        vehicle_make: seed.snapshot.vehicle.split(/\s+/)[1] ?? '',
-        vehicle_model: seed.snapshot.vehicle.split(/\s+/).slice(2).join(' '),
-        mileage: seed.snapshot.mileage.replace(/,/g, ''),
-        state: seed.snapshot.state,
-        warranty_status: seed.snapshot.warranty_status,
-      } as QualificationResponse['snapshot_json'],
-      consent_dnc: {
-        consent_given: seed.consent_given,
-        consent_captured_at: seed.consent_given ? now : null,
-        dnc_flagged: seed.dnc_flagged,
-        dnc_source: null,
-      },
-      created_at: now,
-      updated_at: now,
+    seedCloserQualification(seed.interaction_id, seed.snapshot, {
+      consent_given: seed.consent_given,
+      dnc_flagged: seed.dnc_flagged,
     })
 
     MOCK_TRANSFERS.set(seed.transfer_id, {
@@ -474,6 +496,30 @@ const MOCK_TRANSFERS = new Map<string, TransferResponse>()
       created_at: now,
       updated_at: now,
     })
+  }
+
+  // Pending/accepted closer queue rows — GET + accept must resolve these transfer ids.
+  for (const entry of MOCK_CLOSER_QUEUE) {
+    MOCK_TRANSFERS.set(entry.id, {
+      id: entry.id,
+      interaction_id: entry.interaction_id,
+      status: entry.status,
+      fronter_user_id: entry.fronter_user_id,
+      closer_user_id: entry.status === 'accepted' ? '2' : null,
+      created_at: entry.queued_at,
+      updated_at: entry.queued_at,
+    })
+    seedCloserQualification(
+      entry.interaction_id,
+      {
+        vehicle: '2018 Nissan Altima',
+        mileage: '71000',
+        state: 'CA',
+        warranty_status: 'Expired',
+        notes: 'Queued transfer — fronter qualification snapshot',
+      },
+      { consent_given: true, dnc_flagged: false }
+    )
   }
 })()
 
@@ -515,7 +561,7 @@ type MyStatsDispositionSeed = {
   interaction_id: string
   created_at: string
   label: string
-  stage: 'fronter'
+  stage: 'fronter' | 'closer'
   actor_user_id: string
   lead_name: string
   lead_phone: string
@@ -527,6 +573,13 @@ const MY_STATS_LABELS = [
   'Callback Requested',
   'Do Not Call',
   'Wrong Number',
+] as const
+
+const CLOSER_STATS_LABELS = [
+  'Sale completed',
+  'Callback requested',
+  'Not interested',
+  'Do not call',
 ] as const
 
 const MY_STATS_LEADS = [
@@ -545,10 +598,12 @@ const MY_STATS_LEADS = [
 function seedMyStatsForUser(
   actorUserId: string,
   rowCount: number,
-  leadOffset: number
+  leadOffset: number,
+  stage: 'fronter' | 'closer' = 'fronter'
 ): { dispositions: MyStatsDispositionSeed[]; transferred_interaction_ids: string[] } {
   const base = new Date()
   base.setHours(9, 0, 0, 0)
+  const labels = stage === 'closer' ? CLOSER_STATS_LABELS : MY_STATS_LABELS
 
   const dispositions: MyStatsDispositionSeed[] = Array.from({ length: rowCount }, (_, index) => {
     const created = new Date(base.getTime() + index * 11 * 60_000)
@@ -556,19 +611,22 @@ function seedMyStatsForUser(
       id: `idisp-${actorUserId}-${index + 1}`,
       interaction_id: `int-stats-${actorUserId}-${3000 + index}`,
       created_at: created.toISOString(),
-      label: MY_STATS_LABELS[index % MY_STATS_LABELS.length],
-      stage: 'fronter' as const,
+      label: labels[index % labels.length],
+      stage,
       actor_user_id: actorUserId,
       lead_name: MY_STATS_LEADS[(index + leadOffset) % MY_STATS_LEADS.length],
       lead_phone: `+9212345${actorUserId}${String(index).padStart(3, '0')}`,
     }
   })
 
-  // Half of this user's qualified calls were transferred — countable from the payload.
-  const transferred_interaction_ids = dispositions
-    .filter((row) => row.label === 'Qualified - Transferred')
-    .filter((_, i) => i % 2 === 0)
-    .map((row) => row.interaction_id)
+  // Fronter: half of qualified calls transferred. Closer: every disposition was answered.
+  const transferred_interaction_ids =
+    stage === 'closer'
+      ? dispositions.map((row) => row.interaction_id)
+      : dispositions
+          .filter((row) => row.label === 'Qualified - Transferred')
+          .filter((_, i) => i % 2 === 0)
+          .map((row) => row.interaction_id)
 
   return { dispositions, transferred_interaction_ids }
 }
@@ -577,9 +635,235 @@ const MOCK_MY_STATS_TODAY: Record<
   string,
   { dispositions: MyStatsDispositionSeed[]; transferred_interaction_ids: string[] }
 > = {
-  '1': seedMyStatsForUser('1', 50, 0),
-  '4': seedMyStatsForUser('4', 5, 3),
+  '1': seedMyStatsForUser('1', 50, 0, 'fronter'),
+  '4': seedMyStatsForUser('4', 5, 3, 'fronter'),
+  // Carl Closer — Active Call Today's Disposition.
+  '2': seedMyStatsForUser('2', 3, 1, 'closer'),
 }
+
+// Reconciliation exceptions, and the four detail panels behind them. Both
+// reasons, resolved and unresolved rows, and one interaction with no legs and
+// no events so that state — the expected one in production — is reachable here.
+const HOURS_AGO = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString()
+
+const MOCK_EXCEPTIONS: ReconciliationException[] = [
+  {
+    id: 'exc-1',
+    interaction_id: 'int-exc-1',
+    reason: 'multi_leg_without_transfer',
+    details: { leg_count: 3 },
+    detected_at: HOURS_AGO(2),
+    resolved_at: null,
+    resolved_by: null,
+    resolution_note: null,
+  },
+  {
+    id: 'exc-2',
+    interaction_id: 'int-exc-2',
+    reason: 'late_event_after_finalization',
+    details: {
+      finalized_at: HOURS_AGO(6),
+      window_seconds: 300,
+      late_event_ids: ['evt-exc-2-late-1', 'evt-exc-2-late-2'],
+    },
+    detected_at: HOURS_AGO(5),
+    resolved_at: null,
+    resolved_by: null,
+    resolution_note: null,
+  },
+  {
+    id: 'exc-3',
+    interaction_id: 'int-exc-3',
+    reason: 'multi_leg_without_transfer',
+    details: { leg_count: 2 },
+    detected_at: HOURS_AGO(30),
+    resolved_at: HOURS_AGO(26),
+    resolved_by: '3',
+    resolution_note: 'Second leg was a callback the agent placed by hand. Nothing to transfer.',
+  },
+  {
+    id: 'exc-4',
+    interaction_id: 'int-exc-4',
+    reason: 'late_event_after_finalization',
+    details: { finalized_at: HOURS_AGO(20), window_seconds: 300, late_event_ids: [] },
+    detected_at: HOURS_AGO(19),
+    resolved_at: null,
+    resolved_by: null,
+    resolution_note: null,
+  },
+  // Enough further rows that the queue pages, and that resolving the last row
+  // on a page has somewhere to step back to.
+  ...Array.from({ length: 12 }, (_, index): ReconciliationException => ({
+    id: `exc-${index + 5}`,
+    interaction_id: `int-exc-bulk-${index + 1}`,
+    reason: index % 3 === 0 ? 'late_event_after_finalization' : 'multi_leg_without_transfer',
+    details:
+      index % 3 === 0
+        ? {
+            finalized_at: HOURS_AGO(40 + index),
+            window_seconds: 300,
+            late_event_ids: [`evt-bulk-${index + 1}`],
+          }
+        : { leg_count: 2 + (index % 3) },
+    detected_at: HOURS_AGO(38 + index),
+    resolved_at: null,
+    resolved_by: null,
+    resolution_note: null,
+  })),
+]
+
+// Registered into the same tables the workspace routes already read, so an
+// exception's interaction is a known one rather than a synthesized shell.
+//
+// The lead goes in too: `lead_id` is a foreign key on the real API, and
+// `listInteractions` expands every row through `GET /leads/{id}` under one
+// Promise.all — an interaction pointing at a lead that does not exist would
+// reject the whole list rather than just its own row.
+for (const [index, exception] of MOCK_EXCEPTIONS.entries()) {
+  const leadId = `lead-${exception.interaction_id}`
+  MOCK_LEADS[leadId] = {
+    id: leadId,
+    phone_normalized: `+1323555${String(4000 + index).slice(-4)}`,
+    source: index % 2 === 0 ? 'vicidial' : 'ghl',
+    created_at: HOURS_AGO(72),
+    updated_at: HOURS_AGO(2),
+  }
+  MOCK_INTERACTIONS[exception.interaction_id] = {
+    id: exception.interaction_id,
+    lead_id: leadId,
+    created_at: HOURS_AGO(48),
+    updated_at: HOURS_AGO(2),
+    qualification: null,
+  }
+}
+
+function mockLeg(interactionId: string, index: number, minutesAgo: number): CallLeg {
+  const started = new Date(Date.now() - minutesAgo * 60_000)
+  return {
+    id: `leg-${interactionId}-${index}`,
+    vicidial_call_id: `VD-${interactionId.slice(-4)}-${index}`,
+    started_at: started.toISOString(),
+    ended_at: new Date(started.getTime() + 3 * 60_000 + index * 40_000).toISOString(),
+    created_at: started.toISOString(),
+  }
+}
+
+// int-exc-4 is absent on purpose: an interaction with no legs at all.
+const MOCK_CALL_LEGS: Record<string, CallLeg[]> = {
+  'int-exc-1': [
+    mockLeg('int-exc-1', 1, 130),
+    mockLeg('int-exc-1', 2, 124),
+    // A leg the dialer never timed — the column reads "Not recorded", not a date.
+    { ...mockLeg('int-exc-1', 3, 118), started_at: null, ended_at: null },
+  ],
+  'int-exc-2': [mockLeg('int-exc-2', 1, 380)],
+  'int-exc-3': [mockLeg('int-exc-3', 1, 1800), mockLeg('int-exc-3', 2, 1794)],
+}
+
+const MOCK_INTERACTION_TRANSFERS: Record<string, InteractionTransfer[]> = {
+  'int-exc-2': [
+    {
+      id: 'tr-exc-2-1',
+      status: 'rejected',
+      fronter_user_id: '1',
+      fronter_name: 'Fiona Fronter',
+      closer_user_id: '5',
+      closer_name: 'Nadia Former',
+      created_at: HOURS_AGO(6.4),
+      updated_at: HOURS_AGO(6.3),
+    },
+    {
+      id: 'tr-exc-2-2',
+      status: 'accepted',
+      fronter_user_id: '1',
+      fronter_name: 'Fiona Fronter',
+      closer_user_id: '2',
+      closer_name: 'Carl Closer',
+      created_at: HOURS_AGO(6.2),
+      updated_at: HOURS_AGO(6.1),
+    },
+  ],
+  'int-exc-4': [
+    // Never reached a closer, so there is no name to resolve and none invented.
+    {
+      id: 'tr-exc-4-1',
+      status: 'timeout',
+      fronter_user_id: '1',
+      fronter_name: 'Fiona Fronter',
+      closer_user_id: null,
+      closer_name: null,
+      created_at: HOURS_AGO(20.5),
+      updated_at: HOURS_AGO(20.4),
+    },
+  ],
+}
+
+function mockEvent(id: string, minutesAgo: number, payload: Record<string, unknown>): InteractionEvent {
+  return {
+    id,
+    source: 'vicidial',
+    event_id: `vd-${id}`,
+    payload,
+    received_at: new Date(Date.now() - minutesAgo * 60_000).toISOString(),
+    processed_at: new Date(Date.now() - (minutesAgo - 1) * 60_000).toISOString(),
+    skipped_reason: null,
+    error: null,
+  }
+}
+
+const MOCK_RAW_EVENTS: Record<string, InteractionEvent[]> = {
+  'int-exc-1': [
+    mockEvent('evt-exc-1-1', 131, { event: 'call_start', call_id: 'VD-xc-1-1', phone: '+13235550142' }),
+    { ...mockEvent('evt-exc-1-2', 125, { event: 'hangup', call_id: 'VD-xc-1-1' }), skipped_reason: 'duplicate event_id', processed_at: null },
+  ],
+  'int-exc-2': [
+    mockEvent('evt-exc-2-late-1', 340, { event: 'call_end', call_id: 'VD-xc-2-1', duration: 214 }),
+    { ...mockEvent('evt-exc-2-late-2', 336, { event: 'agent_wrapup', call_id: 'VD-xc-2-1' }), error: 'lead lookup failed: no match for +14085550199', processed_at: null },
+  ],
+}
+
+// Snapshots for the Qualification panel, into the same map `/qualification/:id`
+// already serves. int-exc-4 gets none, so "never saved" is reachable too.
+;(() => {
+  const seeds = [
+    { id: 'int-exc-1', vehicle: '2016 Honda Accord', mileage: '92,400', state: 'TX', warranty_status: 'Expired', notes: 'Wants coverage before a long drive; call back after 5pm.', dnc: false },
+    { id: 'int-exc-2', vehicle: '2019 Ford F-150', mileage: '61,880', state: 'OH', warranty_status: 'Expiring soon', notes: 'Asked for the powertrain tier in writing.', dnc: false },
+    { id: 'int-exc-3', vehicle: '2013 Toyota Camry', mileage: '148,010', state: 'FL', warranty_status: 'Expired', notes: 'Flagged Do Not Call mid-conversation.', dnc: true },
+  ]
+
+  for (const seed of seeds) {
+    const captured = HOURS_AGO(7)
+    MOCK_QUALIFICATIONS.set(seed.id, {
+      id: `qual-${seed.id}`,
+      interaction_id: seed.id,
+      version: 2,
+      snapshot_json: {
+        checklist: {
+          identityVerified: true,
+          vehicleDetailsConfirmed: true,
+          warrantyNeedConfirmed: true,
+          budgetDiscussed: !seed.dnc,
+          decisionMakerConfirmed: true,
+        },
+        disposition: 'qualified',
+        notes: seed.notes,
+        override: { applied: false, reason: '' },
+        vehicle: seed.vehicle,
+        mileage: seed.mileage,
+        state: seed.state,
+        warranty_status: seed.warranty_status,
+      } as QualificationResponse['snapshot_json'],
+      consent_dnc: {
+        consent_given: !seed.dnc,
+        consent_captured_at: seed.dnc ? null : captured,
+        dnc_flagged: seed.dnc,
+        dnc_source: seed.dnc ? 'agent' : null,
+      },
+      created_at: captured,
+      updated_at: captured,
+    })
+  }
+})()
 
 export const handlers = [
   rest.get('http://localhost:4000/health', (req, res, ctx) => {
@@ -873,7 +1157,7 @@ export const handlers = [
     )
   }),
 
-  // FE-08 — GET /me/stats/today (agent-scoped My Stats).
+  // Agent-scoped My Stats — fronter or closer via ?stage=.
   rest.get('/me/stats/today', (req, res, ctx) => {
     const authHeader = req.headers.get('authorization') || ''
     const token = authHeader.replace(/^Bearer\s+/i, '')
@@ -885,13 +1169,42 @@ export const handlers = [
       )
     }
 
+    const roles = new Set(user.roles)
+    const stageParam = req.url.searchParams.get('stage')
+    let stage: 'fronter' | 'closer' | null =
+      stageParam === 'fronter' || stageParam === 'closer' ? stageParam : null
+
+    if (stage && !roles.has(stage)) {
+      return res(
+        ctx.status(403),
+        ctx.json(authErrorBody('Insufficient role for this operation', 'auth.forbidden'))
+      )
+    }
+    if (!stage) {
+      const held = [...roles].filter((r): r is 'fronter' | 'closer' => r === 'fronter' || r === 'closer')
+      if (held.length === 2) {
+        return res(
+          ctx.status(422),
+          ctx.json({
+            detail: 'stage is required when the caller holds both fronter and closer',
+            code: 'validation.stage_required',
+          })
+        )
+      }
+      stage = held[0] === 'closer' ? 'closer' : 'fronter'
+    }
+
     const empty = { dispositions: [], transferred_interaction_ids: [] as string[] }
     const payload = MOCK_MY_STATS_TODAY[user.id] ?? empty
 
     // Never leak another user's rows — seed is already keyed by actor, filter again.
-    const dispositions = payload.dispositions.filter((row) => row.actor_user_id === user.id)
+    const dispositions = payload.dispositions.filter(
+      (row) => row.actor_user_id === user.id && row.stage === stage
+    )
     const transferred_interaction_ids = payload.transferred_interaction_ids.filter((id) =>
-      dispositions.some((row) => row.interaction_id === id)
+      stage === 'closer'
+        ? true
+        : dispositions.some((row) => row.interaction_id === id)
     )
 
     return res(ctx.status(200), ctx.json({ dispositions, transferred_interaction_ids }))
@@ -973,25 +1286,44 @@ export const handlers = [
     return res(ctx.status(201), ctx.json(transfer))
   }),
 
-  // Accept/reject offer UI is out of scope for FE-03 / Screen 6 (workspace
-  // assumes an already-accepted transfer). Keep these routes for a later
-  // closer-offer screen rather than inventing that UI here.
+  // Closer workspace accepts pending offers on open (queue → Active Call).
   rest.post('/transfers/:transferId/accept', async (req, res, ctx) => {
     const transferId = req.params.transferId as string
     const body = (await req.json()) as { closer_user_id: string }
     const existing = MOCK_TRANSFERS.get(transferId)
-    const now = new Date().toISOString()
+    if (!existing) {
+      return res(
+        ctx.status(404),
+        ctx.json({ detail: 'transfer not found', code: 'transfer.not_found' })
+      )
+    }
+    if (existing.status !== 'initiated' && existing.status !== 'offered') {
+      return res(
+        ctx.status(409),
+        ctx.json({
+          detail: `this transfer is already ${existing.status}`,
+          code: 'transfer.not_answerable',
+        })
+      )
+    }
 
+    const now = new Date().toISOString()
     const transfer: TransferResponse = {
-      id: transferId,
-      interaction_id: existing?.interaction_id ?? 'int-1001',
+      ...existing,
       status: 'accepted',
-      fronter_user_id: existing?.fronter_user_id ?? '1',
       closer_user_id: body.closer_user_id,
-      created_at: existing?.created_at ?? now,
       updated_at: now,
     }
     MOCK_TRANSFERS.set(transferId, transfer)
+
+    // Accepted stays on the closer queue as "On Call" until dispositioned.
+    const queueIdx = MOCK_CLOSER_QUEUE.findIndex((row) => row.id === transferId)
+    if (queueIdx >= 0) {
+      MOCK_CLOSER_QUEUE[queueIdx] = {
+        ...MOCK_CLOSER_QUEUE[queueIdx],
+        status: 'accepted',
+      }
+    }
 
     return res(ctx.status(200), ctx.json(transfer))
   }),
@@ -1000,18 +1332,33 @@ export const handlers = [
     const transferId = req.params.transferId as string
     const body = (await req.json()) as { closer_user_id: string }
     const existing = MOCK_TRANSFERS.get(transferId)
-    const now = new Date().toISOString()
+    if (!existing) {
+      return res(
+        ctx.status(404),
+        ctx.json({ detail: 'transfer not found', code: 'transfer.not_found' })
+      )
+    }
+    if (existing.status !== 'initiated' && existing.status !== 'offered') {
+      return res(
+        ctx.status(409),
+        ctx.json({
+          detail: `this transfer is already ${existing.status}`,
+          code: 'transfer.not_answerable',
+        })
+      )
+    }
 
+    const now = new Date().toISOString()
     const transfer: TransferResponse = {
-      id: transferId,
-      interaction_id: existing?.interaction_id ?? 'int-1001',
+      ...existing,
       status: 'rejected',
-      fronter_user_id: existing?.fronter_user_id ?? '1',
       closer_user_id: body.closer_user_id,
-      created_at: existing?.created_at ?? now,
       updated_at: now,
     }
     MOCK_TRANSFERS.set(transferId, transfer)
+
+    const queueIdx = MOCK_CLOSER_QUEUE.findIndex((row) => row.id === transferId)
+    if (queueIdx >= 0) MOCK_CLOSER_QUEUE.splice(queueIdx, 1)
 
     return res(ctx.status(200), ctx.json(transfer))
   }),
@@ -1019,7 +1366,10 @@ export const handlers = [
   rest.get('/transfers/:transferId', (req, res, ctx) => {
     const transfer = MOCK_TRANSFERS.get(req.params.transferId as string)
     if (!transfer) {
-      return res(ctx.status(404), ctx.json({ detail: 'Transfer not found.' }))
+      return res(
+        ctx.status(404),
+        ctx.json({ detail: 'transfer not found', code: 'transfer.not_found' })
+      )
     }
     return res(ctx.status(200), ctx.json(transfer))
   }),
@@ -1072,5 +1422,105 @@ export const handlers = [
     MOCK_INTERACTION_DISPOSITIONS.set(interactionId, [...existing, record])
 
     return res(ctx.status(201), ctx.json(record))
+  }),
+
+  rest.get('/reconciliation/exceptions', (req, res, ctx) => {
+    const refused = adminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const params = req.url.searchParams
+    const limit = Number(params.get('limit') ?? 100)
+    const offset = Number(params.get('offset') ?? 0)
+    const resolution = params.get('resolution') ?? 'open'
+    const reason = params.get('reason')
+
+    const matching = MOCK_EXCEPTIONS.filter((row) => {
+      if (resolution === 'open' && row.resolved_at) return false
+      if (resolution === 'resolved' && !row.resolved_at) return false
+      if (reason && row.reason !== reason) return false
+      return true
+    }).sort((a, b) => b.detected_at.localeCompare(a.detected_at) || a.id.localeCompare(b.id))
+
+    return res(
+      ctx.status(200),
+      ctx.json({
+        items: matching.slice(offset, offset + limit),
+        total: matching.length,
+        limit,
+        offset,
+      })
+    )
+  }),
+
+  rest.patch('/reconciliation/exceptions/:exceptionId', async (req, res, ctx) => {
+    const refused = adminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const row = MOCK_EXCEPTIONS.find((item) => item.id === req.params.exceptionId)
+    if (!row) {
+      return res(
+        ctx.status(404),
+        ctx.json(authErrorBody('no such exception', 'exception.not_found'))
+      )
+    }
+
+    const actor = MOCK_TOKENS.get((req.headers.get('authorization') || '').replace(/^Bearer\s+/i, ''))
+    const body = (await req.json()) as { resolved: boolean; note?: string | null }
+
+    if (body.resolved) {
+      row.resolved_at = new Date().toISOString()
+      row.resolved_by = actor?.id ?? null
+      row.resolution_note = body.note ?? null
+    } else {
+      // Reopening clears the note with the timestamp, as the API does.
+      row.resolved_at = null
+      row.resolved_by = null
+      row.resolution_note = null
+    }
+
+    return res(ctx.status(200), ctx.json(row))
+  }),
+
+  rest.get('/interactions/:interactionId/call-legs', (req, res, ctx) => {
+    const refused = adminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const interactionId = req.params.interactionId as string
+    // The same answer `/interactions/:id` gives, so a panel never contradicts
+    // the screen it sits on.
+    if (!interactionDetail(interactionId)) {
+      return res(ctx.status(404), ctx.json(authErrorBody('no such interaction', 'interaction.not_found')))
+    }
+    return res(ctx.status(200), ctx.json({ items: MOCK_CALL_LEGS[interactionId] ?? [] }))
+  }),
+
+  rest.get('/interactions/:interactionId/transfers', (req, res, ctx) => {
+    const refused = adminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const interactionId = req.params.interactionId as string
+    if (!interactionDetail(interactionId)) {
+      return res(ctx.status(404), ctx.json(authErrorBody('no such interaction', 'interaction.not_found')))
+    }
+    return res(ctx.status(200), ctx.json({ items: MOCK_INTERACTION_TRANSFERS[interactionId] ?? [] }))
+  }),
+
+  rest.get('/interactions/:interactionId/events', (req, res, ctx) => {
+    const refused = adminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const interactionId = req.params.interactionId as string
+    if (!interactionDetail(interactionId)) {
+      return res(ctx.status(404), ctx.json(authErrorBody('no such interaction', 'interaction.not_found')))
+    }
+
+    const limit = Number(req.url.searchParams.get('limit') ?? 50)
+    const offset = Number(req.url.searchParams.get('offset') ?? 0)
+    const all = MOCK_RAW_EVENTS[interactionId] ?? []
+
+    return res(
+      ctx.status(200),
+      ctx.json({ items: all.slice(offset, offset + limit), total: all.length, limit, offset })
+    )
   }),
 ]

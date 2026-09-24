@@ -8,6 +8,36 @@ export function formatDateTime(iso: string) {
   return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
+/**
+ * What the viewer's own zone is called right now — "EDT", "GMT+5".
+ *
+ * For a table of timestamps, where naming the zone once beside the title says
+ * the same thing as repeating it in every cell and leaves room for the data.
+ */
+export function localZoneName(at: Date = new Date()) {
+  const named = new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' })
+    .formatToParts(at)
+    .find((part) => part.type === 'timeZoneName')
+  return named ? named.value : ''
+}
+
+/**
+ * A full instant, named with the zone it is drawn in — "Sep 23, 2026, 2:14 PM EDT".
+ *
+ * For timestamps the API sends without a business zone beside them. The zone is
+ * part of the string so the time is never read as one the server counted in.
+ */
+export function formatInstant(iso: string) {
+  return new Date(iso).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  })
+}
+
 /** A time of day in the given zone, named — "2:14 PM EDT" — so it reads the same anywhere. */
 export function formatTime(iso: string, timeZone: string) {
   return new Date(iso).toLocaleTimeString(undefined, {

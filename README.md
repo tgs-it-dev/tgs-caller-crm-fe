@@ -18,10 +18,11 @@ npm run dev:tailwind
 ## What’s included
 
 - App Router routes: `/fronter`, `/closer`, `/admin` (the live dashboard),
-  `/admin/reports` (the historical funnel), `/admin/users` (user administration;
-  other admin pages under `/admin/<page>`), `/login`, and the signed-out pages
-  behind emailed links — `/invite/[token]`, `/reset-password/[token]` and
-  `/forgot-password`
+  `/admin/reports` (the historical funnel), `/admin/users` (user administration),
+  `/admin/exceptions` (the reconciliation queue),
+  `/admin/interactions/[interactionId]` (interaction detail, reached from the
+  queue), `/login`, and the signed-out pages behind emailed links —
+  `/invite/[token]`, `/reset-password/[token]` and `/forgot-password`
 - TypeScript, Tailwind CSS, MUI wrappers under `components/ui/`
 - MSW mocks (`mocks/`, started by `app/providers/MockProvider.tsx`)
 - Auth helpers (`lib/auth.ts`) and route guards (`components/auth/RequireRole.tsx`)

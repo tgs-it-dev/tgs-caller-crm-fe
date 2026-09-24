@@ -9,8 +9,12 @@ import {
 } from 'react'
 import TextField from '@mui/material/TextField'
 
-type SelectProps = SelectHTMLAttributes<HTMLSelectElement> & {
+// `size` is taken from the native attribute, which counts visible rows — this
+// one is the control's height, matching Button's prop of the same name.
+type SelectProps = Omit<SelectHTMLAttributes<HTMLSelectElement>, 'size'> & {
   label?: string
+  /** `small` matches the `small` Button, for controls sat in a card header. */
+  size?: 'default' | 'small'
 }
 
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select(
@@ -26,6 +30,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
     name,
     disabled,
     required,
+    size = 'default',
     ...htmlSelectProps
   },
   ref
@@ -40,6 +45,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
       select
       fullWidth
       variant="outlined"
+      size={size === 'small' ? 'small' : 'medium'}
       className={className}
       value={value}
       defaultValue={defaultValue}
