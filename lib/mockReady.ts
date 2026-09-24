@@ -1,3 +1,5 @@
+import { isLiveApi } from '@/lib/apiUrl'
+
 // Waits for MSW's browser worker (registered by app/providers/MockProvider.tsx)
 // to finish starting before the caller makes its first request. Only
 // meaningful when there's no real backend configured — once
@@ -40,8 +42,9 @@ async function unregisterLeftoverMockWorker(): Promise<void> {
 
 export async function waitForMocking(): Promise<void> {
   if (typeof window === 'undefined') return
-  if (process.env.NEXT_PUBLIC_API_URL) {
-    void unregisterLeftoverMockWorker()
+  // Live BE: never start MSW; clear any leftover worker from a prior mock session.
+  if (isLiveApi()) {
+    await unregisterLeftoverMockWorker()
     return
   }
 

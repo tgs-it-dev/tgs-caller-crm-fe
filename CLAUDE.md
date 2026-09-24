@@ -228,10 +228,12 @@ Attempts.
   lays tables out fixed — it divides the width it is given and ignores the
   cells — so without it a `whitespace-nowrap` id simply overlaps the next
   column. With it the table is measured by its content and the card scrolls.
-- `lib/interactionDetail.ts` is separate from `lib/interactions.ts` on purpose:
-  the latter still holds the provisional shape the fronter and closer workspaces
-  were built against before the contract existed, and the mock serves both
-  behind `GET /interactions/{id}`.
+- **`GET /interactions/{id}` has one caller**, `getInteractionDetailResponse()`
+  in `lib/interactions.ts`, which the workspaces and this screen share.
+  `lib/interactionDetail.ts` holds only the three panel reads and the
+  admin-side qualification read, which that file has no reason to know about.
+  A missing interaction arrives as `InteractionNotFoundError`, not an
+  `AuthError` — branch on the type, not on a code string.
 
 ## Users
 

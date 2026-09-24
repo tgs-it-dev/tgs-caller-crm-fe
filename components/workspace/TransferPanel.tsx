@@ -1,47 +1,74 @@
 'use client'
 
-import { useState } from 'react'
+import { Alert } from '@/components/ui/Alert'
 import { Button } from '@/components/ui/Button'
-import { Pagination } from '@/components/ui/Pagination'
-import { ClosersTable, MOCK_CLOSERS } from './ClosersTable'
+import type { AvailableCloserItem } from '@/lib/transfers'
+import { ClosersTable } from './ClosersTable'
 import { OverrideReason } from './OverrideReason'
 
-const TOTAL_PAGES = 10
-
-export function TransferPanel() {
-  const [page, setPage] = useState(1)
-  const [overrideReason, setOverrideReason] = useState('')
-
+export function TransferPanel({
+  closers,
+  canTransfer,
+  needsOverride,
+  dncFlagged = false,
+  overrideReason,
+  onOverrideReasonChange,
+  isTransferring,
+  transferError,
+  transferStatus,
+  onTransfer,
+}: {
+  closers: AvailableCloserItem[]
+  canTransfer: boolean
+  needsOverride: boolean
+  dncFlagged?: boolean
+  overrideReason: string
+  onOverrideReasonChange: (value: string) => void
+  isTransferring: boolean
+  transferError: string | null
+  transferStatus: string | null
+  onTransfer: () => void
+}) {
   return (
     <div className="rounded-xl border-hairline border-slate bg-white p-6">
-      <h2 className="border-b border-slate/20 pb-4 text-lg font-medium leading-[120%] text-ink">Transfer</h2>
+      <h2 className="border-b border-slate/20 pb-4 text-lg font-medium leading-[120%] text-ink">
+        Transfer
+      </h2>
 
       <p className="mt-4 text-sm font-medium text-ink">Available Closers</p>
       <div className="mt-3">
-        <ClosersTable closers={MOCK_CLOSERS} />
-        <div className="flex h-[37px] items-center rounded-md bg-table-strip px-6">
-          <Pagination
-            className="w-full"
-            page={page}
-            totalPages={TOTAL_PAGES}
-            rangeStart={1}
-            rangeEnd={MOCK_CLOSERS.length}
-            onPrevious={() => setPage((prev) => Math.max(1, prev - 1))}
-            onNext={() => setPage((prev) => Math.min(TOTAL_PAGES, prev + 1))}
-          />
-        </div>
+        <ClosersTable closers={closers} />
       </div>
+      {/* <p className="mt-2 text-xs text-slate">
+        Read-only — the server assigns an available closer when you transfer.
+      </p> */}
+
+      {transferStatus && (
+        <p className="mt-3 text-sm text-status-green">Transfer {transferStatus}</p>
+      )}
+
+      {transferError && (
+        <div className="mt-3">
+          <Alert>{transferError}</Alert>
+        </div>
+      )}
 
       <div className="mt-5">
-        <Button type="button" disabled className="cursor-not-allowed bg-slate/40">
-          Transfer to Closer
+        <Button type="button" disabled={!canTransfer || isTransferring} onClick={onTransfer}>
+          {isTransferring ? 'Transferring…' : 'Transfer to Closer'}
         </Button>
         <p className="mt-2 text-center text-xs text-slate">
-          Add an override reason if the checklist isn&apos;t complete.
+          {dncFlagged
+            ? 'Do Not Call is flagged — transfer is blocked and cannot be overridden.'
+            : needsOverride
+              ? "Add an override reason if the checklist isn't complete."
+              : 'Complete consent, disposition, and vehicle fields to transfer.'}
         </p>
       </div>
 
-      <OverrideReason reason={overrideReason} onReasonChange={setOverrideReason} />
+      {!dncFlagged && (
+        <OverrideReason reason={overrideReason} onReasonChange={onOverrideReasonChange} />
+      )}
     </div>
   )
 }

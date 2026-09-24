@@ -2,7 +2,6 @@ import type { components } from '@/lib/generated/schema'
 import { apiUrl } from '@/lib/apiUrl'
 import { authError } from '@/lib/auth'
 
-export type InteractionDetailResponse = components['schemas']['InteractionDetailResponse']
 export type CallLeg = components['schemas']['CallLegItem']
 export type InteractionTransfer = components['schemas']['InteractionTransferItem']
 export type InteractionEvent = components['schemas']['InteractionEventItem']
@@ -10,24 +9,16 @@ export type InteractionEventList = components['schemas']['InteractionEventListRe
 export type QualificationRecord = components['schemas']['QualificationResponse']
 
 /**
- * The administrator's read of one interaction — the four review panels.
+ * The four panels an administrator reviews an interaction through.
  *
- * Deliberately separate from `lib/interactions.ts`, which still carries the
- * provisional shape the fronter and closer workspaces were built against.
- * Everything here is typed from the generated contract.
+ * The interaction itself is read with `getInteractionDetailResponse` from
+ * `lib/interactions.ts` — one caller of `GET /interactions/{id}`, not two. This
+ * file holds only what that file has no reason to know about.
  */
 async function json<T>(path: string, token: string): Promise<T> {
   const res = await fetch(apiUrl(path), { headers: { Authorization: `Bearer ${token}` } })
   if (!res.ok) throw await authError(res)
   return res.json() as Promise<T>
-}
-
-/** A missing interaction throws an `AuthError` with code `interaction.not_found`. */
-export function getInteractionDetail(
-  interactionId: string,
-  token: string
-): Promise<InteractionDetailResponse> {
-  return json<InteractionDetailResponse>(`/interactions/${interactionId}`, token)
 }
 
 export async function listCallLegs(interactionId: string, token: string): Promise<CallLeg[]> {
@@ -65,8 +56,9 @@ export function listInteractionEvents(
  * The full qualification, or null where none was ever saved.
  *
  * `lib/qualification.ts` reads the same route for the workspaces, but declares
- * `snapshot_json` as the fronter checklist. It is free-form JSONB, and this
- * panel shows whatever is in it, so it reads the contract's own open shape.
+ * `snapshot_json` as the fields an active call writes. It is free-form JSONB,
+ * and this panel shows whatever is in it — including keys the workspace never
+ * writes — so it reads the contract's own open shape.
  */
 export async function getQualificationRecord(
   interactionId: string,

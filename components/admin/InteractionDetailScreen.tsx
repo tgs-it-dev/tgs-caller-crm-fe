@@ -13,17 +13,20 @@ import { Alert } from '@/components/ui/Alert'
 import { PageShell } from '@/components/ui/PageShell'
 import { AuthError } from '@/lib/auth'
 import {
-  getInteractionDetail,
   getQualificationRecord,
   listCallLegs,
   listInteractionEvents,
   listInteractionTransfers,
   type CallLeg,
-  type InteractionDetailResponse,
   type InteractionEventList,
   type InteractionTransfer,
   type QualificationRecord,
 } from '@/lib/interactionDetail'
+import {
+  getInteractionDetailResponse,
+  InteractionNotFoundError,
+  type InteractionDetailResponse,
+} from '@/lib/interactions'
 import { waitForMocking } from '@/lib/mockReady'
 import { withSession } from '@/lib/session'
 
@@ -56,6 +59,10 @@ type LoadState =
   | { status: 'ready'; data: Loaded }
 
 function messageFor(err: unknown): string {
+  // Thrown by the shared reader in lib/interactions.ts, not an AuthError.
+  if (err instanceof InteractionNotFoundError) {
+    return 'There is no interaction with that id.'
+  }
   if (err instanceof AuthError && err.code === 'interaction.not_found') {
     return 'There is no interaction with that id.'
   }
@@ -93,7 +100,7 @@ export function InteractionDetailScreen({
           // The detail first: a 404 here is the answer for the whole page, and
           // there is no sense asking four panels about an interaction that
           // does not exist.
-          const detail = await getInteractionDetail(interactionId, token)
+          const detail = await getInteractionDetailResponse(interactionId, token)
           const [legs, transfers, qualification] = await Promise.all([
             listCallLegs(interactionId, token),
             listInteractionTransfers(interactionId, token),
