@@ -44,8 +44,8 @@ type MockLink = { token: string; userId: string; purpose: 'invite' | 'reset'; st
 const MOCK_LINKS: MockLink[] = [
   // Fixed tokens, openable by hand — mock state lives in the page and does not
   // survive a reload, so a freshly issued link cannot be followed here:
-  //   /invite/live-link  /invite/expired-link
-  //   /invite/used-link  /invite/superseded-link
+  //   /invite/?token=live-link  /invite/?token=expired-link
+  //   /invite/?token=used-link  /invite/?token=superseded-link
   { token: 'live-link', userId: '1', purpose: 'invite', state: 'live' },
   { token: 'expired-link', userId: '1', purpose: 'invite', state: 'expired' },
   { token: 'used-link', userId: '1', purpose: 'invite', state: 'used' },
@@ -65,7 +65,8 @@ function issueMockLink(userId: string, purpose: 'invite' | 'reset'): string {
   // Mock mode has no mail server, so the link goes where the backend's "log"
   // transport puts it — somewhere a developer can read it.
   const path = purpose === 'invite' ? 'invite' : 'reset-password'
-  console.info(`[mock email] ${window.location.origin}/${path}/${token}`)
+  // Query token so the static S3 export can open the shell without a pre-built path.
+  console.info(`[mock email] ${window.location.origin}/${path}/?token=${encodeURIComponent(token)}`)
   return token
 }
 

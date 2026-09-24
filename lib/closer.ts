@@ -70,11 +70,15 @@ export function transferIdForInteraction(interactionId: string) {
 export const CLOSER_DEFAULT_INTERACTION_ID = DEFAULT_INTERACTION_ID
 export const CLOSER_DEFAULT_TRANSFER_ID = transferIdForInteraction(DEFAULT_INTERACTION_ID)
 
-/** Workspace URL; `transferId` is required to accept/load against the real API. */
+/**
+ * Workspace URL. Query params (not a path segment) so static export / S3 can
+ * soft-navigate without pre-rendering every interaction id.
+ * `transferId` is required to accept/load against the real API.
+ */
 export function closerWorkspaceHref(interactionId: string, transferId?: string | null): string {
-  const base = `/closer/workspace/${encodeURIComponent(interactionId)}`
-  if (!transferId) return base
-  return `${base}?transferId=${encodeURIComponent(transferId)}`
+  const params = new URLSearchParams({ id: interactionId })
+  if (transferId) params.set('transferId', transferId)
+  return `/closer/workspace/?${params.toString()}`
 }
 
 /** Seeded snapshot matching the Figma Closer Active Call frame. */
