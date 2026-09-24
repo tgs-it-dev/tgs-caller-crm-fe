@@ -34,7 +34,7 @@ function fronterColumns(now: number): DataColumn<FronterQueueEntry>[] {
       render: (entry) => (
         <>
           <Link
-            href={`/fronter/workspace/${entry.id}`}
+            href={`/fronter/workspace/?id=${encodeURIComponent(entry.id)}`}
             className="font-medium hover:text-navy hover:underline"
           >
             {entry.lead_name}

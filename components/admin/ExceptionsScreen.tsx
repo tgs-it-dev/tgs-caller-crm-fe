@@ -288,7 +288,7 @@ function ExceptionRow({
               directly rather than faking it in Tailwind. */}
           <MuiButton
             component={Link}
-            href={`/admin/interactions/${exception.interaction_id}?from=exceptions`}
+            href={`/admin/interactions/?id=${encodeURIComponent(exception.interaction_id)}&from=exceptions`}
             variant="outlined"
             size="small"
           >

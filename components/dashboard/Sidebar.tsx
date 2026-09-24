@@ -127,6 +127,11 @@ const ADMIN_NAV: NavItem[] = [
   },
 ]
 
+/** `trailingSlash: true` makes usePathname() return `/fronter/`; nav hrefs stay `/fronter`. */
+function normalizePath(pathname: string): string {
+  return pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname
+}
+
 function deskNav(role: 'fronter' | 'closer', activeCallHref: string): NavItem[] {
   const base = BASE_PATH[role]
   const workspace = `${base}/workspace`
@@ -308,7 +313,7 @@ export function Sidebar() {
 
         <nav className={`flex-1 space-y-1 py-4 ${collapsed ? 'lg:py-3 lg:px-2 px-3' : 'px-3'}`}>
           {navItems.map(({ href, label, icon: Icon, isActive }) => {
-            const active = isActive(pathname)
+            const active = isActive(normalizePath(pathname))
             return (
               <Link
                 key={label}
