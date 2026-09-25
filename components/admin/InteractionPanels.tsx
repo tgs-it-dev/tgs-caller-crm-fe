@@ -141,6 +141,10 @@ export function TransfersPanel({ transfers }: { transfers: InteractionTransfer[]
       rows={transfers}
       columns={columns}
       getRowId={(row) => row.id}
+      // A status and two names, none of which reads if it is broken across
+      // lines. Without this the table is laid out fixed, splitting whatever
+      // width the card has into three and clipping the badge.
+      minWidth="max-content"
       // Every attempt is listed, not just the last: a rejected or timed-out
       // transfer releases the interaction to be tried again.
       emptyMessage="No transfer was ever attempted on this interaction."

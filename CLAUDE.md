@@ -180,10 +180,42 @@ Attempts.
   attempts, rejections and timeouts included. Connects and Qualified are
   stand-ins too, and the page says so in a line under the chart rather than in
   hover text, which a screen reader never reads.
-- **No drill-down yet.** A count covers many interactions, so a bar can only
-  open a list, and that list is a separate ticket. What blocked it — nowhere for
-  a row to land — is gone: `/admin/interactions/[interactionId]` exists, and the
-  list links there with `?from=funnel`. The bars stay unclickable until it does.
+- **Every bar opens onto its own records.** The bars are buttons; the selected
+  one scopes the list beneath the chart, which reads
+  `GET /reporting/funnel/{stage}` through `fetchFunnelStage()`. Attempts is the
+  default because it is the cohort the other three narrow, so the page opens on
+  everything in the window. A bar reading zero stays clickable — opening it and
+  finding nothing is how a zero gets confirmed instead of wondered about. An
+  empty window renders no list card at all, because the chart already says the
+  range is empty.
+- **The drill-down sends `timezone`; the aggregate deliberately doesn't.** Not
+  an inconsistency. Dates alone don't say which 24 hours they mean: the server
+  reads them in a zone, and the same days under another one are a different
+  cohort (`2026-09-23` is 25 interactions in `America/New_York` and 39 in
+  `Asia/Karachi`). The aggregate asks without one so the server picks and
+  *names* the business zone; the list passes that name back, which is the only
+  thing making its `total` the same figure as the bar above it. So the list is
+  handed the funnel that came back, never the range that was asked for — on the
+  first read those disagree, and only the reply carries a zone.
+- **The list's times are drawn in the business zone, not the reader's.** The
+  exception to the rule under "Exceptions and interaction detail" below, and for
+  that rule's own reason: it says interaction timestamps use the local zone
+  *because those answers carry no business zone the way `/reporting/*` does* —
+  and this one does, in `timezone`. Drawn locally instead, a row's date is
+  simply the wrong day: from `Asia/Karachi`, 209 of 670 rows carry a different
+  date from the business day the figure above them counted, and near the edge a
+  row can show a date outside the window in the card's own heading. A list of
+  the records behind a number must not disagree with it about when. So
+  `formatDateTimeIn(created_at, list.timezone)`, and the caption is
+  `formatZone()` — the same abbreviation the window above the chart carries.
+- **A row carries the lead's phone because nothing else on it is human.**
+  `FunnelInteraction` is `id`, `lead_id`, `created_at` plus `lead_phone` and
+  `lead_source`, the last two joined on in the backend. A page of uuids and
+  timestamps identifies nothing to a reader, and leads have no name column to
+  offer instead. The alternative was one `GET /leads/{id}` per row — eleven
+  requests to fill a page against one. `lead_source` rides the same join and
+  nothing renders it yet: the join that carries the phone carries it for free,
+  so the contract only had to change once.
 
 ## Exceptions and interaction detail
 
@@ -223,12 +255,17 @@ Attempts.
   precisely because they do not trust the data; invented rows with plausible
   timestamps would be indistinguishable from real ones.
 - **The detail screen is shared, and carries no exception chrome.** No reason
-  badge, no resolve control — a reader arriving from the reports funnel (a
-  separate ticket) has no exception and must not see gaps where one would have
-  been. The back link is driven by `?from=`, mapped in one `ORIGINS` record in
-  `components/admin/InteractionDetailScreen.tsx`; a new caller adds its entry
-  and passes the param. An unrecognised or absent `from` falls back to the
-  dashboard, which is what a bookmarked link gets.
+  badge, no resolve control — a reader arriving from the reports funnel has no
+  exception and must not see gaps where one would have been. The back link is
+  driven by `?from=`, mapped in one `ORIGINS` record in
+  `components/admin/InteractionDetailScreen.tsx` — `exceptions` and `funnel`
+  today; a new caller adds its entry and passes the param. An unrecognised or
+  absent `from` falls back to the dashboard, which is what a bookmarked link
+  gets.
+- **It lights no sidebar item**, because it now has two ways in and lighting
+  either one would be wrong half the time. `isActive` for Exceptions matches
+  `/admin/exceptions` only. The back link is what says where the reader came
+  from, which is the same `?from=` the heading is built out of.
 - **Times here name the zone they are drawn in**, because these answers carry
   no business zone the way `/reporting/*` does. They are instants, not business
   days — but a bare local-time string would read as one, which is the confusion
