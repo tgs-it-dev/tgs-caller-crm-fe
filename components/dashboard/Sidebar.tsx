@@ -160,11 +160,10 @@ const ADMIN_NAV: NavItem[] = [
     href: '/admin/exceptions',
     label: 'Exceptions',
     icon: ExceptionsIcon,
-    // Interaction detail is a shared screen with no section of its own, and
-    // the queue is the only way into it today — so the nav keeps saying where
-    // the reader came from. The ticket that adds the funnel's list has a second
-    // way in, and has to decide this properly then.
-    isActive: (p) => p.startsWith('/admin/exceptions') || p.startsWith('/admin/interactions'),
+    // Not /admin/interactions: that screen is reached from here and from the
+    // reports funnel, so lighting either one is wrong half the time. It lights
+    // nothing, and its back link says which way the reader came in.
+    isActive: (p) => p.startsWith('/admin/exceptions'),
   },
   {
     href: '/admin/users',
