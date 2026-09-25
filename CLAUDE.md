@@ -124,6 +124,18 @@ Frontend pieces:
   fronters and closers, `ADMIN_NAV` for administrators. Each item carries its
   own `isActive(pathname)`. A new page goes under its role's segment and into
   that role's list.
+- **Somebody may hold more than one role**, and the nav only ever shows the desk
+  they are on, so the sidebar identity doubles as a desk menu — `heldDesks()` in
+  `lib/auth.ts` lists every desk held, the current one ticked. A single-role
+  account gets the identity exactly as it was: no button, nothing to click.
+  Switching needs no state of its own, because the URL already decides the desk
+  through `deskRoleFromPath()` — navigating *is* the switch.
+- That menu is MUI's `Menu`, and it is the only floating panel in the app. It is
+  MUI rather than hand-rolled for the reason `components/ui/Dialog.tsx` is:
+  click-outside, Escape, focus restore and the ARIA roles come with it, and
+  there is no click-outside or keydown machinery here to build on. It closes in
+  each item's `onClick` rather than an effect on `pathname` — a synchronous
+  `setState` in an effect is a lint error `Sidebar.tsx` already trips twice.
 
 ## Live data
 
@@ -247,10 +259,16 @@ state. Administrator-only, like the rest of `/admin`.
 - **An email address cannot be changed** — `UpdateUserRequest` carries name,
   roles and active, and nothing else. The field is shown disabled rather than
   hidden, so nobody goes looking for it.
-- **Nobody here sets anybody's password.** The create body carries no password;
-  the API issues an invitation and emails a link, and the new user chooses their
-  own. Adding the field back would switch the invitation off — the backend only
-  invites when it is absent.
+- **Creating a user asks how they will sign in.** "Set a password now" is the
+  default and sends `password`; "Email an invitation link" leaves the key out
+  and the API issues an invitation instead. That branch is the backend's:
+  it only invites when `password` is absent, so the key must be **omitted**
+  rather than sent empty — `''` is validated like any other password and comes
+  back a 422.
+  The default is the password because an invitation needs a configured mail
+  server, and creation otherwise stores a password nobody holds — so an
+  invitation that never arrives leaves an account that cannot be signed into at
+  all. Once SMTP is real, the default is worth revisiting.
 - **Roles are checkboxes, not a picker**: `roles` is an array in every DTO and
   someone may hold more than one. The list comes from a `Record<Role, string>`
   in `lib/users.ts`, so a role added to the contract fails the build here rather

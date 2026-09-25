@@ -35,6 +35,11 @@ const MOCK_USERS: MockUser[] = [
   { id: '3', email: 'admin@tgs.com', password: 'password1', name: 'Ana Admin', roles: ['administrator'], active: true, created_at: SEEDED_AT },
   // Deactivated, so the list has something to show in that state from the start.
   { id: '5', email: 'former@tgs.com', password: 'password1', name: 'Nadia Former', roles: ['closer'], active: false, created_at: SEEDED_AT },
+  // Multi-role, so the sidebar's desk switcher is reachable locally: every other
+  // account here holds exactly one role, which is the case that hides it.
+  { id: '6', email: 'everything@tgs.com', password: 'password1', name: 'Mo Everything', roles: ['administrator', 'closer', 'fronter'], active: true, created_at: SEEDED_AT },
+  // Two desks and no admin — the switcher without an Administrator entry.
+  { id: '7', email: 'both@tgs.com', password: 'password1', name: 'Bea Both', roles: ['fronter', 'closer'], active: true, created_at: SEEDED_AT },
 ]
 
 const KNOWN_ROLES: Role[] = ['fronter', 'closer', 'administrator']
