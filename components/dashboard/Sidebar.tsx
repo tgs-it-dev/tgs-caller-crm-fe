@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, type ComponentType, type SVGProps } from 'react'
+import { useMemo, useState, type ComponentType, type SVGProps } from 'react'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Bell, ChartLine, ListOrdered, LogOut, Menu, Phone } from 'lucide-react'
@@ -8,14 +8,11 @@ import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import {
   deskLabelForRole,
   deskRoleFromPath,
-  formatRolesLabel,
   initialsFromName,
   primaryRole,
-  readToken,
   type Role,
 } from '@/lib/auth'
-import { waitForMocking } from '@/lib/mockReady'
-import { listQueue } from '@/lib/queue'
+import { closerWorkspaceHref } from '@/lib/closer'
 import { OutlineIcon } from '../icons/OutlineIcon'
 
 /** Nav Lucide icons — size via className so flex can't fight an inline lock. */
@@ -182,7 +179,6 @@ export function Sidebar() {
   const { user, status: userStatus, signOut } = useCurrentUser()
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [fallbackActiveId, setFallbackActiveId] = useState<string | null>(null)
   const [prevPathname, setPrevPathname] = useState(pathname)
   const userReady = userStatus === 'ready' && user != null
 
@@ -201,47 +197,28 @@ export function Sidebar() {
   const basePath = BASE_PATH[role]
   const workspacePathPrefix = `${basePath}/workspace`
 
-  const workspaceIdFromPath = useMemo(() => {
+  // Prefer ?id= (static-export safe). Path segments still resolve for CDN deep
+  // links that rewrite /workspace/<id>/ onto the prebuilt shell.
+  const workspaceIdFromUrl = useMemo(() => {
+    const fromQuery = searchParams.get('id') ?? searchParams.get('interactionId')
+    if (fromQuery) return fromQuery
     const match = pathname.match(new RegExp(`^${workspacePathPrefix}/([^/]+)`))
     return match?.[1] ?? null
-  }, [pathname, workspacePathPrefix])
-
-  // Only a fronter resolves a live interaction when the URL itself doesn't
-  // name one: a closer's Active Call is /closer itself, and an administrator
-  // has no desk.
-  useEffect(() => {
-    if (workspaceIdFromPath || role !== 'fronter') return
-
-    let cancelled = false
-    const token = readToken()
-    if (!token) return
-
-    waitForMocking()
-      .then(() => listQueue(token, 'fronter', { bust: true }))
-      .then((queue) => {
-        if (cancelled) return
-        setFallbackActiveId(queue[0]?.id ?? null)
-      })
-      .catch(() => {})
-
-    return () => {
-      cancelled = true
-    }
-  }, [workspaceIdFromPath, role])
+  }, [pathname, workspacePathPrefix, searchParams])
 
   function handleSignOut() {
     signOut()
     router.push('/login')
   }
 
-  // Closers keep fallbackActiveId null (Active Call = /closer) unless they
-  // already opened a workspace; fronters may resolve a live interaction.
-  const activeInteractionId = workspaceIdFromPath ?? (role === 'fronter' ? fallbackActiveId : null)
-  const activeTransferId = workspaceIdFromPath ? searchParams.get('transferId') : null
-  const activeCallHref = activeInteractionId
-    ? activeTransferId && role === 'closer'
-      ? `${workspacePathPrefix}/${activeInteractionId}?transferId=${encodeURIComponent(activeTransferId)}`
-      : `${workspacePathPrefix}/${activeInteractionId}`
+  // Active Call only deep-links once a queue row (or workspace URL) named an
+  // interaction. Fronters are not auto-sent to queue[0] — that used path
+  // segments and skipped the Queue pick, which breaks output: 'export'.
+  const activeTransferId = searchParams.get('transferId')
+  const activeCallHref = workspaceIdFromUrl
+    ? role === 'closer'
+      ? closerWorkspaceHref(workspaceIdFromUrl, activeTransferId)
+      : `${workspacePathPrefix}/?id=${encodeURIComponent(workspaceIdFromUrl)}`
     : basePath
 
   const navItems = role === 'administrator' ? ADMIN_NAV : deskNav(role, activeCallHref)

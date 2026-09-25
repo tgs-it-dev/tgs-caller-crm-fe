@@ -9,7 +9,7 @@ export {
   type TodaysStatsResponse,
 } from '@/lib/fronterStats'
 
-/** Screen KPIs — derived from the closer-scoped today payload. */
+/** Screen KPIs — mapped from BE summary fields on TodaysStatsResponse. */
 export type CloserTodaysStatsSummary = {
   callsToday: number
   sales: number
@@ -17,21 +17,17 @@ export type CloserTodaysStatsSummary = {
 }
 
 /**
- * Catalogue label that counts as Sales on closer My Stats.
- * Matches the closer disposition seed in mocks / BE catalogue.
- */
-export const SALE_COMPLETED_LABEL = 'Sale completed'
-
-/**
- * KPIs from this closer's today payload: disposition rows for Calls/Sales,
- * and transferred ids for answered+dispositioned transfers today.
+ * KPIs from the closer today payload. Prefer the server counts:
+ * - calls_today includes accepted-but-not-yet-dispositioned transfers
+ * - sales uses catalogue counts_as_sale (not a hard-coded label)
+ * - calls_transferred is answered+dispositioned today
  */
 export function summarizeCloserTodaysStats(
   payload: TodaysStatsResponse
 ): CloserTodaysStatsSummary {
   return {
-    callsToday: payload.dispositions.length,
-    sales: payload.dispositions.filter((row) => row.label === SALE_COMPLETED_LABEL).length,
-    transferred: payload.transferred_interaction_ids.length,
+    callsToday: payload.calls_today,
+    sales: payload.sales,
+    transferred: payload.calls_transferred,
   }
 }
