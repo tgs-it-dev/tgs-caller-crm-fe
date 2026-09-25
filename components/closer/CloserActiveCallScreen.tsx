@@ -23,7 +23,7 @@ import {
   type TodaysDispositionRow,
   type TransferResponse,
 } from '@/lib/closer'
-import { fetchTodaysStats, statsStageForUser } from '@/lib/fronterStats'
+import { fetchTodaysStats, statsStageForUser } from '@/lib/closerStats'
 import { waitForMocking } from '@/lib/mockReady'
 import { withSession } from '@/lib/session'
 
