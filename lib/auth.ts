@@ -89,6 +89,17 @@ export function primaryRole(roles: Role[]): Role | null {
   return ROLE_PRIORITY.find((role) => roles.includes(role)) ?? null
 }
 
+/**
+ * Every desk this user holds, most senior first.
+ *
+ * `primaryRole` answers where they land; this answers where else they may go.
+ * Both read the same order, so the desk they start on is always the first one
+ * the switcher would have offered.
+ */
+export function heldDesks(roles: Role[]): Role[] {
+  return ROLE_PRIORITY.filter((role) => roles.includes(role))
+}
+
 export function landingRouteForRoles(roles: Role[]): string {
   const primary = primaryRole(roles)
   return primary ? ROLE_LANDING[primary] : '/login'

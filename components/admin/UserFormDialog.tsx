@@ -1,6 +1,10 @@
 'use client'
 
 import { useId, useState, type FormEvent } from 'react'
+import FormControlLabel from '@mui/material/FormControlLabel'
+import Radio from '@mui/material/Radio'
+import RadioGroup from '@mui/material/RadioGroup'
+import { Eye, EyeOff } from 'lucide-react'
 import { Alert } from '@/components/ui/Alert'
 import { Button } from '@/components/ui/Button'
 import { Checkbox } from '@/components/ui/Checkbox'
@@ -22,6 +26,43 @@ const FIELD_COPY: Record<string, string> = {
   'user.already_exists': 'That email address is already in use.',
   'user.unknown_roles': 'That is not a role this console can assign.',
 }
+
+// The API's ceiling is bcrypt's, and it counts bytes rather than characters:
+// one emoji is four of them, so a passphrase can pass a length check here and
+// still be refused there. Same rule as the set-password screen.
+const MAX_PASSWORD_BYTES = 72
+
+/**
+ * How the new account gets a way in.
+ *
+ * `password` first because it is the one that works without a mail server
+ * configured — an invitation nobody receives leaves an account that cannot be
+ * signed into at all, since creation otherwise stores a password nobody holds.
+ */
+type SignInMethod = 'password' | 'invite'
+
+/** Mirrors components/ui/Checkbox so the radio rows line up with the role list. */
+const RADIO_ROW_SX = {
+  m: 0,
+  gap: 1.25,
+  alignItems: 'flex-start',
+  '& .MuiFormControlLabel-label': { fontSize: '0.875rem', lineHeight: '20px' },
+} as const
+
+/**
+ * What the theme already does for MuiCheckbox, which has no MuiRadio twin.
+ *
+ * Left at MUI's defaults a radio carries 9px of padding around a 24px glyph, so
+ * beside a themed 18px checkbox it reads as a different control — and against a
+ * 20px line the extra padding drops its centre 11px below its own label. Set
+ * here rather than in the theme because the qualification checklist's radios are
+ * not ours to restyle.
+ */
+const RADIO_CONTROL_SX = {
+  mt: '2px',
+  p: 0,
+  '& .MuiSvgIcon-root': { fontSize: 18 },
+} as const
 
 function bannerFor(err: AuthError): string {
   if (err.code === 'user.cannot_demote_self') {
@@ -54,6 +95,9 @@ export function UserFormDialog({
   const [email, setEmail] = useState(user?.email ?? '')
   const [roles, setRoles] = useState<Role[]>(user?.roles ?? [])
   const [active, setActive] = useState(user?.active ?? true)
+  const [signIn, setSignIn] = useState<SignInMethod>('password')
+  const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [problems, setProblems] = useState<Record<string, string>>({})
   const [banner, setBanner] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -65,6 +109,15 @@ export function UserFormDialog({
     if (roles.length === 0) found.roles = 'Choose at least one role.'
     if (!user && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       found.email = 'Enter a valid email address.'
+    }
+    // Characters for the floor and bytes for the ceiling, as the API counts
+    // them. Keyed `password` so its own 422 lands on this same input.
+    if (!user && signIn === 'password') {
+      if (password.length < 8) {
+        found.password = 'Use at least 8 characters.'
+      } else if (new TextEncoder().encode(password).length > MAX_PASSWORD_BYTES) {
+        found.password = 'That password is too long. Please choose a shorter one.'
+      }
     }
     return found
   }
@@ -106,7 +159,15 @@ export function UserFormDialog({
           await withSession((token) => updateUser(user.id, patch, token))
         }
       } else {
-        await withSession((token) => createUser({ email, name, roles }, token))
+        // The key is left out entirely for an invitation, never sent empty: the
+        // API validates `password` whenever it is present at all, so `''` would
+        // be a 422 rather than "no password given".
+        await withSession((token) =>
+          createUser(
+            { email, name, roles, ...(signIn === 'password' ? { password } : {}) },
+            token
+          )
+        )
       }
       // Left saving: the list closes this dialog once it has reloaded.
       onSaved()
@@ -165,9 +226,64 @@ export function UserFormDialog({
         />
 
         {!user && (
-          <p className="text-xs leading-[150%] text-slate">
-            They will be emailed a link and choose their own password. Nobody else ever sees it.
-          </p>
+          <fieldset>
+            <legend className="mb-3 text-sm font-medium text-black">How will they sign in?</legend>
+            <RadioGroup
+              value={signIn}
+              onChange={(event) => setSignIn(event.target.value as SignInMethod)}
+              className="flex flex-col items-start gap-2"
+            >
+              <FormControlLabel
+                value="password"
+                sx={RADIO_ROW_SX}
+                control={<Radio size="small" disableRipple sx={RADIO_CONTROL_SX} />}
+                label="Set a password now"
+              />
+              <FormControlLabel
+                value="invite"
+                sx={RADIO_ROW_SX}
+                control={<Radio size="small" disableRipple sx={RADIO_CONTROL_SX} />}
+                label="Email an invitation link"
+              />
+            </RadioGroup>
+
+            {signIn === 'password' ? (
+              <div className="mt-4 space-y-2">
+                <Input
+                  label="Password"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  error={Boolean(problems.password)}
+                  helperText={problems.password ?? 'At least 8 characters.'}
+                  endAdornment={
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((shown) => !shown)}
+                      className="text-slate transition-colors hover:text-ink"
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-5 w-5" strokeWidth={2} aria-hidden />
+                      ) : (
+                        <Eye className="h-5 w-5" strokeWidth={2} aria-hidden />
+                      )}
+                    </button>
+                  }
+                />
+                <p className="text-xs leading-[150%] text-slate">
+                  Tell them this password yourself. They can change it later from the sign-in page.
+                </p>
+              </div>
+            ) : (
+              <p className="mt-3 text-xs leading-[150%] text-slate">
+                They will be emailed a link and choose their own password, which nobody else ever
+                sees. This needs email delivery configured — until it is, no link is sent and they
+                will not be able to sign in.
+              </p>
+            )}
+          </fieldset>
         )}
 
         <fieldset>

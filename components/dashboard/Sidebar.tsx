@@ -3,12 +3,27 @@
 import { useEffect, useMemo, useState, type ComponentType, type SVGProps } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
-import { Bell, ChartLine, ListOrdered, LogOut, Menu, Phone } from 'lucide-react'
+import MuiMenu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
+import {
+  Bell,
+  ChartLine,
+  Check,
+  ChevronDown,
+  Headset,
+  ListOrdered,
+  LogOut,
+  Menu,
+  Phone,
+  PhoneIncoming,
+  Shield,
+} from 'lucide-react'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import {
   deskLabelForRole,
   deskRoleFromPath,
   formatRolesLabel,
+  heldDesks,
   initialsFromName,
   primaryRole,
   readToken,
@@ -16,6 +31,7 @@ import {
 } from '@/lib/auth'
 import { waitForMocking } from '@/lib/mockReady'
 import { listQueue } from '@/lib/queue'
+import { roleLabel } from '@/lib/users'
 import { OutlineIcon } from '../icons/OutlineIcon'
 
 /** Nav Lucide icons — size via className so flex can't fight an inline lock. */
@@ -47,6 +63,30 @@ function SignOutIcon() {
 
 function MenuIcon() {
   return <Menu {...NAV_ICON} />
+}
+
+/**
+ * Desk-menu icons, which are not nav icons.
+ *
+ * NAV_ICON's 24px belongs to a nav row; these sit in a menu line beside a 16px
+ * tick and 14px text, so they carry their own size.
+ */
+const DESK_ICON_PROPS = {
+  strokeWidth: 2,
+  'aria-hidden': true,
+  className: 'h-[18px] w-[18px] shrink-0',
+} as const satisfies SVGProps<SVGSVGElement> & { strokeWidth: number }
+
+function FronterDeskIcon() {
+  return <Headset {...DESK_ICON_PROPS} />
+}
+
+function CloserDeskIcon() {
+  return <PhoneIncoming {...DESK_ICON_PROPS} />
+}
+
+function AdminDeskIcon() {
+  return <Shield {...DESK_ICON_PROPS} />
 }
 
 function DashboardIcon() {
@@ -99,6 +139,13 @@ const BASE_PATH: Record<Role, string> = {
   fronter: '/fronter',
   closer: '/closer',
   administrator: '/admin',
+}
+
+/** One icon per desk, for the menu's rows. */
+const DESK_ICON: Record<Role, ComponentType> = {
+  fronter: FronterDeskIcon,
+  closer: CloserDeskIcon,
+  administrator: AdminDeskIcon,
 }
 
 const ADMIN_NAV: NavItem[] = [
@@ -181,6 +228,9 @@ export function Sidebar() {
   const { user, status: userStatus, signOut } = useCurrentUser()
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  // The element the desk menu hangs off, and whether it is open — MUI wants the
+  // node itself, which is why this is not a boolean.
+  const [deskMenuAnchor, setDeskMenuAnchor] = useState<HTMLElement | null>(null)
   const [fallbackActiveId, setFallbackActiveId] = useState<string | null>(null)
   const [activeTransferId, setActiveTransferId] = useState<string | null>(null)
   const userReady = userStatus === 'ready' && user != null
@@ -255,6 +305,12 @@ export function Sidebar() {
 
   const navItems = role === 'administrator' ? ADMIN_NAV : deskNav(role, activeCallHref)
 
+  // Somebody may hold more than one role, and the nav only ever shows the desk
+  // they are on — so without a way across, the others are unreachable. One role
+  // leaves the identity exactly as it was: nothing to choose, nothing to click.
+  const desks = userReady ? heldDesks(user.roles) : []
+  const canSwitch = desks.length > 1
+
   return (
     <>
       <button
@@ -286,7 +342,12 @@ export function Sidebar() {
         >
           <button
             type="button"
-            onClick={() => setCollapsed((prev) => !prev)}
+            onClick={() => {
+              // Closing here rather than in an effect on `collapsed`: the menu is
+              // anchored to a node whose size changes under it.
+              setDeskMenuAnchor(null)
+              setCollapsed((prev) => !prev)
+            }}
             aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             className={`hidden flex-shrink-0 items-center justify-center rounded-md p-1 text-slate hover:bg-slate/10 hover:text-ink lg:flex ${
               collapsed ? '' : 'order-last'
@@ -299,17 +360,96 @@ export function Sidebar() {
               className={`h-4 w-4 transition-transform ${collapsed ? 'rotate-180' : ''}`}
             />
           </button>
-          <Avatar name={userReady ? user.name : undefined} />
-          {!collapsed &&
-            (userReady ? (
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-ink">{user.name}</p>
-                <p className="truncate text-xs text-slate">{deskLabelForRole(role)}</p>
-              </div>
-            ) : (
-              <UserIdentitySkeleton lines={2} />
-            ))}
+
+          {userReady && canSwitch ? (
+            <button
+              type="button"
+              onClick={(event) => setDeskMenuAnchor(event.currentTarget)}
+              aria-haspopup="menu"
+              aria-expanded={Boolean(deskMenuAnchor)}
+              // Collapsed there is no text at all, so these are the only things
+              // saying what this opens — as on the nav rows beneath it.
+              aria-label={collapsed ? `Switch desk, currently ${roleLabel(role)}` : undefined}
+              title={collapsed ? `Switch desk, currently ${roleLabel(role)}` : undefined}
+              className={`flex min-w-0 items-center gap-3 rounded-lg text-left transition hover:bg-slate/10 ${
+                collapsed ? 'lg:p-1' : 'flex-1 p-1'
+              }`}
+            >
+              <Avatar name={user.name} />
+              {!collapsed && (
+                <>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-ink">
+                      {user.name}
+                    </span>
+                    <span className="block truncate text-xs text-slate">
+                      {deskLabelForRole(role)}
+                    </span>
+                  </span>
+                  <ChevronDown className="h-4 w-4 shrink-0 text-slate" strokeWidth={2} aria-hidden />
+                </>
+              )}
+            </button>
+          ) : (
+            <>
+              <Avatar name={userReady ? user.name : undefined} />
+              {!collapsed &&
+                (userReady ? (
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-ink">{user.name}</p>
+                    <p className="truncate text-xs text-slate">{deskLabelForRole(role)}</p>
+                  </div>
+                ) : (
+                  <UserIdentitySkeleton lines={2} />
+                ))}
+            </>
+          )}
         </div>
+
+        {/* Every desk they hold, not just the others — a list that leaves out
+            where you are reads as somewhere to go rather than where you are. */}
+        <MuiMenu
+          anchorEl={deskMenuAnchor}
+          open={Boolean(deskMenuAnchor)}
+          onClose={() => setDeskMenuAnchor(null)}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+          transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+          slotProps={{
+            paper: {
+              sx: {
+                minWidth: 208,
+                borderRadius: '10px',
+                border: '1px solid rgba(138,148,163,0.25)',
+                boxShadow: '0 8px 24px rgba(28,36,48,0.12)',
+              },
+            },
+          }}
+        >
+          {desks.map((desk) => {
+            const Icon = DESK_ICON[desk]
+            const current = desk === role
+            return (
+              <MenuItem
+                key={desk}
+                component={Link}
+                href={BASE_PATH[desk]}
+                selected={current}
+                onClick={() => setDeskMenuAnchor(null)}
+                sx={{ gap: 1.25, fontSize: '0.875rem', py: 1 }}
+              >
+                <span className="flex shrink-0 text-slate">
+                  <Icon />
+                </span>
+                <span className={`flex-1 ${current ? 'font-semibold text-navy' : 'text-black'}`}>
+                  {roleLabel(desk)}
+                </span>
+                {current && (
+                  <Check className="h-4 w-4 shrink-0 text-navy" strokeWidth={2.5} aria-hidden />
+                )}
+              </MenuItem>
+            )
+          })}
+        </MuiMenu>
 
         <nav className={`flex-1 space-y-1 py-4 ${collapsed ? 'lg:py-3 lg:px-2 px-3' : 'px-3'}`}>
           {navItems.map(({ href, label, icon: Icon, isActive }) => {
