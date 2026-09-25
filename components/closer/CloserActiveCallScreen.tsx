@@ -23,7 +23,7 @@ import {
   type TodaysDispositionRow,
   type TransferResponse,
 } from '@/lib/closer'
-import { fetchTodaysStats, statsStageForUser } from '@/lib/fronterStats'
+import { fetchTodaysStats, statsStageForUser } from '@/lib/closerStats'
 import { waitForMocking } from '@/lib/mockReady'
 import { withSession } from '@/lib/session'
 
@@ -122,22 +122,15 @@ type TodaysLoad =
   | { status: 'error'; message: string }
   | { status: 'ready'; rows: TodaysDispositionRow[] }
 
-function useCloserTodaysDispositions(refreshKey = 0) {
+function useCloserTodaysDispositions(refreshKey = 0): TodaysLoad {
   const pathname = usePathname()
   const { user, status: userStatus } = useCurrentUser()
   const desk = deskRoleFromPath(pathname)
   const stage = user ? statsStageForUser(user.roles, desk) : null
-  const [load, setLoad] = useState<TodaysLoad>({ status: 'loading' })
+  const [fetchState, setFetchState] = useState<TodaysLoad>({ status: 'loading' })
 
   useEffect(() => {
-    if (userStatus === 'loading') return
-    if (!user) {
-      setLoad({
-        status: 'error',
-        message: "Unable to load today's dispositions.",
-      })
-      return
-    }
+    if (userStatus === 'loading' || !user) return
 
     let cancelled = false
 
@@ -145,11 +138,11 @@ function useCloserTodaysDispositions(refreshKey = 0) {
       .then(() => withSession((token) => fetchTodaysStats(token, stage)))
       .then((payload) => {
         if (cancelled) return
-        setLoad({ status: 'ready', rows: closerTodaysRowsFromStats(payload) })
+        setFetchState({ status: 'ready', rows: closerTodaysRowsFromStats(payload) })
       })
       .catch((err) => {
         if (cancelled) return
-        setLoad({
+        setFetchState({
           status: 'error',
           message:
             err instanceof Error
@@ -163,7 +156,12 @@ function useCloserTodaysDispositions(refreshKey = 0) {
     }
   }, [refreshKey, userStatus, user, stage])
 
-  return load
+  // Derived, not effect-driven: a missing user is known synchronously once
+  // userStatus settles, so there's nothing to wait a render on.
+  if (!user && userStatus !== 'loading') {
+    return { status: 'error', message: "Unable to load today's dispositions." }
+  }
+  return fetchState
 }
 
 export function CloserActiveCallScreen({

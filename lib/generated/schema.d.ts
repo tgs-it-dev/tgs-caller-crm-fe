@@ -560,11 +560,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * This fronter's dispositions and transfers for today's business day
-         * @description My Stats for the signed-in fronter.
+         * This agent's dispositions and transfers for today's business day
+         * @description My Stats for the signed-in fronter or closer.
          *
          *     Scoped to the caller and to the configured business day — never another
          *     agent's rows, never yesterday's. An empty day is empty arrays, not 404.
+         *     Fronter: dispositions they recorded and transfers they initiated.
+         *     Closer: dispositions they recorded and transfers they answered.
          */
         get: operations["stats_today_me_stats_today_get"];
         put?: never;
@@ -634,6 +636,29 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/queue/fronter/{interaction_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update or leave a fronter dialer-queue entry
+         * @description UI/demo control before VICIdial drives status and leave.
+         *
+         *     ``left: true`` sets ``left_at`` so the row drops off GET /queue?role=fronter.
+         *     Empty body is rejected by the request schema (422).
+         */
+        patch: operations["patch_fronter_queue_entry_queue_fronter__interaction_id__patch"];
         trace?: never;
     };
     "/realtime/ticket": {
@@ -1116,7 +1141,15 @@ export interface components {
              */
             email: string;
         };
-        /** FronterQueueItem */
+        /**
+         * FronterQueueItem
+         * @description Wire shape for an open fronter-queue row.
+         *
+         *     Also the PATCH /queue/fronter/{interaction_id} response: the post-update
+         *     snapshot (name, phone, status, queued_at). Leaving the queue does not add
+         *     a left_at field here — the client sent ``left: true``, and a later GET
+         *     omits the row because ``left_at IS NULL`` filters it out.
+         */
         FronterQueueItem: {
             /** Campaign Name */
             campaign_name: string;
@@ -1700,7 +1733,7 @@ export interface components {
         };
         /**
          * TodaysDispositionRow
-         * @description One fronter disposition the caller recorded today, with lead display fields.
+         * @description One disposition the caller recorded today, with lead display fields.
          *
          *     Slimmer than InteractionDispositionResponse: the My Stats table does not need
          *     disposition_id or version. lead_name/lead_phone are denormalised so the page
@@ -1741,11 +1774,30 @@ export interface components {
         };
         /**
          * TodaysStatsResponse
-         * @description The authenticated fronter's dispositions and transfers for the business day.
+         * @description The authenticated agent's dispositions and transfers for the business day.
+         *
+         *     Stage matches the caller's role. Fronter: dispositions they recorded and
+         *     every transfer they initiated today. Closer: dispositions they recorded;
+         *     ``transferred_interaction_ids`` is only interactions they answered *and*
+         *     dispositioned today — accepted-without-disposition is not listed (those
+         *     UUIDs alone are useless for a My Stats disposition table).
+         *
+         *     Summary counts for My Stats cards:
+         *     - ``sales`` — today's stage dispositions (latest per interaction) flagged
+         *       ``counts_as_sale`` on the catalogue row.
+         *     - ``calls_transferred`` — length of ``transferred_interaction_ids``.
+         *     - ``calls_today`` — fronter: dispositioned interactions today; closer:
+         *       transfers they accepted today (including not yet dispositioned).
          */
         TodaysStatsResponse: {
+            /** Calls Today */
+            calls_today: number;
+            /** Calls Transferred */
+            calls_transferred: number;
             /** Dispositions */
             dispositions: components["schemas"]["TodaysDispositionRow"][];
+            /** Sales */
+            sales: number;
             /** Transferred Interaction Ids */
             transferred_interaction_ids: string[];
         };
@@ -1824,6 +1876,26 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * UpdateFronterQueueEntryRequest
+         * @description Partial update for a fronter dialer-queue row (UI/demo before VICIdial).
+         *
+         *     At least one of ``status`` or ``left`` must be set. ``left`` is only
+         *     ``true`` (or omitted): ``false`` is rejected so "stay queued" is never
+         *     spelled as a no-op boolean.
+         */
+        UpdateFronterQueueEntryRequest: {
+            /**
+             * Left
+             * @description true leaves the queue (sets left_at); omit to stay open
+             */
+            left?: true | null;
+            /**
+             * Status
+             * @description ringing | waiting
+             */
+            status?: ("ringing" | "waiting") | null;
         };
         /** UpdateUserRequest */
         UpdateUserRequest: {
@@ -3044,7 +3116,10 @@ export interface operations {
     };
     stats_today_me_stats_today_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Which disposition stage to return. Required when the caller holds both fronter and closer; otherwise inferred from the caller's role. Same values as GET /dispositions?stage=. */
+                stage?: ("fronter" | "closer") | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3181,6 +3256,50 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FronterQueueItem"][] | components["schemas"]["CloserQueueItem"][];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    patch_fronter_queue_entry_queue_fronter__interaction_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateFronterQueueEntryRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FronterQueueItem"];
                 };
             };
             /** @description Client Error */

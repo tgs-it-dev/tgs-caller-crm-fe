@@ -116,14 +116,10 @@ function MyStats() {
   const { user, status: userStatus } = useCurrentUser()
   const desk = deskRoleFromPath(pathname)
   const stage = user ? statsStageForUser(user.roles, desk) : null
-  const [load, setLoad] = useState<LoadState>({ status: 'loading' })
+  const [fetchState, setFetchState] = useState<LoadState>({ status: 'loading' })
 
   useEffect(() => {
-    if (userStatus === 'loading') return
-    if (!user) {
-      setLoad({ status: 'error', message: "Unable to load today's stats right now." })
-      return
-    }
+    if (userStatus === 'loading' || !user) return
 
     let cancelled = false
 
@@ -131,7 +127,7 @@ function MyStats() {
       .then(() => withSession((token) => fetchTodaysStats(token, stage)))
       .then((payload) => {
         if (cancelled) return
-        setLoad({
+        setFetchState({
           status: 'ready',
           rows: payload.dispositions,
           summary: summarizeTodaysStats(payload),
@@ -139,7 +135,7 @@ function MyStats() {
       })
       .catch(() => {
         if (!cancelled) {
-          setLoad({ status: 'error', message: "Unable to load today's stats right now." })
+          setFetchState({ status: 'error', message: "Unable to load today's stats right now." })
         }
       })
 
@@ -147,6 +143,13 @@ function MyStats() {
       cancelled = true
     }
   }, [userStatus, user, stage])
+
+  // Derived, not effect-driven: a missing user is known synchronously once
+  // userStatus settles, so there's nothing to wait a render on.
+  const load: LoadState =
+    !user && userStatus !== 'loading'
+      ? { status: 'error', message: "Unable to load today's stats right now." }
+      : fetchState
 
   return (
     <PageShell title="My Stats">

@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState, type ComponentType, type SVGProps } from 'react'
-import { useRouter, usePathname } from 'next/navigation'
+import { useMemo, useState, type ComponentType, type SVGProps } from 'react'
+import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import MuiMenu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
@@ -22,16 +22,11 @@ import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import {
   deskLabelForRole,
   deskRoleFromPath,
-  formatRolesLabel,
-  heldDesks,
   initialsFromName,
   primaryRole,
-  readToken,
   type Role,
 } from '@/lib/auth'
-import { waitForMocking } from '@/lib/mockReady'
-import { listQueue } from '@/lib/queue'
-import { roleLabel } from '@/lib/users'
+import { closerWorkspaceHref } from '@/lib/closer'
 import { OutlineIcon } from '../icons/OutlineIcon'
 
 /** Nav Lucide icons — size via className so flex can't fight an inline lock. */
@@ -224,16 +219,21 @@ function Avatar({ name }: { name?: string }) {
 
 export function Sidebar() {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const router = useRouter()
   const { user, status: userStatus, signOut } = useCurrentUser()
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
-  // The element the desk menu hangs off, and whether it is open — MUI wants the
-  // node itself, which is why this is not a boolean.
-  const [deskMenuAnchor, setDeskMenuAnchor] = useState<HTMLElement | null>(null)
-  const [fallbackActiveId, setFallbackActiveId] = useState<string | null>(null)
-  const [activeTransferId, setActiveTransferId] = useState<string | null>(null)
+  const [prevPathname, setPrevPathname] = useState(pathname)
   const userReady = userStatus === 'ready' && user != null
+
+  // Reset the mobile nav on route change without an effect — an effect would
+  // fire one render late; deriving during render (React's documented pattern
+  // for "adjusting state when a prop changes") closes it in the same render.
+  if (pathname !== prevPathname) {
+    setPrevPathname(pathname)
+    setMobileOpen(false)
+  }
 
   // Desk from the URL when under a role segment; otherwise primary role from `/auth/me`.
   const role: Role =
@@ -242,65 +242,28 @@ export function Sidebar() {
   const basePath = BASE_PATH[role]
   const workspacePathPrefix = `${basePath}/workspace`
 
-  const workspaceIdFromPath = useMemo(() => {
+  // Prefer ?id= (static-export safe). Path segments still resolve for CDN deep
+  // links that rewrite /workspace/<id>/ onto the prebuilt shell.
+  const workspaceIdFromUrl = useMemo(() => {
+    const fromQuery = searchParams.get('id') ?? searchParams.get('interactionId')
+    if (fromQuery) return fromQuery
     const match = pathname.match(new RegExp(`^${workspacePathPrefix}/([^/]+)`))
     return match?.[1] ?? null
-  }, [pathname, workspacePathPrefix])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const transferId = new URLSearchParams(window.location.search).get('transferId')
-
-    if (workspaceIdFromPath) {
-      setFallbackActiveId(workspaceIdFromPath)
-      // Always sync from the query — clearing when absent avoids pairing a
-      // new interaction id with a stale transferId from a prior workspace.
-      setActiveTransferId(transferId)
-      return
-    }
-
-    // Only a fronter resolves a live interaction: a closer's Active Call is
-    // /closer itself, and an administrator has no desk.
-    if (role !== 'fronter') {
-      setFallbackActiveId(null)
-      setActiveTransferId(null)
-      return
-    }
-
-    let cancelled = false
-    const token = readToken()
-    if (!token) return
-
-    waitForMocking()
-      .then(() => listQueue(token, 'fronter', { bust: true }))
-      .then((queue) => {
-        if (cancelled) return
-        setFallbackActiveId(queue[0]?.id ?? null)
-        setActiveTransferId(null)
-      })
-      .catch(() => {})
-
-    return () => {
-      cancelled = true
-    }
-  }, [workspaceIdFromPath, role, pathname])
-
-  useEffect(() => {
-    setMobileOpen(false)
-  }, [pathname])
+  }, [pathname, workspacePathPrefix, searchParams])
 
   function handleSignOut() {
     signOut()
     router.push('/login')
   }
 
-  // Closers keep fallbackActiveId null (Active Call = /closer) unless they
-  // already opened a workspace; fronters may resolve a live interaction.
-  const activeInteractionId = workspaceIdFromPath ?? fallbackActiveId
-  const activeCallHref = activeInteractionId
-    ? activeTransferId && role === 'closer'
-      ? `${workspacePathPrefix}/${activeInteractionId}?transferId=${encodeURIComponent(activeTransferId)}`
-      : `${workspacePathPrefix}/${activeInteractionId}`
+  // Active Call only deep-links once a queue row (or workspace URL) named an
+  // interaction. Fronters are not auto-sent to queue[0] — that used path
+  // segments and skipped the Queue pick, which breaks output: 'export'.
+  const activeTransferId = searchParams.get('transferId')
+  const activeCallHref = workspaceIdFromUrl
+    ? role === 'closer'
+      ? closerWorkspaceHref(workspaceIdFromUrl, activeTransferId)
+      : `${workspacePathPrefix}/?id=${encodeURIComponent(workspaceIdFromUrl)}`
     : basePath
 
   const navItems = role === 'administrator' ? ADMIN_NAV : deskNav(role, activeCallHref)

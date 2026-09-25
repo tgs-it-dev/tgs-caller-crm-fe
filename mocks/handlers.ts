@@ -546,10 +546,10 @@ type MockInteractionDisposition = {
 }
 
 const MOCK_DISPOSITION_CATALOG: MockDisposition[] = [
-  { id: 'disp-closer-sale', label: 'Sale completed', stage: 'closer' },
-  { id: 'disp-closer-callback', label: 'Callback requested', stage: 'closer' },
-  { id: 'disp-closer-not-interested', label: 'Not interested', stage: 'closer' },
-  { id: 'disp-closer-dnc', label: 'Do not call', stage: 'closer' },
+  { id: 'disp-closer-sale', label: 'Sale', stage: 'closer' },
+  { id: 'disp-closer-callback', label: 'Callback Scheduled', stage: 'closer' },
+  { id: 'disp-closer-not-interested', label: 'Not Qualified', stage: 'closer' },
+  { id: 'disp-closer-dnc', label: 'Do Not Call', stage: 'closer' },
   { id: 'disp-fronter-qualified', label: 'Qualified - Transferred', stage: 'fronter' },
   { id: 'disp-fronter-not-interested', label: 'Not interested', stage: 'fronter' },
   { id: 'disp-fronter-callback', label: 'Callback requested', stage: 'fronter' },
@@ -581,11 +581,14 @@ const MY_STATS_LABELS = [
 ] as const
 
 const CLOSER_STATS_LABELS = [
-  'Sale completed',
-  'Callback requested',
-  'Not interested',
-  'Do not call',
+  'Sale',
+  'Callback Scheduled',
+  'Not Qualified',
+  'Do Not Call',
 ] as const
+
+/** Labels that match BE catalogue `counts_as_sale` for mock summary cards. */
+const SALE_LABELS = new Set<string>(['Sale'])
 
 const MY_STATS_LEADS = [
   'Mubeen N.',
@@ -600,12 +603,20 @@ const MY_STATS_LEADS = [
   'Priya S.',
 ] as const
 
+type MyStatsTodaySeed = {
+  dispositions: MyStatsDispositionSeed[]
+  transferred_interaction_ids: string[]
+  sales: number
+  calls_transferred: number
+  calls_today: number
+}
+
 function seedMyStatsForUser(
   actorUserId: string,
   rowCount: number,
   leadOffset: number,
   stage: 'fronter' | 'closer' = 'fronter'
-): { dispositions: MyStatsDispositionSeed[]; transferred_interaction_ids: string[] } {
+): MyStatsTodaySeed {
   const base = new Date()
   base.setHours(9, 0, 0, 0)
   const labels = stage === 'closer' ? CLOSER_STATS_LABELS : MY_STATS_LABELS
@@ -633,16 +644,24 @@ function seedMyStatsForUser(
           .filter((_, i) => i % 2 === 0)
           .map((row) => row.interaction_id)
 
-  return { dispositions, transferred_interaction_ids }
+  const sales = dispositions.filter((row) => SALE_LABELS.has(row.label)).length
+  const calls_transferred = transferred_interaction_ids.length
+  // Closer calls_today includes accepted-but-not-dispositioned (+1 stand-in).
+  const calls_today = stage === 'closer' ? dispositions.length + 1 : dispositions.length
+
+  return {
+    dispositions,
+    transferred_interaction_ids,
+    sales,
+    calls_transferred,
+    calls_today,
+  }
 }
 
-const MOCK_MY_STATS_TODAY: Record<
-  string,
-  { dispositions: MyStatsDispositionSeed[]; transferred_interaction_ids: string[] }
-> = {
+const MOCK_MY_STATS_TODAY: Record<string, MyStatsTodaySeed> = {
   '1': seedMyStatsForUser('1', 50, 0, 'fronter'),
   '4': seedMyStatsForUser('4', 5, 3, 'fronter'),
-  // Carl Closer — Active Call Today's Disposition.
+  // Carl Closer — Active Call Today's Disposition + My Stats.
   '2': seedMyStatsForUser('2', 3, 1, 'closer'),
 }
 
@@ -1199,7 +1218,13 @@ export const handlers = [
       stage = held[0] === 'closer' ? 'closer' : 'fronter'
     }
 
-    const empty = { dispositions: [], transferred_interaction_ids: [] as string[] }
+    const empty: MyStatsTodaySeed = {
+      dispositions: [],
+      transferred_interaction_ids: [],
+      sales: 0,
+      calls_transferred: 0,
+      calls_today: 0,
+    }
     const payload = MOCK_MY_STATS_TODAY[user.id] ?? empty
 
     // Never leak another user's rows — seed is already keyed by actor, filter again.
@@ -1211,8 +1236,26 @@ export const handlers = [
         ? true
         : dispositions.some((row) => row.interaction_id === id)
     )
+    const sales = dispositions.filter((row) => SALE_LABELS.has(row.label)).length
+    const calls_transferred = transferred_interaction_ids.length
+    // Prefer the seeded calls_today so closer's accepted-without-disposition is visible.
+    const calls_today =
+      stage === payload.dispositions[0]?.stage
+        ? payload.calls_today
+        : stage === 'closer'
+          ? calls_transferred
+          : dispositions.length
 
-    return res(ctx.status(200), ctx.json({ dispositions, transferred_interaction_ids }))
+    return res(
+      ctx.status(200),
+      ctx.json({
+        dispositions,
+        transferred_interaction_ids,
+        sales,
+        calls_transferred,
+        calls_today,
+      })
+    )
   }),
 
   rest.get('/interactions/:interactionId', (req, res, ctx) => {

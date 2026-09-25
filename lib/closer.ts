@@ -8,10 +8,7 @@ import {
   type DispositionResponse,
   type InteractionDispositionResponse,
 } from '@/lib/dispositions'
-import {
-  formatDispositionTime,
-  type TodaysStatsResponse,
-} from '@/lib/fronterStats'
+import { type TodaysStatsResponse } from '@/lib/fronterStats'
 import { getLatestQualification, type QualificationResponse } from '@/lib/qualification'
 import {
   acceptTransfer,
@@ -48,7 +45,7 @@ export type TodaysDispositionRow = {
   interaction_id: string
   /** Lead display name (phone stand-in until leads carry names). */
   from_name: string
-  /** Disposition time clock when known; answered-but-undispositioned rows omit it. */
+  /** Disposition time as ISO; the table formats it for display. */
   accepted_at: string | null
   disposition_label: string | null
 }
@@ -172,7 +169,7 @@ export function closerTodaysRowsFromStats(payload: TodaysStatsResponse): TodaysD
     return {
       interaction_id,
       from_name: disposition?.lead_name ?? interaction_id.slice(0, 8),
-      accepted_at: disposition ? formatDispositionTime(disposition.created_at) : null,
+      accepted_at: disposition?.created_at ?? null,
       disposition_label: disposition?.label ?? null,
     }
   })
