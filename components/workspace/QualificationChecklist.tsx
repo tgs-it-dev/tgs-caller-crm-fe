@@ -11,6 +11,8 @@ import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import {
   WARRANTY_STATUS_OPTIONS,
+  sanitizeMileage,
+  sanitizeState,
   type ActiveCallForm,
 } from '@/lib/qualification'
 import { tokens } from '@/lib/theme'
@@ -39,15 +41,19 @@ export function QualificationChecklist({
         <div className="grid grid-cols-2 gap-4">
           <Input
             label="Mileage *"
-            placeholder="e.g. 62,400"
+            placeholder="e.g. 62400"
+            // inputMode="numeric"
+            type="number"
+            autoComplete="off"
             value={form.mileage}
-            onChange={(e) => onChange({ mileage: e.target.value })}
+            onChange={(e) => onChange({ mileage: sanitizeMileage(e.target.value) })}
           />
           <Input
             label="State *"
             placeholder="TX"
+            autoComplete="address-level1"
             value={form.state}
-            onChange={(e) => onChange({ state: e.target.value })}
+            onChange={(e) => onChange({ state: sanitizeState(e.target.value) })}
           />
         </div>
 

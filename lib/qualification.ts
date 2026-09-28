@@ -150,8 +150,8 @@ export function snapshotJsonFromActiveCall(form: ActiveCallForm): Record<string,
   return {
     vehicle: form.vehicle.trim(),
     ...parsed,
-    mileage: form.mileage.trim(),
-    state: form.state.trim(),
+    mileage: sanitizeMileage(form.mileage),
+    state: sanitizeState(form.state).trim(),
     warranty_status: form.warranty_status,
     notes: form.notes,
   }
@@ -175,6 +175,16 @@ function asString(value: unknown): string {
   return ''
 }
 
+/** Digits only — commas and other punctuation are stripped. */
+export function sanitizeMileage(value: string): string {
+  return value.replace(/\D/g, '')
+}
+
+/** Letters (and spaces) only — no digits or punctuation. */
+export function sanitizeState(value: string): string {
+  return value.replace(/[^A-Za-z\s]/g, '')
+}
+
 /** Hydrate the Active Call form from a saved `snapshot_json` + consent. */
 export function activeCallFormFromQualification(
   snapshot: Record<string, unknown> | null | undefined,
@@ -190,8 +200,8 @@ export function activeCallFormFromQualification(
 
   return {
     vehicle,
-    mileage: asString(snapshot?.mileage),
-    state: asString(snapshot?.state),
+    mileage: sanitizeMileage(asString(snapshot?.mileage)),
+    state: sanitizeState(asString(snapshot?.state)),
     warranty_status: asString(snapshot?.warranty_status),
     notes: asString(snapshot?.notes),
     consent: consent?.consent_given ? 'yes' : consent ? 'no' : 'yes',
