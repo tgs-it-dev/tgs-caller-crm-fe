@@ -1,11 +1,15 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import MuiAlert from '@mui/material/Alert'
+import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import { QueueTable } from '@/components/queue/QueueTable'
 import { Alert } from '@/components/ui/Alert'
 import { Badge } from '@/components/ui/Badge'
 import { PageShell } from '@/components/ui/PageShell'
-import { readToken } from '@/lib/auth'
+import { AuthError } from '@/lib/auth'
+import { closerWorkspaceHref } from '@/lib/closer'
 import { waitForMocking } from '@/lib/mockReady'
 import {
   listQueue,
@@ -13,10 +17,14 @@ import {
   type FronterQueueEntry,
   type QueueRole,
 } from '@/lib/queue'
+import { withSession } from '@/lib/session'
+import { acceptTransfer, rejectTransfer } from '@/lib/transfers'
 
 /** Wait times tick every second; the list itself is refreshed less often. */
 const TICK_MS = 1000
-const POLL_MS = 15000
+/** Fronter queue is dialer-paced; closer offers need faster multi-browser sync. */
+const FRONTER_POLL_MS = 15000
+const CLOSER_POLL_MS = 3000
 
 type LoadState =
   | { status: 'loading' }
@@ -24,38 +32,61 @@ type LoadState =
   | { status: 'ready'; role: 'fronter'; entries: FronterQueueEntry[] }
   | { status: 'ready'; role: 'closer'; entries: CloserQueueEntry[] }
 
+type BusyAction = { transferId: string; kind: 'accept' | 'reject' }
+
 function QueueBody({ role }: { role: QueueRole }) {
+  const router = useRouter()
+  const currentUser = useCurrentUser()
   const [load, setLoad] = useState<LoadState>({ status: 'loading' })
   const [now, setNow] = useState(() => Date.now())
+  const [notice, setNotice] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [busy, setBusy] = useState<BusyAction | null>(null)
+
+  const applyEntries = useCallback(
+    (entries: FronterQueueEntry[] | CloserQueueEntry[]) => {
+      if (role === 'fronter') {
+        setLoad({ status: 'ready', role: 'fronter', entries: entries as FronterQueueEntry[] })
+      } else {
+        setLoad({ status: 'ready', role: 'closer', entries: entries as CloserQueueEntry[] })
+      }
+    },
+    [role]
+  )
+
+  const refetchQueue = useCallback(async () => {
+    if (role === 'fronter') {
+      const entries = await withSession((token) => listQueue(token, 'fronter', { bust: true }))
+      applyEntries(entries)
+      return
+    }
+    const entries = await withSession((token) => listQueue(token, 'closer', { bust: true }))
+    applyEntries(entries)
+  }, [applyEntries, role])
 
   useEffect(() => {
     let cancelled = false
-    const token = readToken()
-    if (!token) return
 
-    waitForMocking()
-      .then(async () => {
+    async function loadInitial() {
+      try {
+        await waitForMocking()
         if (role === 'fronter') {
-          return { role: 'fronter' as const, entries: await listQueue(token, 'fronter') }
-        }
-        return { role: 'closer' as const, entries: await listQueue(token, 'closer') }
-      })
-      .then((result) => {
-        if (cancelled) return
-        if (result.role === 'fronter') {
-          setLoad({ status: 'ready', role: 'fronter', entries: result.entries })
+          const entries = await withSession((token) => listQueue(token, 'fronter'))
+          if (!cancelled) applyEntries(entries)
         } else {
-          setLoad({ status: 'ready', role: 'closer', entries: result.entries })
+          const entries = await withSession((token) => listQueue(token, 'closer'))
+          if (!cancelled) applyEntries(entries)
         }
-      })
-      .catch(() => {
+      } catch {
         if (!cancelled) setLoad({ status: 'error', message: 'Unable to load the queue right now.' })
-      })
+      }
+    }
 
+    void loadInitial()
     return () => {
       cancelled = true
     }
-  }, [role])
+  }, [applyEntries, role])
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), TICK_MS)
@@ -63,32 +94,66 @@ function QueueBody({ role }: { role: QueueRole }) {
   }, [])
 
   useEffect(() => {
+    const pollMs = role === 'closer' ? CLOSER_POLL_MS : FRONTER_POLL_MS
     const id = setInterval(() => {
-      // Read on every tick, not once: the token is renewed while the page stays open.
-      const token = readToken()
-      if (!token) return
-
-      const refresh =
-        role === 'fronter'
-          ? listQueue(token, 'fronter', { bust: true })
-          : listQueue(token, 'closer', { bust: true })
-
-      refresh
-        .then((entries) => {
-          setLoad((prev) => {
-            if (prev.status !== 'ready' || prev.role !== role) return prev
-            return role === 'fronter'
-              ? { status: 'ready', role: 'fronter', entries: entries as FronterQueueEntry[] }
-              : { status: 'ready', role: 'closer', entries: entries as CloserQueueEntry[] }
-          })
-        })
-        // A failed refresh keeps the last good snapshot on screen — that's the
-        // "cached" half of the card's heading.
-        .catch(() => {})
-    }, POLL_MS)
+      void refetchQueue().catch(() => {
+        // A failed refresh keeps the last good snapshot on screen.
+      })
+    }, pollMs)
 
     return () => clearInterval(id)
-  }, [role])
+  }, [refetchQueue, role])
+
+  const handleAccept = useCallback(
+    async (entry: CloserQueueEntry) => {
+      if (currentUser.status !== 'ready') return
+      setBusy({ transferId: entry.id, kind: 'accept' })
+      setNotice(null)
+      setActionError(null)
+      try {
+        await withSession((token) =>
+          acceptTransfer(entry.id, { closer_user_id: currentUser.user.id }, token)
+        )
+        await refetchQueue()
+        router.push(closerWorkspaceHref(entry.interaction_id, entry.id))
+      } catch (err) {
+        if (err instanceof AuthError && err.code === 'transfer.not_answerable') {
+          setNotice('Already taken')
+          await refetchQueue().catch(() => {})
+        } else {
+          setActionError(err instanceof Error ? err.message : 'Unable to accept this transfer.')
+        }
+      } finally {
+        setBusy(null)
+      }
+    },
+    [currentUser, refetchQueue, router]
+  )
+
+  const handleReject = useCallback(
+    async (entry: CloserQueueEntry) => {
+      if (currentUser.status !== 'ready') return
+      setBusy({ transferId: entry.id, kind: 'reject' })
+      setNotice(null)
+      setActionError(null)
+      try {
+        await withSession((token) =>
+          rejectTransfer(entry.id, { closer_user_id: currentUser.user.id }, token)
+        )
+        await refetchQueue()
+      } catch (err) {
+        if (err instanceof AuthError && err.code === 'transfer.not_answerable') {
+          setNotice('Already taken')
+          await refetchQueue().catch(() => {})
+        } else {
+          setActionError(err instanceof Error ? err.message : 'Unable to reject this transfer.')
+        }
+      } finally {
+        setBusy(null)
+      }
+    },
+    [currentUser, refetchQueue]
+  )
 
   if (load.status === 'loading') {
     return (
@@ -104,7 +169,29 @@ function QueueBody({ role }: { role: QueueRole }) {
     return <QueueTable role="fronter" entries={load.entries} now={now} />
   }
 
-  return <QueueTable role="closer" entries={load.entries} now={now} />
+  return (
+    <div className="flex flex-col gap-4">
+      {notice && (
+        <MuiAlert severity="warning" role="status" onClose={() => setNotice(null)} sx={{ mb: 0 }}>
+          {notice}
+        </MuiAlert>
+      )}
+      {actionError && <Alert>{actionError}</Alert>}
+      <QueueTable
+        role="closer"
+        entries={load.entries}
+        now={now}
+        busyTransferId={busy?.transferId ?? null}
+        busyKind={busy?.kind ?? null}
+        onAccept={(entry) => {
+          void handleAccept(entry)
+        }}
+        onReject={(entry) => {
+          void handleReject(entry)
+        }}
+      />
+    </div>
+  )
 }
 
 /** Shared Queue desk shell — same live badge + table card for both roles. */

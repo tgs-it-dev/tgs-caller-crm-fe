@@ -26,7 +26,8 @@ export class AuthError extends Error {
 
 const ROLE_LANDING: Record<Role, string> = {
   fronter: '/fronter',
-  closer: '/closer',
+  // Closer desk opens on Queue (pick/accept a transfer); Active Call is `/closer`.
+  closer: '/closer/queue',
   administrator: '/admin',
 }
 
@@ -87,6 +88,17 @@ const ROLE_NAME: Record<Role, string> = {
 
 export function primaryRole(roles: Role[]): Role | null {
   return ROLE_PRIORITY.find((role) => roles.includes(role)) ?? null
+}
+
+/**
+ * Every desk this user holds, most senior first.
+ *
+ * `primaryRole` answers where they land; this answers where else they may go.
+ * Both read the same order, so the desk they start on is always the first one
+ * the switcher would have offered.
+ */
+export function heldDesks(roles: Role[]): Role[] {
+  return ROLE_PRIORITY.filter((role) => roles.includes(role))
 }
 
 export function landingRouteForRoles(roles: Role[]): string {

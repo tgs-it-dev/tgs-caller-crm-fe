@@ -30,6 +30,8 @@ export type ServerPaging = {
 }
 
 type DataTableProps<T> = {
+  /** On the card, for a control elsewhere that points at this list. */
+  id?: string
   title: string
   ariaLabel: string
   rows: T[]
@@ -61,6 +63,7 @@ type DataTableProps<T> = {
  * Feature modules only supply columns + row data — not a second table shell.
  */
 export function DataTable<T>({
+  id,
   title,
   ariaLabel,
   rows,
@@ -101,7 +104,7 @@ export function DataTable<T>({
   const titleRule = variant === 'live' ? 'border-slate' : 'border-light-grey'
 
   return (
-    <div className={shell}>
+    <div id={id} className={shell}>
       <div
         className={`mb-5 flex items-center justify-between gap-4 border-b-hairline ${titleRule} pb-4`}
       >

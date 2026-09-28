@@ -27,11 +27,13 @@ import {
   activeCallFormFromQualification,
   canTransferActiveCall,
   consentFromActiveCall,
+  isActiveCallChecklistComplete,
   missingActiveCallTransferFields,
   snapshotJsonFromActiveCall,
   submitQualification,
   type ActiveCallForm,
 } from '@/lib/qualification'
+import { AuthError } from '@/lib/auth'
 import { withSession } from '@/lib/session'
 import { createTransfer, type AvailableCloserItem } from '@/lib/transfers'
 
@@ -172,7 +174,11 @@ function ActiveCallBody({ interactionId }: { interactionId: string }) {
   
       setTransferStatus(transfer.status)
     } catch (err) {
-      setTransferError(err instanceof Error ? err.message : 'Unable to transfer. Please try again.')
+      if (err instanceof AuthError && err.code === 'transfer.no_closer_available') {
+        setTransferError('No closers available right now. Try again when someone is free.')
+      } else {
+        setTransferError(err instanceof Error ? err.message : 'Unable to transfer. Please try again.')
+      }
     } finally {
       setIsTransferring(false)
     }
@@ -197,7 +203,7 @@ function ActiveCallBody({ interactionId }: { interactionId: string }) {
   }
 
   const eligible = canTransferActiveCall(form, { dispositionId, overrideReason })
-  const needsOverride = missingActiveCallTransferFields(form).length > 0
+  const needsOverride = !isActiveCallChecklistComplete(form) && !form.dnc_flagged
 
   return (
     <PageShell

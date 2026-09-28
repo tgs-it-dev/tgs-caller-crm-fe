@@ -1,3 +1,5 @@
+import moment from 'moment'
+
 export function formatPhone(phone: string) {
   const digits = phone.replace(/\D/g, '').slice(-10)
   if (digits.length !== 10) return phone
@@ -35,6 +37,20 @@ export function formatInstant(iso: string) {
     hour: 'numeric',
     minute: '2-digit',
     timeZoneName: 'short',
+  })
+}
+
+/**
+ * An instant drawn in a named zone, the zone left to a caption.
+ *
+ * `formatDateTime` reads it in the browser's, where a row can fall on a
+ * different date from the day the answer counted it in.
+ */
+export function formatDateTimeIn(iso: string, timeZone: string) {
+  return new Date(iso).toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone,
   })
 }
 
@@ -100,8 +116,11 @@ export function formatZone(day: string, timeZone: string) {
 }
 
 function elapsedParts(sinceIso: string, nowMs: number) {
-  const seconds = Math.max(0, Math.floor((nowMs - new Date(sinceIso).getTime()) / 1000))
-  return { minutes: Math.floor(seconds / 60), seconds: seconds % 60 }
+  const duration = moment.duration(Math.max(0, nowMs - moment(sinceIso).valueOf()))
+  return {
+    minutes: Math.floor(duration.asMinutes()),
+    seconds: duration.seconds(),
+  }
 }
 
 export function formatElapsed(startedAtIso: string, nowMs: number = Date.now()) {
@@ -119,4 +138,15 @@ export function formatWaitTime(sinceIso: string, nowMs: number = Date.now()) {
 export function formatWaitTimeLabel(sinceIso: string, nowMs: number = Date.now()) {
   const { minutes, seconds } = elapsedParts(sinceIso, nowMs)
   return `${minutes} minute${minutes === 1 ? '' : 's'} ${seconds} second${seconds === 1 ? '' : 's'}`
+}
+
+/** Fronter Queue Wait Time — "3 min 12 sec" via moment. */
+export function formatWaitTimeMinutesSeconds(sinceIso: string, nowMs: number = Date.now()) {
+  const { minutes, seconds } = elapsedParts(sinceIso, nowMs)
+  return `${minutes} min ${seconds.toString().padStart(2, '0')} sec`
+}
+
+/** Clock time in 12-hour form — "09:56:50 PM". */
+export function formatClockTime(iso: string) {
+  return moment(iso).format('hh:mm:ss A')
 }

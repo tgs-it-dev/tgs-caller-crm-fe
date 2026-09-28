@@ -9,7 +9,11 @@ import type { LeadResponse } from '../lib/leads'
 import { PUSH_INTERVAL_MS, type AgentStatus, type LiveStatus } from '../lib/liveStatus'
 import type { CloserQueueEntry, FronterQueueEntry } from '../lib/queue'
 import type { QualificationCreateRequest, QualificationResponse } from '../lib/qualification'
-import type { HistoricalFunnel } from '../lib/reporting'
+import type {
+  FunnelInteractionList,
+  FunnelStage,
+  HistoricalFunnel,
+} from '../lib/reporting'
 import type { TransferCreateRequest, TransferResponse } from '../lib/transfers'
 
 type MockUser = {
@@ -35,6 +39,11 @@ const MOCK_USERS: MockUser[] = [
   { id: '3', email: 'admin@tgs.com', password: 'password1', name: 'Ana Admin', roles: ['administrator'], active: true, created_at: SEEDED_AT },
   // Deactivated, so the list has something to show in that state from the start.
   { id: '5', email: 'former@tgs.com', password: 'password1', name: 'Nadia Former', roles: ['closer'], active: false, created_at: SEEDED_AT },
+  // Multi-role, so the sidebar's desk switcher is reachable locally: every other
+  // account here holds exactly one role, which is the case that hides it.
+  { id: '6', email: 'everything@tgs.com', password: 'password1', name: 'Mo Everything', roles: ['administrator', 'closer', 'fronter'], active: true, created_at: SEEDED_AT },
+  // Two desks and no admin — the switcher without an Administrator entry.
+  { id: '7', email: 'both@tgs.com', password: 'password1', name: 'Bea Both', roles: ['fronter', 'closer'], active: true, created_at: SEEDED_AT },
 ]
 
 const KNOWN_ROLES: Role[] = ['fronter', 'closer', 'administrator']
@@ -280,6 +289,44 @@ function mockFunnel(start: string, end: string): HistoricalFunnel {
     connects,
     qualified,
     transfer_attempts: Math.round(qualified * 0.48),
+  }
+}
+
+/**
+ * One page of the interactions behind a funnel number.
+ *
+ * `total` comes off `mockFunnel` so the footer count equals the bar above it;
+ * a fixture that drifted from its own aggregate would make a real disagreement
+ * look normal. Rows follow the offset, so paging never repeats a row.
+ */
+function mockFunnelStage(
+  stage: FunnelStage,
+  start: string,
+  end: string,
+  limit: number,
+  offset: number
+): FunnelInteractionList {
+  const total = mockFunnel(start, end)[stage]
+  // Mid-afternoon on the window's last day, walked backwards, so rows read
+  // newest first and stay inside the range in any plausible business zone.
+  const latest = Date.parse(`${end}T17:00:00.000Z`)
+  const span = Math.max(1, Date.parse(end) - Date.parse(start) + 86_400_000)
+
+  return {
+    items: Array.from({ length: Math.max(0, Math.min(limit, total - offset)) }, (_, index) => {
+      const nth = offset + index
+      return {
+        id: `int-${stage}-${nth}`,
+        lead_id: `lead-${stage}-${nth}`,
+        lead_phone: `+1555${String(2_000_000 + nth).slice(-7)}`,
+        lead_source: nth % 5 === 0 ? ('ghl' as const) : ('vicidial' as const),
+        created_at: new Date(latest - ((nth * 7 * 60_000) % span)).toISOString(),
+      }
+    }),
+    total,
+    timezone: 'America/New_York',
+    limit,
+    offset,
   }
 }
 
@@ -541,10 +588,10 @@ type MockInteractionDisposition = {
 }
 
 const MOCK_DISPOSITION_CATALOG: MockDisposition[] = [
-  { id: 'disp-closer-sale', label: 'Sale completed', stage: 'closer' },
-  { id: 'disp-closer-callback', label: 'Callback requested', stage: 'closer' },
-  { id: 'disp-closer-not-interested', label: 'Not interested', stage: 'closer' },
-  { id: 'disp-closer-dnc', label: 'Do not call', stage: 'closer' },
+  { id: 'disp-closer-sale', label: 'Sale', stage: 'closer' },
+  { id: 'disp-closer-callback', label: 'Callback Scheduled', stage: 'closer' },
+  { id: 'disp-closer-not-interested', label: 'Not Qualified', stage: 'closer' },
+  { id: 'disp-closer-dnc', label: 'Do Not Call', stage: 'closer' },
   { id: 'disp-fronter-qualified', label: 'Qualified - Transferred', stage: 'fronter' },
   { id: 'disp-fronter-not-interested', label: 'Not interested', stage: 'fronter' },
   { id: 'disp-fronter-callback', label: 'Callback requested', stage: 'fronter' },
@@ -576,11 +623,14 @@ const MY_STATS_LABELS = [
 ] as const
 
 const CLOSER_STATS_LABELS = [
-  'Sale completed',
-  'Callback requested',
-  'Not interested',
-  'Do not call',
+  'Sale',
+  'Callback Scheduled',
+  'Not Qualified',
+  'Do Not Call',
 ] as const
+
+/** Labels that match BE catalogue `counts_as_sale` for mock summary cards. */
+const SALE_LABELS = new Set<string>(['Sale'])
 
 const MY_STATS_LEADS = [
   'Mubeen N.',
@@ -595,12 +645,20 @@ const MY_STATS_LEADS = [
   'Priya S.',
 ] as const
 
+type MyStatsTodaySeed = {
+  dispositions: MyStatsDispositionSeed[]
+  transferred_interaction_ids: string[]
+  sales: number
+  calls_transferred: number
+  calls_today: number
+}
+
 function seedMyStatsForUser(
   actorUserId: string,
   rowCount: number,
   leadOffset: number,
   stage: 'fronter' | 'closer' = 'fronter'
-): { dispositions: MyStatsDispositionSeed[]; transferred_interaction_ids: string[] } {
+): MyStatsTodaySeed {
   const base = new Date()
   base.setHours(9, 0, 0, 0)
   const labels = stage === 'closer' ? CLOSER_STATS_LABELS : MY_STATS_LABELS
@@ -628,16 +686,24 @@ function seedMyStatsForUser(
           .filter((_, i) => i % 2 === 0)
           .map((row) => row.interaction_id)
 
-  return { dispositions, transferred_interaction_ids }
+  const sales = dispositions.filter((row) => SALE_LABELS.has(row.label)).length
+  const calls_transferred = transferred_interaction_ids.length
+  // Closer calls_today includes accepted-but-not-dispositioned (+1 stand-in).
+  const calls_today = stage === 'closer' ? dispositions.length + 1 : dispositions.length
+
+  return {
+    dispositions,
+    transferred_interaction_ids,
+    sales,
+    calls_transferred,
+    calls_today,
+  }
 }
 
-const MOCK_MY_STATS_TODAY: Record<
-  string,
-  { dispositions: MyStatsDispositionSeed[]; transferred_interaction_ids: string[] }
-> = {
+const MOCK_MY_STATS_TODAY: Record<string, MyStatsTodaySeed> = {
   '1': seedMyStatsForUser('1', 50, 0, 'fronter'),
   '4': seedMyStatsForUser('4', 5, 3, 'fronter'),
-  // Carl Closer — Active Call Today's Disposition.
+  // Carl Closer — Active Call Today's Disposition + My Stats.
   '2': seedMyStatsForUser('2', 3, 1, 'closer'),
 }
 
@@ -1122,6 +1188,23 @@ export const handlers = [
     return res(ctx.status(200), ctx.json(mockFunnel(start, end)))
   }),
 
+  rest.get('/reporting/funnel/:stage', (req, res, ctx) => {
+    const refused = adminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const start = req.url.searchParams.get('start')
+    const end = req.url.searchParams.get('end')
+    if (!start || !end) {
+      return res(ctx.status(422), ctx.json(authErrorBody('Field required', 'validation_error')))
+    }
+
+    const stage = req.params.stage as FunnelStage
+    const limit = Number(req.url.searchParams.get('limit') ?? 50)
+    const offset = Number(req.url.searchParams.get('offset') ?? 0)
+
+    return res(ctx.status(200), ctx.json(mockFunnelStage(stage, start, end, limit, offset)))
+  }),
+
   rest.get('/interactions', (_req, res, ctx) => {
     return res(ctx.status(200), ctx.json(Object.values(MOCK_INTERACTIONS)))
   }),
@@ -1194,7 +1277,13 @@ export const handlers = [
       stage = held[0] === 'closer' ? 'closer' : 'fronter'
     }
 
-    const empty = { dispositions: [], transferred_interaction_ids: [] as string[] }
+    const empty: MyStatsTodaySeed = {
+      dispositions: [],
+      transferred_interaction_ids: [],
+      sales: 0,
+      calls_transferred: 0,
+      calls_today: 0,
+    }
     const payload = MOCK_MY_STATS_TODAY[user.id] ?? empty
 
     // Never leak another user's rows — seed is already keyed by actor, filter again.
@@ -1206,8 +1295,26 @@ export const handlers = [
         ? true
         : dispositions.some((row) => row.interaction_id === id)
     )
+    const sales = dispositions.filter((row) => SALE_LABELS.has(row.label)).length
+    const calls_transferred = transferred_interaction_ids.length
+    // Prefer the seeded calls_today so closer's accepted-without-disposition is visible.
+    const calls_today =
+      stage === payload.dispositions[0]?.stage
+        ? payload.calls_today
+        : stage === 'closer'
+          ? calls_transferred
+          : dispositions.length
 
-    return res(ctx.status(200), ctx.json({ dispositions, transferred_interaction_ids }))
+    return res(
+      ctx.status(200),
+      ctx.json({
+        dispositions,
+        transferred_interaction_ids,
+        sales,
+        calls_transferred,
+        calls_today,
+      })
+    )
   }),
 
   rest.get('/interactions/:interactionId', (req, res, ctx) => {
@@ -1286,7 +1393,7 @@ export const handlers = [
     return res(ctx.status(201), ctx.json(transfer))
   }),
 
-  // Closer workspace accepts pending offers on open (queue → Active Call).
+  // Closer queue Accept (or workspace open fallback) claims a pending offer.
   rest.post('/transfers/:transferId/accept', async (req, res, ctx) => {
     const transferId = req.params.transferId as string
     const body = (await req.json()) as { closer_user_id: string }
