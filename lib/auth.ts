@@ -26,7 +26,8 @@ export class AuthError extends Error {
 
 const ROLE_LANDING: Record<Role, string> = {
   fronter: '/fronter',
-  closer: '/closer',
+  // Closer desk opens on Queue (pick/accept a transfer); Active Call is `/closer`.
+  closer: '/closer/queue',
   administrator: '/admin',
 }
 

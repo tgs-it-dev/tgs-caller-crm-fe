@@ -25,6 +25,7 @@ import {
   formatRolesLabel,
   heldDesks,
   initialsFromName,
+  landingRouteForRoles,
   primaryRole,
   type Role,
 } from '@/lib/auth'
@@ -398,7 +399,7 @@ function SidebarInner() {
               <MenuItem
                 key={desk}
                 component={Link}
-                href={BASE_PATH[desk]}
+                href={landingRouteForRoles([desk])}
                 selected={current}
                 onClick={() => setDeskMenuAnchor(null)}
                 sx={{ gap: 1.25, fontSize: '0.875rem', py: 1 }}
