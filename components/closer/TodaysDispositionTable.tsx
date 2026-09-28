@@ -3,6 +3,7 @@
 import { Alert } from '@/components/ui/Alert'
 import { DataTable, type DataColumn } from '@/components/ui/DataTable'
 import type { TodaysDispositionRow } from '@/lib/closer'
+import { formatClockTime } from '@/lib/format'
 
 const columns: DataColumn<TodaysDispositionRow>[] = [
   {
@@ -27,7 +28,7 @@ const columns: DataColumn<TodaysDispositionRow>[] = [
   {
     id: 'accepted',
     header: 'Accepted',
-    render: (row) => row.accepted_at ?? '—',
+    render: (row) => (row.accepted_at ? formatClockTime(row.accepted_at) : '—'),
   },
 ]
 

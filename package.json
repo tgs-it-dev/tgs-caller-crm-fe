@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "npx --yes serve@14 out",
-    "lint": "next lint",
+    "lint": "eslint .",
     "dev:tailwind": "npx tailwindcss@3.4.7 -i styles/globals.css -o public/generated.css --watch",
     "gen:api-client": "openapi-typescript ../tgs-caller-crm-be/openapi/openapi.json -o ./lib/generated/schema.d.ts"
   },
@@ -18,6 +18,7 @@
     "@mui/material": "^9.4.0",
     "@mui/material-nextjs": "^9.4.0",
     "lucide-react": "^0.468.0",
+    "moment": "^2.31.0",
     "msw": "1.3.5",
     "next": "16.3.4",
     "react": "18.2.0",

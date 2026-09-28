@@ -638,6 +638,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/queue/fronter/{interaction_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update or leave a fronter dialer-queue entry
+         * @description UI/demo control before VICIdial drives status and leave.
+         *
+         *     ``left: true`` sets ``left_at`` so the row drops off GET /queue?role=fronter.
+         *     Empty body is rejected by the request schema (422).
+         */
+        patch: operations["patch_fronter_queue_entry_queue_fronter__interaction_id__patch"];
+        trace?: never;
+    };
     "/realtime/ticket": {
         parameters: {
             query?: never;
@@ -1118,7 +1141,15 @@ export interface components {
              */
             email: string;
         };
-        /** FronterQueueItem */
+        /**
+         * FronterQueueItem
+         * @description Wire shape for an open fronter-queue row.
+         *
+         *     Also the PATCH /queue/fronter/{interaction_id} response: the post-update
+         *     snapshot (name, phone, status, queued_at). Leaving the queue does not add
+         *     a left_at field here — the client sent ``left: true``, and a later GET
+         *     omits the row because ``left_at IS NULL`` filters it out.
+         */
         FronterQueueItem: {
             /** Campaign Name */
             campaign_name: string;
@@ -1761,10 +1792,23 @@ export interface components {
          *     ``transferred_interaction_ids`` is only interactions they answered *and*
          *     dispositioned today — accepted-without-disposition is not listed (those
          *     UUIDs alone are useless for a My Stats disposition table).
+         *
+         *     Summary counts for My Stats cards:
+         *     - ``sales`` — today's stage dispositions (latest per interaction) flagged
+         *       ``counts_as_sale`` on the catalogue row.
+         *     - ``calls_transferred`` — length of ``transferred_interaction_ids``.
+         *     - ``calls_today`` — fronter: dispositioned interactions today; closer:
+         *       transfers they accepted today (including not yet dispositioned).
          */
         TodaysStatsResponse: {
+            /** Calls Today */
+            calls_today: number;
+            /** Calls Transferred */
+            calls_transferred: number;
             /** Dispositions */
             dispositions: components["schemas"]["TodaysDispositionRow"][];
+            /** Sales */
+            sales: number;
             /** Transferred Interaction Ids */
             transferred_interaction_ids: string[];
         };
@@ -1843,6 +1887,26 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * UpdateFronterQueueEntryRequest
+         * @description Partial update for a fronter dialer-queue row (UI/demo before VICIdial).
+         *
+         *     At least one of ``status`` or ``left`` must be set. ``left`` is only
+         *     ``true`` (or omitted): ``false`` is rejected so "stay queued" is never
+         *     spelled as a no-op boolean.
+         */
+        UpdateFronterQueueEntryRequest: {
+            /**
+             * Left
+             * @description true leaves the queue (sets left_at); omit to stay open
+             */
+            left?: true | null;
+            /**
+             * Status
+             * @description ringing | waiting
+             */
+            status?: ("ringing" | "waiting") | null;
         };
         /** UpdateUserRequest */
         UpdateUserRequest: {
@@ -3203,6 +3267,50 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FronterQueueItem"][] | components["schemas"]["CloserQueueItem"][];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    patch_fronter_queue_entry_queue_fronter__interaction_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateFronterQueueEntryRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FronterQueueItem"];
                 };
             };
             /** @description Client Error */

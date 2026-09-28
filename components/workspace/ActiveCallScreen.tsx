@@ -27,6 +27,7 @@ import {
   activeCallFormFromQualification,
   canTransferActiveCall,
   consentFromActiveCall,
+  isActiveCallChecklistComplete,
   missingActiveCallTransferFields,
   snapshotJsonFromActiveCall,
   submitQualification,
@@ -197,7 +198,7 @@ function ActiveCallBody({ interactionId }: { interactionId: string }) {
   }
 
   const eligible = canTransferActiveCall(form, { dispositionId, overrideReason })
-  const needsOverride = missingActiveCallTransferFields(form).length > 0
+  const needsOverride = !isActiveCallChecklistComplete(form) && !form.dnc_flagged
 
   return (
     <PageShell

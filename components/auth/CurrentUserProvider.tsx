@@ -94,11 +94,8 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false
 
-    if (!readToken()) {
-      setState({ status: 'error', user: null })
-      return
-    }
-
+    // resolveCurrentUser() itself resolves to the 'error' state when there's
+    // no token, so a duplicate synchronous check isn't needed here.
     void resolveCurrentUser().then((next) => {
       if (!cancelled) setState(next)
     })

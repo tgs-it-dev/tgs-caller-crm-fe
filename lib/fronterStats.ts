@@ -1,6 +1,7 @@
 import { apiUrl } from '@/lib/apiUrl'
 import { readApiError } from '@/lib/apiError'
 import { AuthError, type Role } from '@/lib/auth'
+import { formatClockTime } from '@/lib/format'
 import type { components } from '@/lib/generated/schema'
 
 export type TodaysDispositionRow = components['schemas']['TodaysDispositionRow']
@@ -14,29 +15,27 @@ export type TodaysStatsSummary = {
 }
 
 /**
- * Catalogue label that counts as Qualified on My Stats.
+ * Catalogue label that counts as Qualified on fronter My Stats.
+ * BE `sales` is counts_as_sale (closer "Sale" only) — not the fronter
+ * Qualified tile — so this stays a label count until the contract adds one.
  * Matches the fronter seed in `tgs-caller-crm-be/scripts/seed.py`.
  */
 export const QUALIFIED_LABEL = 'Qualified - Transferred'
 
 /**
- * KPIs from this user's today payload: disposition rows for Calls/Qualified,
- * and the transfer id list for Transferred (attempts initiated today).
+ * KPIs from this fronter's today payload. Calls/Transferred come from the
+ * server summary fields; Qualified is still derived from disposition labels.
  */
 export function summarizeTodaysStats(payload: TodaysStatsResponse): TodaysStatsSummary {
   return {
-    callsToday: payload.dispositions.length,
+    callsToday: payload.calls_today,
     qualified: payload.dispositions.filter((row) => row.label === QUALIFIED_LABEL).length,
-    transferred: payload.transferred_interaction_ids.length,
+    transferred: payload.calls_transferred,
   }
 }
 
 export function formatDispositionTime(iso: string) {
-  const d = new Date(iso)
-  const hh = String(d.getHours()).padStart(2, '0')
-  const mm = String(d.getMinutes()).padStart(2, '0')
-  const ss = String(d.getSeconds()).padStart(2, '0')
-  return `${hh}:${mm}:${ss}`
+  return formatClockTime(iso)
 }
 
 export type StatsStage = TodaysDispositionRow['stage']

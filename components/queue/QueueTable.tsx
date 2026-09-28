@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { Badge } from '@/components/ui/Badge'
 import { DataTable, type DataColumn } from '@/components/ui/DataTable'
-import { formatPhone, formatWaitTime, formatWaitTimeLabel } from '@/lib/format'
+import { formatPhone, formatWaitTime, formatWaitTimeLabel, formatWaitTimeMinutesSeconds } from '@/lib/format'
 import { closerWorkspaceHref } from '@/lib/closer'
 import type {
   CloserQueueEntry,
@@ -53,7 +53,7 @@ function fronterColumns(now: number): DataColumn<FronterQueueEntry>[] {
       header: 'Wait Time',
       render: (entry) => (
         <span aria-label={formatWaitTimeLabel(entry.queued_at, now)}>
-          {formatWaitTime(entry.queued_at, now)}
+          {formatWaitTimeMinutesSeconds(entry.queued_at, now)}
         </span>
       ),
     },
