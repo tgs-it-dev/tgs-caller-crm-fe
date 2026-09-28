@@ -65,33 +65,21 @@ function SalesIcon() {
   )
 }
 
-/** Lucide `ArrowLeftRight` — My Stats "Transferred". */
-function TransferredIcon() {
+/** Lucide `CircleCheck` — My Stats "Completed" (answered + dispositioned). */
+function CompletedIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M8 3 4 7l4 4"
+      <circle
+        cx="12"
+        cy="12"
+        r="10"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
       <path
-        d="M4 7h16"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="m16 21 4-4-4-4"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M20 17H4"
+        d="m9 12 2 2 4-4"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
@@ -178,9 +166,9 @@ function MyStats() {
             />
             <StatTile label="Sales" value={load.summary.sales} icon={<SalesIcon />} />
             <StatTile
-              label="Transferred"
-              value={load.summary.transferred}
-              icon={<TransferredIcon />}
+              label="Completed"
+              value={load.summary.completed}
+              icon={<CompletedIcon />}
             />
           </div>
 
