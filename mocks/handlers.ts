@@ -1393,7 +1393,7 @@ export const handlers = [
     return res(ctx.status(201), ctx.json(transfer))
   }),
 
-  // Closer workspace accepts pending offers on open (queue → Active Call).
+  // Closer queue Accept (or workspace open fallback) claims a pending offer.
   rest.post('/transfers/:transferId/accept', async (req, res, ctx) => {
     const transferId = req.params.transferId as string
     const body = (await req.json()) as { closer_user_id: string }

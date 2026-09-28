@@ -39,7 +39,7 @@ export type CloserQueueEntry = {
  * Coalesces concurrent `/queue?role=` calls (e.g. React Strict Mode remounts)
  * while the request is still in flight. Cleared on settle so a later remount
  * (navigate away and back) always fetches fresh data. Pass `bust: true` for
- * the 15s poll so it never joins a still-in-flight call.
+ * the poll so it never joins a still-in-flight call.
  */
 const inflightByRole = new Map<QueueRole, Promise<FronterQueueEntry[] | CloserQueueEntry[]>>()
 
