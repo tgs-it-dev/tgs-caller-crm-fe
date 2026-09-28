@@ -34,10 +34,21 @@ type FieldKey = 'email' | 'password'
  */
 type FieldProblems = Partial<Record<FieldKey, string>>
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/** Empty or malformed — same check on blur and on submit. */
+function emailProblem(email: string): string | undefined {
+  const trimmed = email.trim()
+  if (!trimmed) return 'Enter your email address.'
+  if (!EMAIL_PATTERN.test(trimmed)) return 'Enter a valid email address.'
+  return undefined
+}
+
 /** Checked before sending, so the common mistakes never wait on the network. */
 function formProblems(email: string, password: string): FieldProblems {
   const found: FieldProblems = {}
-  if (!email.trim()) found.email = 'Enter your email address.'
+  const emailIssue = emailProblem(email)
+  if (emailIssue) found.email = emailIssue
   if (password.length < MIN_PASSWORD_LENGTH) {
     found.password = `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`
   }
@@ -185,14 +196,36 @@ export default function LoginPage() {
               required
               value={email}
               onChange={(e) => {
-                setEmail(e.target.value)
-                if (problems.email != null) {
-                  setProblems((prev) => {
-                    const next = { ...prev }
-                    delete next.email
-                    return next
-                  })
-                }
+                const next = e.target.value
+                setEmail(next)
+                if (problems.email == null) return
+                setProblems((prev) => {
+                  // Credentials mark (border only) drops as soon as they edit.
+                  if (prev.email === '') {
+                    const cleared = { ...prev }
+                    delete cleared.email
+                    return cleared
+                  }
+                  // Validation error: keep it honest while they type.
+                  const issue = emailProblem(next)
+                  if (!issue) {
+                    const cleared = { ...prev }
+                    delete cleared.email
+                    return cleared
+                  }
+                  return { ...prev, email: issue }
+                })
+              }}
+              onBlur={() => {
+                const issue = emailProblem(email)
+                setProblems((prev) => {
+                  if (issue) return { ...prev, email: issue }
+                  // Valid: clear a validation message, leave the credentials border alone.
+                  if (prev.email === '' || prev.email == null) return prev
+                  const next = { ...prev }
+                  delete next.email
+                  return next
+                })
               }}
               placeholder="Enter your email"
               error={problems.email != null}
