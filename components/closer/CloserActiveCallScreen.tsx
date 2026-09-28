@@ -24,6 +24,7 @@ import {
   type TransferResponse,
 } from '@/lib/closer'
 import { fetchTodaysStats, statsStageForUser } from '@/lib/closerStats'
+import { formatElapsed } from '@/lib/format'
 import { waitForMocking } from '@/lib/mockReady'
 import { withSession } from '@/lib/session'
 
@@ -37,12 +38,50 @@ const STATUS_LABEL: Partial<Record<TransferStatusLabel, string>> = {
   timeout: 'Transfer Timed Out',
 }
 
+/** Same layout as fronter Active Call: status badge unchanged, timer beside it. */
+function TransferStatusBadge({
+  label,
+  tone,
+  startedAt,
+}: {
+  label: string
+  tone: 'accepted' | 'neutral'
+  startedAt: string | null
+}) {
+  const [elapsed, setElapsed] = useState(() =>
+    startedAt ? formatElapsed(startedAt) : null
+  )
+
+  useEffect(() => {
+    if (!startedAt) {
+      setElapsed(null)
+      return
+    }
+    setElapsed(formatElapsed(startedAt))
+    const id = setInterval(() => setElapsed(formatElapsed(startedAt)), 1000)
+    return () => clearInterval(id)
+  }, [startedAt])
+
+  return (
+    <div className="flex items-center gap-3">
+      <Badge tone={tone} dot>
+        {label}
+      </Badge>
+      {elapsed !== null && (
+        <span className="text-sm text-ink">on call — {elapsed}</span>
+      )}
+    </div>
+  )
+}
+
 type WorkspaceState = {
   snapshot: CloserQualificationSnapshot | null
   options: DispositionResponse[]
   dispositionId: string
   savedLabel: string | null
   transferStatus: TransferStatusLabel | null
+  /** Accept time (`updated_at` once accepted) — drives the header call timer. */
+  callStartedAt: string | null
   isLoading: boolean
   loadError: string | null
   saveError: string | null
@@ -54,6 +93,7 @@ type WorkspaceAction =
       snapshot: CloserQualificationSnapshot | null
       options: DispositionResponse[]
       transferStatus: TransferStatusLabel | null
+      callStartedAt: string | null
       savedLabel: string | null
       dispositionId: string
       loadError: string | null
@@ -70,6 +110,7 @@ const initialWorkspace: WorkspaceState = {
   dispositionId: '',
   savedLabel: null,
   transferStatus: null,
+  callStartedAt: null,
   isLoading: true,
   loadError: null,
   saveError: null,
@@ -82,6 +123,7 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
         snapshot: action.snapshot,
         options: action.options,
         transferStatus: action.transferStatus,
+        callStartedAt: action.callStartedAt,
         savedLabel: action.savedLabel,
         dispositionId: action.dispositionId,
         loadError: action.loadError,
@@ -243,6 +285,7 @@ function CloserActiveCallWorkspace({
     dispositionId,
     savedLabel,
     transferStatus,
+    callStartedAt,
     isLoading,
     loadError,
     saveError,
@@ -280,6 +323,8 @@ function CloserActiveCallWorkspace({
           snapshot: snapshotFromQualification(qualification),
           options: catalog,
           transferStatus: transfer.status,
+          callStartedAt:
+            transfer.status === 'accepted' ? transfer.updated_at : null,
           savedLabel: nextLabel,
           dispositionId: latest?.disposition_id ?? '',
           loadError: softLoadHint(qualification, transfer),
@@ -343,12 +388,11 @@ function CloserActiveCallWorkspace({
     <PageShell
       title="Active Call"
       actions={
-        <Badge
+        <TransferStatusBadge
+          label={statusText}
           tone={!isLoading && transferStatus !== 'accepted' ? 'neutral' : 'accepted'}
-          dot
-        >
-          {statusText}
-        </Badge>
+          startedAt={transferStatus === 'accepted' ? callStartedAt : null}
+        />
       }
     >
       {loadError && (
