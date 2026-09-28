@@ -59,6 +59,21 @@ export async function acceptTransfer(
   return res.json() as Promise<TransferResponse>
 }
 
+/** Closer declines a pending offer so the fronter can retry. */
+export async function rejectTransfer(
+  transferId: string,
+  payload: TransferDecisionRequest,
+  token: string
+): Promise<TransferResponse> {
+  const res = await fetch(apiUrl(`/transfers/${transferId}/reject`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw await authError(res)
+  return res.json() as Promise<TransferResponse>
+}
+
 /** Read-only list for the Active Call Transfer panel — transfer stays auto-assign. */
 export async function listAvailableClosers(token: string): Promise<AvailableCloserItem[]> {
   const res = await fetch(apiUrl('/transfers/closers'), {

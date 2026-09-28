@@ -1,10 +1,12 @@
 'use client'
 
 import Link from 'next/link'
+import MuiButton from '@mui/material/Button'
 import { Badge } from '@/components/ui/Badge'
 import { DataTable, type DataColumn } from '@/components/ui/DataTable'
 import { formatPhone, formatWaitTime, formatWaitTimeLabel, formatWaitTimeMinutesSeconds } from '@/lib/format'
 import { closerWorkspaceHref } from '@/lib/closer'
+import { isPendingTransfer } from '@/lib/transfers'
 import type {
   CloserQueueEntry,
   CloserQueueStatus,
@@ -69,19 +71,30 @@ function fronterColumns(now: number): DataColumn<FronterQueueEntry>[] {
   ]
 }
 
-function closerColumns(now: number): DataColumn<CloserQueueEntry>[] {
+function closerColumns(
+  now: number,
+  opts: {
+    busyTransferId: string | null
+    busyKind: 'accept' | 'reject' | null
+    onAccept: (entry: CloserQueueEntry) => void
+    onReject: (entry: CloserQueueEntry) => void
+  }
+): DataColumn<CloserQueueEntry>[] {
   return [
     {
       id: 'lead',
       header: 'Lead',
-      render: (entry) => (
-        <Link
-          href={closerWorkspaceHref(entry.interaction_id, entry.id)}
-          className="font-medium hover:text-navy hover:underline"
-        >
-          {formatPhone(entry.lead_phone)}
-        </Link>
-      ),
+      render: (entry) =>
+        entry.status === 'accepted' ? (
+          <Link
+            href={closerWorkspaceHref(entry.interaction_id, entry.id)}
+            className="font-medium hover:text-navy hover:underline"
+          >
+            {formatPhone(entry.lead_phone)}
+          </Link>
+        ) : (
+          <span className="font-medium">{formatPhone(entry.lead_phone)}</span>
+        ),
     },
     {
       id: 'transfer',
@@ -111,12 +124,62 @@ function closerColumns(now: number): DataColumn<CloserQueueEntry>[] {
         </Badge>
       ),
     },
+    {
+      id: 'actions',
+      header: 'Actions',
+      render: (entry) => {
+        if (entry.status === 'accepted') {
+          return (
+            <MuiButton
+              component={Link}
+              href={closerWorkspaceHref(entry.interaction_id, entry.id)}
+              size="small"
+              variant="outlined"
+            >
+              Open call
+            </MuiButton>
+          )
+        }
+
+        if (!isPendingTransfer(entry.status)) return null
+
+        const rowBusy = opts.busyTransferId === entry.id
+        return (
+          <div className="flex flex-wrap items-center gap-2">
+            <MuiButton
+              size="small"
+              variant="contained"
+              disabled={opts.busyTransferId !== null}
+              onClick={() => opts.onAccept(entry)}
+            >
+              {rowBusy && opts.busyKind === 'accept' ? 'Accepting…' : 'Accept'}
+            </MuiButton>
+            <MuiButton
+              size="small"
+              variant="outlined"
+              disabled={opts.busyTransferId !== null}
+              onClick={() => opts.onReject(entry)}
+            >
+              {rowBusy && opts.busyKind === 'reject' ? 'Rejecting…' : 'Reject'}
+            </MuiButton>
+          </div>
+        )
+      },
+    },
   ]
 }
 
 type QueueTableProps =
   | { role: 'fronter'; entries: FronterQueueEntry[]; now: number }
-  | { role: 'closer'; entries: CloserQueueEntry[]; now: number }
+  | {
+      role: 'closer'
+      entries: CloserQueueEntry[]
+      now: number
+      busyTransferId: string | null
+      busyKind: 'accept' | 'reject' | null
+      onAccept: (entry: CloserQueueEntry) => void
+      onReject: (entry: CloserQueueEntry) => void
+    }
 
 /** Live queue table shared by fronter and closer desks. */
 export function QueueTable(props: QueueTableProps) {
@@ -124,9 +187,14 @@ export function QueueTable(props: QueueTableProps) {
     return (
       <DataTable
         title="Waiting / Offered"
-        ariaLabel="Transfers waiting or offered"
+        ariaLabel="Transfers waiting, offered, or on call"
         rows={props.entries}
-        columns={closerColumns(props.now)}
+        columns={closerColumns(props.now, {
+          busyTransferId: props.busyTransferId,
+          busyKind: props.busyKind,
+          onAccept: props.onAccept,
+          onReject: props.onReject,
+        })}
         getRowId={(entry) => entry.id}
         emptyMessage="No transfers waiting right now."
         variant="live"
