@@ -22,11 +22,14 @@ import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import {
   deskLabelForRole,
   deskRoleFromPath,
+  formatRolesLabel,
+  heldDesks,
   initialsFromName,
   primaryRole,
   type Role,
 } from '@/lib/auth'
 import { closerWorkspaceHref } from '@/lib/closer'
+import { roleLabel } from '@/lib/users'
 import { OutlineIcon } from '../icons/OutlineIcon'
 
 /** Nav Lucide icons — size via className so flex can't fight an inline lock. */
@@ -224,6 +227,7 @@ export function Sidebar() {
   const { user, status: userStatus, signOut } = useCurrentUser()
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [deskMenuAnchor, setDeskMenuAnchor] = useState<HTMLElement | null>(null)
   const [prevPathname, setPrevPathname] = useState(pathname)
   const userReady = userStatus === 'ready' && user != null
 
