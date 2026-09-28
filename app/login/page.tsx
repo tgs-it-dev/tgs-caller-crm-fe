@@ -4,7 +4,6 @@ import { FormEvent, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
-import { Alert } from '@/components/ui/Alert'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import {
@@ -27,28 +26,62 @@ const FIELD_MESSAGES: Record<string, string> = {
   password: 'Password is too long. Please use a shorter one.',
 }
 
-/** Checked before sending, so the common mistakes never wait on the network. */
-function formProblem(email: string, password: string): string | null {
-  if (!email.trim()) return 'Enter your email address.'
-  if (password.length < MIN_PASSWORD_LENGTH) {
-    return `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`
-  }
-  return null
+type FieldKey = 'email' | 'password'
+/**
+ * Present key = red border. Non-empty string = helper text under that field;
+ * empty string = border only (used when credentials fail both fields but the
+ * copy sits under password alone).
+ */
+type FieldProblems = Partial<Record<FieldKey, string>>
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/** Empty or malformed — same check on blur and on submit. */
+function emailProblem(email: string): string | undefined {
+  const trimmed = email.trim()
+  if (!trimmed) return 'Enter your email address.'
+  if (!EMAIL_PATTERN.test(trimmed)) return 'Enter a valid email address.'
+  return undefined
 }
 
-function loginErrorMessage(err: unknown): string {
+/** Checked before sending, so the common mistakes never wait on the network. */
+function formProblems(email: string, password: string): FieldProblems {
+  const found: FieldProblems = {}
+  const emailIssue = emailProblem(email)
+  if (emailIssue) found.email = emailIssue
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    found.password = `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`
+  }
+  return found
+}
+
+/**
+ * Map a failed login onto field-level inline errors. Shared failures (wrong
+ * credentials, unreachable server) redden both borders; the message stays
+ * under password only.
+ */
+function loginFailure(err: unknown): FieldProblems {
   // fetch rejects, rather than failing with a status, when no response came back.
   if (!(err instanceof AuthError)) {
-    return 'Unable to reach the server. Please check your connection and try again.'
+    return {
+      email: '',
+      password: 'Unable to reach the server. Please check your connection and try again.',
+    }
   }
-  switch (err.code) {
-    case 'validation_error':
-      return FIELD_MESSAGES[err.fields[0]?.field ?? ''] ?? err.message
-    case 'internal_error':
-      return 'Something went wrong on our side. Please try again.'
-    default:
-      return err.message
+  if (err.code === 'internal_error') {
+    return { email: '', password: 'Something went wrong on our side. Please try again.' }
   }
+  if (err.code === 'validation_error') {
+    const fields: FieldProblems = {}
+    for (const { field } of err.fields) {
+      if (field === 'email' || field === 'password') {
+        fields[field] = FIELD_MESSAGES[field] ?? err.message
+      }
+    }
+    if (Object.keys(fields).length > 0) return fields
+  }
+  // auth.invalid_credentials and anything else the form can't name.
+  return { email: '', password: err.message || 'Incorrect email or password' }
 }
 
 function EyeIcon({ open }: { open: boolean }) {
@@ -92,7 +125,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [problems, setProblems] = useState<FieldProblems>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Already signed in? Skip the form and land straight on the workspace — even
@@ -113,9 +146,9 @@ export default function LoginPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const problem = formProblem(email, password)
-    setError(problem)
-    if (problem) return
+    const local = formProblems(email, password)
+    setProblems(local)
+    if (Object.keys(local).length > 0) return
 
     setIsSubmitting(true)
     try {
@@ -128,7 +161,7 @@ export default function LoginPage() {
       hydrate(user)
       router.push(landingRouteForRoles(user.roles))
     } catch (err) {
-      setError(loginErrorMessage(err))
+      setProblems(loginFailure(err))
       setIsSubmitting(false)
     }
   }
@@ -153,8 +186,6 @@ export default function LoginPage() {
         </p>
 
         <form onSubmit={handleSubmit} noValidate className="mt-6">
-          {error && <Alert>{error}</Alert>}
-
           <div className="mb-4">
             <Input
               label="Email"
@@ -164,8 +195,41 @@ export default function LoginPage() {
               autoComplete="username"
               required
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                const next = e.target.value
+                setEmail(next)
+                if (problems.email == null) return
+                setProblems((prev) => {
+                  // Credentials mark (border only) drops as soon as they edit.
+                  if (prev.email === '') {
+                    const cleared = { ...prev }
+                    delete cleared.email
+                    return cleared
+                  }
+                  // Validation error: keep it honest while they type.
+                  const issue = emailProblem(next)
+                  if (!issue) {
+                    const cleared = { ...prev }
+                    delete cleared.email
+                    return cleared
+                  }
+                  return { ...prev, email: issue }
+                })
+              }}
+              onBlur={() => {
+                const issue = emailProblem(email)
+                setProblems((prev) => {
+                  if (issue) return { ...prev, email: issue }
+                  // Valid: clear a validation message, leave the credentials border alone.
+                  if (prev.email === '' || prev.email == null) return prev
+                  const next = { ...prev }
+                  delete next.email
+                  return next
+                })
+              }}
               placeholder="Enter your email"
+              error={problems.email != null}
+              helperText={problems.email || undefined}
             />
           </div>
 
@@ -179,8 +243,19 @@ export default function LoginPage() {
               required
               minLength={8}
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value)
+                if (problems.password != null) {
+                  setProblems((prev) => {
+                    const next = { ...prev }
+                    delete next.password
+                    return next
+                  })
+                }
+              }}
               placeholder="Enter your password"
+              error={problems.password != null}
+              helperText={problems.password || undefined}
               endAdornment={
                 <button
                   type="button"
