@@ -18,7 +18,7 @@ import {
   type QueueRole,
 } from '@/lib/queue'
 import { withSession } from '@/lib/session'
-import { acceptTransfer, rejectTransfer } from '@/lib/transfers'
+import { acceptTransfer } from '@/lib/transfers'
 
 /** Wait times tick every second; the list itself is refreshed less often. */
 const TICK_MS = 1000
@@ -32,8 +32,6 @@ type LoadState =
   | { status: 'ready'; role: 'fronter'; entries: FronterQueueEntry[] }
   | { status: 'ready'; role: 'closer'; entries: CloserQueueEntry[] }
 
-type BusyAction = { transferId: string; kind: 'accept' | 'reject' }
-
 function QueueBody({ role }: { role: QueueRole }) {
   const router = useRouter()
   const currentUser = useCurrentUser()
@@ -41,7 +39,7 @@ function QueueBody({ role }: { role: QueueRole }) {
   const [now, setNow] = useState(() => Date.now())
   const [notice, setNotice] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
-  const [busy, setBusy] = useState<BusyAction | null>(null)
+  const [busyTransferId, setBusyTransferId] = useState<string | null>(null)
 
   const applyEntries = useCallback(
     (entries: FronterQueueEntry[] | CloserQueueEntry[]) => {
@@ -107,7 +105,7 @@ function QueueBody({ role }: { role: QueueRole }) {
   const handleAccept = useCallback(
     async (entry: CloserQueueEntry) => {
       if (currentUser.status !== 'ready') return
-      setBusy({ transferId: entry.id, kind: 'accept' })
+      setBusyTransferId(entry.id)
       setNotice(null)
       setActionError(null)
       try {
@@ -124,35 +122,10 @@ function QueueBody({ role }: { role: QueueRole }) {
           setActionError(err instanceof Error ? err.message : 'Unable to accept this transfer.')
         }
       } finally {
-        setBusy(null)
+        setBusyTransferId(null)
       }
     },
     [currentUser, refetchQueue, router]
-  )
-
-  const handleReject = useCallback(
-    async (entry: CloserQueueEntry) => {
-      if (currentUser.status !== 'ready') return
-      setBusy({ transferId: entry.id, kind: 'reject' })
-      setNotice(null)
-      setActionError(null)
-      try {
-        await withSession((token) =>
-          rejectTransfer(entry.id, { closer_user_id: currentUser.user.id }, token)
-        )
-        await refetchQueue()
-      } catch (err) {
-        if (err instanceof AuthError && err.code === 'transfer.not_answerable') {
-          setNotice('Already taken')
-          await refetchQueue().catch(() => {})
-        } else {
-          setActionError(err instanceof Error ? err.message : 'Unable to reject this transfer.')
-        }
-      } finally {
-        setBusy(null)
-      }
-    },
-    [currentUser, refetchQueue]
   )
 
   if (load.status === 'loading') {
@@ -181,13 +154,9 @@ function QueueBody({ role }: { role: QueueRole }) {
         role="closer"
         entries={load.entries}
         now={now}
-        busyTransferId={busy?.transferId ?? null}
-        busyKind={busy?.kind ?? null}
+        busyTransferId={busyTransferId}
         onAccept={(entry) => {
           void handleAccept(entry)
-        }}
-        onReject={(entry) => {
-          void handleReject(entry)
         }}
       />
     </div>
