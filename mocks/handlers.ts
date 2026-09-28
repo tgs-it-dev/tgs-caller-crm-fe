@@ -9,7 +9,11 @@ import type { LeadResponse } from '../lib/leads'
 import { PUSH_INTERVAL_MS, type AgentStatus, type LiveStatus } from '../lib/liveStatus'
 import type { CloserQueueEntry, FronterQueueEntry } from '../lib/queue'
 import type { QualificationCreateRequest, QualificationResponse } from '../lib/qualification'
-import type { HistoricalFunnel } from '../lib/reporting'
+import type {
+  FunnelInteractionList,
+  FunnelStage,
+  HistoricalFunnel,
+} from '../lib/reporting'
 import type { TransferCreateRequest, TransferResponse } from '../lib/transfers'
 
 type MockUser = {
@@ -285,6 +289,44 @@ function mockFunnel(start: string, end: string): HistoricalFunnel {
     connects,
     qualified,
     transfer_attempts: Math.round(qualified * 0.48),
+  }
+}
+
+/**
+ * One page of the interactions behind a funnel number.
+ *
+ * `total` comes off `mockFunnel` so the footer count equals the bar above it;
+ * a fixture that drifted from its own aggregate would make a real disagreement
+ * look normal. Rows follow the offset, so paging never repeats a row.
+ */
+function mockFunnelStage(
+  stage: FunnelStage,
+  start: string,
+  end: string,
+  limit: number,
+  offset: number
+): FunnelInteractionList {
+  const total = mockFunnel(start, end)[stage]
+  // Mid-afternoon on the window's last day, walked backwards, so rows read
+  // newest first and stay inside the range in any plausible business zone.
+  const latest = Date.parse(`${end}T17:00:00.000Z`)
+  const span = Math.max(1, Date.parse(end) - Date.parse(start) + 86_400_000)
+
+  return {
+    items: Array.from({ length: Math.max(0, Math.min(limit, total - offset)) }, (_, index) => {
+      const nth = offset + index
+      return {
+        id: `int-${stage}-${nth}`,
+        lead_id: `lead-${stage}-${nth}`,
+        lead_phone: `+1555${String(2_000_000 + nth).slice(-7)}`,
+        lead_source: nth % 5 === 0 ? ('ghl' as const) : ('vicidial' as const),
+        created_at: new Date(latest - ((nth * 7 * 60_000) % span)).toISOString(),
+      }
+    }),
+    total,
+    timezone: 'America/New_York',
+    limit,
+    offset,
   }
 }
 
@@ -1125,6 +1167,23 @@ export const handlers = [
     }
 
     return res(ctx.status(200), ctx.json(mockFunnel(start, end)))
+  }),
+
+  rest.get('/reporting/funnel/:stage', (req, res, ctx) => {
+    const refused = adminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const start = req.url.searchParams.get('start')
+    const end = req.url.searchParams.get('end')
+    if (!start || !end) {
+      return res(ctx.status(422), ctx.json(authErrorBody('Field required', 'validation_error')))
+    }
+
+    const stage = req.params.stage as FunnelStage
+    const limit = Number(req.url.searchParams.get('limit') ?? 50)
+    const offset = Number(req.url.searchParams.get('offset') ?? 0)
+
+    return res(ctx.status(200), ctx.json(mockFunnelStage(stage, start, end, limit, offset)))
   }),
 
   rest.get('/interactions', (_req, res, ctx) => {

@@ -38,6 +38,20 @@ export function formatInstant(iso: string) {
   })
 }
 
+/**
+ * An instant drawn in a named zone, the zone left to a caption.
+ *
+ * `formatDateTime` reads it in the browser's, where a row can fall on a
+ * different date from the day the answer counted it in.
+ */
+export function formatDateTimeIn(iso: string, timeZone: string) {
+  return new Date(iso).toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone,
+  })
+}
+
 /** A time of day in the given zone, named — "2:14 PM EDT" — so it reads the same anywhere. */
 export function formatTime(iso: string, timeZone: string) {
   return new Date(iso).toLocaleTimeString(undefined, {

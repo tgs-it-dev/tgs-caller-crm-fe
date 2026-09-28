@@ -35,12 +35,15 @@ const EVENTS_LIMIT = 10
 /**
  * Where the reader came from, and so where "back" goes.
  *
- * This screen has more than one way in by design — the exception queue today,
- * the reports funnel next — so the header can't hard-code one of them. A new
- * caller adds its entry here and passes `?from=`; nothing else changes.
+ * This screen has more than one way in by design — the exception queue and the
+ * reports funnel — so the header can't hard-code one of them. A new caller adds
+ * its entry here and passes `?from=`; nothing else changes.
  */
 const ORIGINS: Record<string, { href: string; label: string }> = {
   exceptions: { href: '/admin/exceptions', label: 'Back to Exceptions' },
+  // "Funnel" rather than "Reports": the design's word, and the reader came from
+  // a bar, not from the page that holds it.
+  funnel: { href: '/admin/reports', label: 'Back to Funnel' },
 }
 
 /** For a bookmarked or pasted link, which names no origin. */
@@ -170,13 +173,12 @@ export function InteractionDetailScreen({
         <div className="space-y-5">
           <InteractionHeader detail={load.data.detail} />
 
-          {/* Side by side where there is room, per the design; stacked below
-              it. Two thirds to Call Legs, because four columns of ids and
-              timestamps need it and Transfer's three names do not. */}
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-            <div className="lg:col-span-2">
-              <CallLegsPanel legs={load.data.legs} />
-            </div>
+          {/* Even halves, per the design, and not weighted toward Call Legs
+              despite its extra columns: it stays empty until the dialer's push
+              carries a call id, so the room only came out of Transfer, whose
+              badge clipped. */}
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+            <CallLegsPanel legs={load.data.legs} />
             <TransfersPanel transfers={load.data.transfers} />
           </div>
 

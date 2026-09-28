@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { DateRangePicker } from '@/components/admin/DateRangePicker'
 import { FunnelChart } from '@/components/admin/FunnelChart'
+import { FunnelInteractions } from '@/components/admin/FunnelInteractions'
 import { Alert } from '@/components/ui/Alert'
 import { PageShell } from '@/components/ui/PageShell'
 import { AuthError } from '@/lib/auth'
@@ -13,9 +14,13 @@ import {
   fetchFunnel,
   todayRange,
   type DateRange,
+  type FunnelStage,
   type HistoricalFunnel as Funnel,
 } from '@/lib/reporting'
 import { withSession } from '@/lib/session'
+
+/** The list the bars scope; both sides of `aria-controls` read it from here. */
+const LIST_ID = 'funnel-interactions'
 
 /** A window the page chose rather than the user, and so one it may still correct. */
 type Selection = { range: DateRange; auto: boolean }
@@ -44,6 +49,9 @@ export function HistoricalFunnel() {
   // The business zone, once a reply has named it. Until then the browser's days
   // are the only ones on hand.
   const [zone, setZone] = useState<string | undefined>(undefined)
+  // Which bar the list below is showing. A new window doesn't reset it: someone
+  // reading Qualified who moves the dates still wants Qualified.
+  const [stage, setStage] = useState<FunnelStage>('attempts')
 
   /** Read a different window. The figures on screen answered the old one. */
   const select = (next: Selection) => {
@@ -88,33 +96,51 @@ export function HistoricalFunnel() {
 
   return (
     <PageShell title="Reports">
-      <section className="rounded-xl border-hairline border-slate bg-white p-5">
-        <header className="mb-5 flex flex-wrap items-start justify-between gap-4 border-b-hairline border-light-grey pb-4">
-          <div>
-            <h2 className="text-lg font-medium leading-[120%] text-ink">Conversion funnel</h2>
-            {load.status === 'ready' && (
-              // The window and zone the figures on screen came back for.
-              <p className="mt-1 text-sm leading-[120%] text-slate">
-                {formatDayRange(load.funnel.start, load.funnel.end)} ·{' '}
-                {formatZone(load.funnel.end, load.funnel.timezone)}
-              </p>
-            )}
-          </div>
+      <div className="space-y-5">
+        <section className="rounded-xl border-hairline border-slate bg-white p-5">
+          <header className="mb-5 flex flex-wrap items-start justify-between gap-4 border-b-hairline border-light-grey pb-4">
+            <div>
+              <h2 className="text-lg font-medium leading-[120%] text-ink">Conversion funnel</h2>
+              {load.status === 'ready' && (
+                // The window and zone the figures on screen came back for.
+                <p className="mt-1 text-sm leading-[120%] text-slate">
+                  {formatDayRange(load.funnel.start, load.funnel.end)} ·{' '}
+                  {formatZone(load.funnel.end, load.funnel.timezone)}
+                </p>
+              )}
+            </div>
 
-          <DateRangePicker
-            key={pageMoved}
-            range={selected.range}
-            max={businessDay(new Date(), zone)}
-            onChange={(range) => select({ range, auto: false })}
-          />
-        </header>
+            <DateRangePicker
+              key={pageMoved}
+              range={selected.range}
+              max={businessDay(new Date(), zone)}
+              onChange={(range) => select({ range, auto: false })}
+            />
+          </header>
 
-        {load.status === 'loading' && (
-          <p className="py-10 text-center text-sm text-slate">Loading the funnel…</p>
+          {load.status === 'loading' && (
+            <p className="py-10 text-center text-sm text-slate">Loading the funnel…</p>
+          )}
+          {load.status === 'error' && <Alert>{load.message}</Alert>}
+          {load.status === 'ready' && (
+            <FunnelChart
+              funnel={load.funnel}
+              stage={stage}
+              onStageChange={setStage}
+              // Only while the list is on screen: an aria-controls pointing at
+              // an id that isn't rendered is worse than none.
+              listId={load.funnel.attempts > 0 ? LIST_ID : undefined}
+            />
+          )}
+        </section>
+
+        {/* Keyed by stage so another bar remounts it at the first page, rather
+            than resetting the offset in an effect. Hidden on an empty window
+            because every stage is then empty and the chart already says so. */}
+        {load.status === 'ready' && load.funnel.attempts > 0 && (
+          <FunnelInteractions key={stage} id={LIST_ID} stage={stage} funnel={load.funnel} />
         )}
-        {load.status === 'error' && <Alert>{load.message}</Alert>}
-        {load.status === 'ready' && <FunnelChart funnel={load.funnel} />}
-      </section>
+      </div>
     </PageShell>
   )
 }

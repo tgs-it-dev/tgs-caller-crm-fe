@@ -560,11 +560,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * This fronter's dispositions and transfers for today's business day
-         * @description My Stats for the signed-in fronter.
+         * This agent's dispositions and transfers for today's business day
+         * @description My Stats for the signed-in fronter or closer.
          *
          *     Scoped to the caller and to the configured business day — never another
          *     agent's rows, never yesterday's. An empty day is empty arrays, not 404.
+         *     Fronter: dispositions they recorded and transfers they initiated.
+         *     Closer: dispositions they recorded and transfers they answered.
          */
         get: operations["stats_today_me_stats_today_get"];
         put?: never;
@@ -1165,8 +1167,12 @@ export interface components {
          * FunnelInteraction
          * @description One row behind a funnel number.
          *
-         *     Deliberately thin. InteractionDetailResponse nests a qualification, which is
-         *     right for one interaction and wasteful repeated down a page of them.
+         *     Thin, but not bare. InteractionDetailResponse nests a qualification, which is
+         *     right for one interaction and wasteful repeated down a page of them — so
+         *     nothing nested belongs here. The lead's phone and source are two scalars off
+         *     one join, and they are the only thing on this row a reader recognises: a page
+         *     of uuids and timestamps identifies nothing. Carrying them saves the client
+         *     reading every lead one at a time, which is the whole reason they are here.
          */
         FunnelInteraction: {
             /**
@@ -1184,6 +1190,13 @@ export interface components {
              * Format: uuid
              */
             lead_id: string;
+            /** Lead Phone */
+            lead_phone: string;
+            /**
+             * Lead Source
+             * @enum {string}
+             */
+            lead_source: "vicidial" | "ghl";
         };
         /** FunnelInteractionListResponse */
         FunnelInteractionListResponse: {
@@ -1700,7 +1713,7 @@ export interface components {
         };
         /**
          * TodaysDispositionRow
-         * @description One fronter disposition the caller recorded today, with lead display fields.
+         * @description One disposition the caller recorded today, with lead display fields.
          *
          *     Slimmer than InteractionDispositionResponse: the My Stats table does not need
          *     disposition_id or version. lead_name/lead_phone are denormalised so the page
@@ -1741,7 +1754,13 @@ export interface components {
         };
         /**
          * TodaysStatsResponse
-         * @description The authenticated fronter's dispositions and transfers for the business day.
+         * @description The authenticated agent's dispositions and transfers for the business day.
+         *
+         *     Stage matches the caller's role. Fronter: dispositions they recorded and
+         *     every transfer they initiated today. Closer: dispositions they recorded;
+         *     ``transferred_interaction_ids`` is only interactions they answered *and*
+         *     dispositioned today — accepted-without-disposition is not listed (those
+         *     UUIDs alone are useless for a My Stats disposition table).
          */
         TodaysStatsResponse: {
             /** Dispositions */
@@ -3044,7 +3063,10 @@ export interface operations {
     };
     stats_today_me_stats_today_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Which disposition stage to return. Required when the caller holds both fronter and closer; otherwise inferred from the caller's role. Same values as GET /dispositions?stage=. */
+                stage?: ("fronter" | "closer") | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
