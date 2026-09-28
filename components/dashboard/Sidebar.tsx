@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, type ComponentType, type SVGProps } from 'react'
+import { Suspense, useMemo, useState, type ComponentType, type SVGProps } from 'react'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import MuiMenu from '@mui/material/Menu'
@@ -220,7 +220,7 @@ function Avatar({ name }: { name?: string }) {
   )
 }
 
-export function Sidebar() {
+function SidebarInner() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -488,5 +488,13 @@ export function Sidebar() {
         </div>
       </aside>
     </>
+  )
+}
+
+export function Sidebar() {
+  return (
+    <Suspense fallback={null}>
+      <SidebarInner />
+    </Suspense>
   )
 }
