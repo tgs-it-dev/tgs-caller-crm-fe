@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import MuiButton from '@mui/material/Button'
+import { Check } from 'lucide-react'
 import { Badge } from '@/components/ui/Badge'
 import { DataTable, type DataColumn } from '@/components/ui/DataTable'
 import { formatPhone, formatWaitTime, formatWaitTimeLabel, formatWaitTimeMinutesSeconds } from '@/lib/format'
@@ -75,9 +76,7 @@ function closerColumns(
   now: number,
   opts: {
     busyTransferId: string | null
-    busyKind: 'accept' | 'reject' | null
     onAccept: (entry: CloserQueueEntry) => void
-    onReject: (entry: CloserQueueEntry) => void
   }
 ): DataColumn<CloserQueueEntry>[] {
   return [
@@ -145,24 +144,20 @@ function closerColumns(
 
         const rowBusy = opts.busyTransferId === entry.id
         return (
-          <div className="flex flex-wrap items-center gap-2">
-            <MuiButton
-              size="small"
-              variant="contained"
-              disabled={opts.busyTransferId !== null}
-              onClick={() => opts.onAccept(entry)}
-            >
-              {rowBusy && opts.busyKind === 'accept' ? 'Accepting…' : 'Accept'}
-            </MuiButton>
-            <MuiButton
-              size="small"
-              variant="outlined"
-              disabled={opts.busyTransferId !== null}
-              onClick={() => opts.onReject(entry)}
-            >
-              {rowBusy && opts.busyKind === 'reject' ? 'Rejecting…' : 'Reject'}
-            </MuiButton>
-          </div>
+          <MuiButton
+            size="small"
+            variant="contained"
+            disabled={opts.busyTransferId !== null}
+            onClick={() => opts.onAccept(entry)}
+            startIcon={
+              rowBusy ? undefined : (
+                <Check className="h-4 w-4" strokeWidth={2.5} aria-hidden />
+              )
+            }
+            aria-label="Accept"
+          >
+            {rowBusy ? 'Accepting…' : 'Accept'}
+          </MuiButton>
         )
       },
     },
@@ -176,9 +171,7 @@ type QueueTableProps =
       entries: CloserQueueEntry[]
       now: number
       busyTransferId: string | null
-      busyKind: 'accept' | 'reject' | null
       onAccept: (entry: CloserQueueEntry) => void
-      onReject: (entry: CloserQueueEntry) => void
     }
 
 /** Live queue table shared by fronter and closer desks. */
@@ -191,9 +184,7 @@ export function QueueTable(props: QueueTableProps) {
         rows={props.entries}
         columns={closerColumns(props.now, {
           busyTransferId: props.busyTransferId,
-          busyKind: props.busyKind,
           onAccept: props.onAccept,
-          onReject: props.onReject,
         })}
         getRowId={(entry) => entry.id}
         emptyMessage="No transfers waiting right now."
