@@ -1198,8 +1198,12 @@ export interface components {
          * FunnelInteraction
          * @description One row behind a funnel number.
          *
-         *     Deliberately thin. InteractionDetailResponse nests a qualification, which is
-         *     right for one interaction and wasteful repeated down a page of them.
+         *     Thin, but not bare. InteractionDetailResponse nests a qualification, which is
+         *     right for one interaction and wasteful repeated down a page of them — so
+         *     nothing nested belongs here. The lead's phone and source are two scalars off
+         *     one join, and they are the only thing on this row a reader recognises: a page
+         *     of uuids and timestamps identifies nothing. Carrying them saves the client
+         *     reading every lead one at a time, which is the whole reason they are here.
          */
         FunnelInteraction: {
             /**
@@ -1217,6 +1221,13 @@ export interface components {
              * Format: uuid
              */
             lead_id: string;
+            /** Lead Phone */
+            lead_phone: string;
+            /**
+             * Lead Source
+             * @enum {string}
+             */
+            lead_source: "vicidial" | "ghl";
         };
         /** FunnelInteractionListResponse */
         FunnelInteractionListResponse: {
