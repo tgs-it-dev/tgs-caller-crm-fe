@@ -42,8 +42,7 @@ export function QualificationChecklist({
           <Input
             label="Mileage *"
             placeholder="e.g. 62400"
-            // inputMode="numeric"
-            type="number"
+            inputMode="numeric"
             autoComplete="off"
             value={form.mileage}
             onChange={(e) => onChange({ mileage: sanitizeMileage(e.target.value) })}

@@ -122,7 +122,7 @@ export const EMPTY_ACTIVE_CALL_FORM: ActiveCallForm = {
 
 export const WARRANTY_STATUS_OPTIONS = ['Active', 'Expired', 'Expiring soon', 'Unknown'] as const
 
-/** Split "2019 Toyota Camry" → year / make / model for the transfer gate. */
+/** Split a vehicle line into year / make / model for the transfer gate. */
 export function parseVehicleLine(vehicle: string): {
   vehicle_year: string
   vehicle_make: string
@@ -130,14 +130,17 @@ export function parseVehicleLine(vehicle: string): {
 } {
   const parts = vehicle.trim().split(/\s+/).filter(Boolean)
   if (parts.length === 0) return { vehicle_year: '', vehicle_make: '', vehicle_model: '' }
-  const yearLike = /^\d{4}$/.test(parts[0] ?? '')
-  if (yearLike) {
+
+  const yearIdx = parts.findIndex((part) => /^\d{4}$/.test(part))
+  if (yearIdx >= 0) {
+    const rest = parts.filter((_, index) => index !== yearIdx)
     return {
-      vehicle_year: parts[0] ?? '',
-      vehicle_make: parts[1] ?? '',
-      vehicle_model: parts.slice(2).join(' '),
+      vehicle_year: parts[yearIdx] ?? '',
+      vehicle_make: rest[0] ?? '',
+      vehicle_model: rest.slice(1).join(' '),
     }
   }
+
   return {
     vehicle_year: '',
     vehicle_make: parts[0] ?? '',
@@ -146,11 +149,10 @@ export function parseVehicleLine(vehicle: string): {
 }
 
 export function snapshotJsonFromActiveCall(form: ActiveCallForm): Record<string, unknown> {
-  const parsed = parseVehicleLine(form.vehicle)
+  const resolved = resolvedTransferFields(form)
   return {
     vehicle: form.vehicle.trim(),
-    ...parsed,
-    mileage: sanitizeMileage(form.mileage),
+    ...resolved,
     state: sanitizeState(form.state).trim(),
     warranty_status: form.warranty_status,
     notes: form.notes,
@@ -210,11 +212,58 @@ export function activeCallFormFromQualification(
   }
 }
 
+/**
+ * Map the Active Call form onto the BE transfer-required keys.
+ * When the fronter filled the vehicle line, never leave year/make/model blank
+ * just because the free-text didn't split cleanly — that was forcing an override
+ * even when the checklist looked complete.
+ */
+export function resolvedTransferFields(form: ActiveCallForm): {
+  vehicle_year: string
+  vehicle_make: string
+  vehicle_model: string
+  mileage: string
+} {
+  const vehicle = form.vehicle.trim()
+  const mileage = sanitizeMileage(form.mileage)
+  const parsed = parseVehicleLine(vehicle)
+
+  if (!vehicle) {
+    return {
+      vehicle_year: '',
+      vehicle_make: '',
+      vehicle_model: '',
+      mileage,
+    }
+  }
+
+  const make = parsed.vehicle_make || vehicle
+  const model = parsed.vehicle_model || make
+
+  return {
+    vehicle_year: parsed.vehicle_year || 'not provided',
+    vehicle_make: make,
+    vehicle_model: model,
+    mileage,
+  }
+}
+
 export function missingActiveCallTransferFields(form: ActiveCallForm): RequiredTransferField[] {
-  return missingRequiredFields({
-    ...parseVehicleLine(form.vehicle),
-    mileage: form.mileage,
-  })
+  return missingRequiredFields(resolvedTransferFields(form))
+}
+
+/**
+ * Complete = every starred Qualification Checklist field is filled and consent is yes.
+ * That is what the fronter sees — not whether the vehicle line parsed into three tokens.
+ */
+export function isActiveCallChecklistComplete(form: ActiveCallForm): boolean {
+  return (
+    form.consent === 'yes' &&
+    form.vehicle.trim().length > 0 &&
+    sanitizeMileage(form.mileage).length > 0 &&
+    sanitizeState(form.state).trim().length > 0 &&
+    form.warranty_status.trim().length > 0
+  )
 }
 
 /** Client gate for the Transfer button on Active Call. */
@@ -222,12 +271,14 @@ export function canTransferActiveCall(
   form: ActiveCallForm,
   opts: { dispositionId: string; overrideReason: string }
 ): boolean {
-  // Hard compliance stop — no override bypasses this (same as canTransfer).
   if (form.dnc_flagged) return false
-  if (form.consent !== 'yes') return false
   if (!opts.dispositionId) return false
-  const missing = missingActiveCallTransferFields(form)
-  if (missing.length === 0) return true
+
+  // Checklist complete + disposition selected → transfer is allowed (no override).
+  if (isActiveCallChecklistComplete(form)) return true
+
+  // Incomplete checklist: override reason is required (consent still required).
+  if (form.consent !== 'yes') return false
   return opts.overrideReason.trim().length > 0
 }
 
