@@ -1,5 +1,6 @@
 import type { components } from '@/lib/generated/schema'
 import { apiUrl } from '@/lib/apiUrl'
+import type { DispositionResponse } from '@/lib/dispositions'
 import { authError } from '@/lib/auth'
 
 export type LeadSource = components['schemas']['LeadResponse']['source']
@@ -119,6 +120,12 @@ export const EMPTY_ACTIVE_CALL_FORM: ActiveCallForm = {
   dnc_flagged: false,
   dnc_source: null,
 }
+
+/**
+ * Matched by label, unlike the other two meanings, because the flag it sets
+ * lives on the qualification — there is nothing on the catalogue row to read.
+ */
+export const DNC_LABEL = 'Do Not Call'
 
 export const WARRANTY_STATUS_OPTIONS = ['Active', 'Expired', 'Expiring soon', 'Unknown'] as const
 
@@ -266,20 +273,50 @@ export function isActiveCallChecklistComplete(form: ActiveCallForm): boolean {
   )
 }
 
-/** Client gate for the Transfer button on Active Call. */
+/**
+ * Whether ending a call writes a qualification at all.
+ *
+ * A blank form must not: `consentFromActiveCall` stamps `consent_captured_at`
+ * from the form's default, so saving one on a no-answer would assert consent
+ * was taken on a call nobody picked up. DNC always counts — `consent_dnc` is
+ * the only place the suppression is stored.
+ */
+export function hasCapturedSomething(form: ActiveCallForm): boolean {
+  if (form.dnc_flagged) return true
+  return [form.vehicle, form.mileage, form.state, form.warranty_status, form.notes].some(
+    (value) => value.trim().length > 0
+  )
+}
+
+/**
+ * Client gate for the Transfer button. The server enforces the same rule, so
+ * this only decides whether to offer the control.
+ *
+ * Takes the disposition, not its id — "some disposition is selected" was the
+ * whole check, which let "No Answer" through. `allows_transfer`, never
+ * `counts_as_qualified`: the client may yet split the two flags.
+ */
 export function canTransferActiveCall(
   form: ActiveCallForm,
-  opts: { dispositionId: string; overrideReason: string }
+  opts: { disposition: DispositionResponse | null; overrideReason: string }
 ): boolean {
   if (form.dnc_flagged) return false
-  if (!opts.dispositionId) return false
+  if (!opts.disposition?.allows_transfer) return false
 
-  // Checklist complete + disposition selected → transfer is allowed (no override).
+  // Checklist complete + a transferable outcome → no override needed.
   if (isActiveCallChecklistComplete(form)) return true
 
   // Incomplete checklist: override reason is required (consent still required).
   if (form.consent !== 'yes') return false
   return opts.overrideReason.trim().length > 0
+}
+
+/**
+ * Deliberately permissive next to the transfer gate: recording what happened is
+ * never the thing to block, and ending the call is how a DNC gets written down.
+ */
+export function canEndActiveCall(opts: { disposition: DispositionResponse | null }): boolean {
+  return opts.disposition !== null
 }
 
 export async function getLatestQualification(

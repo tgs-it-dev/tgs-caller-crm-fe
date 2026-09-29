@@ -157,6 +157,41 @@ The administrator dashboard (`/admin`) is fed by `lib/liveStatus.ts`:
 - Times show in the business time zone the snapshot names (`timezone`), with its
   abbreviation, so they read in the same day as the counts.
 
+## Fronter Active Call
+
+`/fronter/workspace/?id=<interactionId>` is where a fronter works a call —
+`components/workspace/ActiveCallScreen.tsx`, composing the checklist, the
+disposition picker and the transfer panel.
+
+- **Two actions, and both are always rendered.** Transfer to Closer, and Save &
+  End Call. Most calls end without a transfer — no answer, voicemail, not
+  interested — and the screen used to have no way to say so, which left those
+  rows sitting in the queue forever. Disabled rather than hidden: a qualified
+  lead with no closer free is refused by the server, and a fronter with nowhere
+  to record that call would be left holding it.
+- **The disposition decides which action is available**, through
+  `allows_transfer` on the catalogue row. "A disposition is selected" used to be
+  the whole check, which let "No Answer" be handed to a closer. The server
+  enforces the same rule (`transfer.disposition_not_transferable`), so the
+  client only decides what to offer.
+- **Ending a call writes a qualification only when something was captured.**
+  `consentFromActiveCall` stamps `consent_given` and `consent_captured_at` from
+  the form's default, so saving an untouched form on a no-answer would assert
+  consent was taken on a call nobody picked up. `hasCapturedSomething()` is the
+  rule — and DNC always counts, because `consent_dnc` is the only place the
+  suppression is stored.
+- **Then the row leaves the queue**, through `PATCH /queue/fronter/{id}` with
+  `left: true` (`leaveFronterQueue` in `lib/queue.ts`). A 404 doesn't fail the
+  call: an interaction opened by direct link may have no open row, and the
+  outcome is already saved by then.
+- **DNC is two controls because it is two facts.** The checkbox is a standing
+  instruction about the lead and is what the transfer gate reads; the "Do Not
+  Call" disposition is what happened on this call. Picking that disposition
+  ticks the checkbox and locks it — the outcome cannot coexist with a record
+  saying the lead is still callable — but moving off it leaves the flag alone,
+  since un-ticking a suppression the fronter just asserted is the one direction
+  that loses something.
+
 ## Reporting
 
 `/admin/reports` reads `GET /reporting/funnel` through `lib/reporting.ts` for an
@@ -177,9 +212,28 @@ Attempts.
   reshape a figure to keep a funnel silhouette.
 - **The last bar is Transfer Attempts, not the design's "Transferred".** Whether
   a closer reached the lead isn't recorded anywhere, so the number counts
-  attempts, rejections and timeouts included. Connects and Qualified are
-  stand-ins too, and the page says so in a line under the chart rather than in
-  hover text, which a screen reader never reads.
+  attempts, rejections and timeouts included. Connects is a stand-in too, and
+  the page says so in a line under the chart rather than in hover text, which a
+  screen reader never reads.
+- **Qualified is the fronter's verdict, not the presence of a form.** It counts
+  interactions whose latest *fronter* disposition carries `counts_as_qualified`
+  on the catalogue row. It used to count `exists(Qualification)`, which answered
+  a different question — what the fronter *captured* — and so counted a form
+  filled in for a lead who plainly didn't qualify. A `Qualification` row is
+  still that record, and is written whenever anything was captured; the
+  disposition is what says the lead passed.
+- **`counts_as_qualified` and `allows_transfer` are two columns on purpose.**
+  One catalogue row carries both today, so the two bars will read close
+  together — in this business a qualified lead is handed over at once. That is
+  not a reason to collapse them: the client may yet say "Callback Requested is
+  transferable but unproven", or the reverse, and the funnel must not move
+  because a gating decision changed. Never read `allows_transfer` for a metric,
+  or `counts_as_qualified` for a gate.
+- **Which other dispositions carry either flag is the client's to decide.** Only
+  "Qualified - Transferred" is confirmed. Don't set a flag to make the funnel's
+  shape look better — the business semantics settle the flags, then the seed is
+  generated to obey them. Same open question ADR 0003 records for
+  `counts_as_sale`.
 - **Every bar opens onto its own records.** The bars are buttons; the selected
   one scopes the list beneath the chart, which reads
   `GET /reporting/funnel/{stage}` through `fetchFunnelStage()`. Attempts is the

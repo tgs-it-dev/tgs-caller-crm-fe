@@ -1,4 +1,5 @@
 import { apiUrl } from '@/lib/apiUrl'
+import { authError } from '@/lib/auth'
 
 /** Desk roles that have a queue projection on `GET /queue?role=`. */
 export type QueueRole = 'fronter' | 'closer'
@@ -76,4 +77,25 @@ export function listQueue(
     inflightByRole.set(role, inflight)
   }
   return inflight
+}
+
+/**
+ * Drop a row off the fronter queue once the call has been dealt with.
+ *
+ * The queue also hides interactions that carry a qualification, but a call
+ * that ended without one — a no-answer, say — has nothing to hide behind, so
+ * it would sit there until the dialer took it back. This is what says it left.
+ *
+ * Resolves rather than throws on 404: an interaction opened by direct link may
+ * have no open queue row at all, and by the time this runs the outcome is
+ * already recorded. Failing here would report an error for work that succeeded.
+ */
+export async function leaveFronterQueue(interactionId: string, token: string): Promise<void> {
+  const res = await fetch(apiUrl(`/queue/fronter/${encodeURIComponent(interactionId)}`), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ left: true }),
+  })
+  if (res.ok || res.status === 404) return
+  throw await authError(res)
 }

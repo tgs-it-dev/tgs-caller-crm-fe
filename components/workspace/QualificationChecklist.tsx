@@ -20,9 +20,16 @@ import { tokens } from '@/lib/theme'
 export function QualificationChecklist({
   form,
   onChange,
+  dncLockedByDisposition = false,
 }: {
   form: ActiveCallForm
   onChange: (patch: Partial<ActiveCallForm>) => void
+  /**
+   * The chosen outcome is "Do Not Call", so the flag is not the fronter's to
+   * clear — the two would otherwise disagree about whether the lead may be
+   * called again, and only the flag is actually read.
+   */
+  dncLockedByDisposition?: boolean
 }) {
   return (
     <div className="rounded-xl border-hairline border-slate bg-white p-6">
@@ -103,6 +110,7 @@ export function QualificationChecklist({
           <Checkbox
             label="Flag as Do Not Call"
             checked={form.dnc_flagged}
+            disabled={dncLockedByDisposition}
             onChange={(e) =>
               onChange({
                 dnc_flagged: e.target.checked,
@@ -112,10 +120,14 @@ export function QualificationChecklist({
           />
           {form.dnc_flagged && (
             <p
-              role="status"
+              role="alert"
               className="rounded-lg border border-status-red/30 bg-status-red/10 px-3 py-2 text-xs text-status-red"
             >
-              This lead is flagged Do Not Call. Transfer is blocked and cannot be overridden.
+              This lead is flagged Do Not Call. Transfer is blocked and cannot be
+              overridden.{' '}
+              {dncLockedByDisposition
+                ? 'Set by the disposition — change that to unflag.'
+                : 'You can still save and end the call.'}
             </p>
           )}
         </div>

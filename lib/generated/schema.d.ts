@@ -1091,6 +1091,16 @@ export interface components {
         /** DispositionResponse */
         DispositionResponse: {
             /**
+             * Allows Transfer
+             * @description Whether this outcome may be handed to a closer. The transfer gate enforces it server-side; clients use it to offer the control.
+             */
+            allows_transfer: boolean;
+            /**
+             * Counts As Qualified
+             * @description Whether this outcome means the lead qualified. Separate from allows_transfer on purpose — a transferable disposition is not necessarily a qualified one.
+             */
+            counts_as_qualified: boolean;
+            /**
              * Id
              * Format: uuid
              */
@@ -1684,6 +1694,8 @@ export interface components {
              * Format: uuid
              */
             interaction_id: string;
+            /** Lead Name */
+            lead_name: string;
             /**
              * Reason
              * @enum {string}
@@ -1763,6 +1775,8 @@ export interface components {
              * Format: uuid
              */
             actor_user_id: string;
+            /** Counts As Qualified */
+            counts_as_qualified: boolean;
             /**
              * Created At
              * Format: date-time

@@ -15,21 +15,17 @@ export type TodaysStatsSummary = {
 }
 
 /**
- * Catalogue label that counts as Qualified on fronter My Stats.
- * BE `sales` is counts_as_sale (closer "Sale" only) — not the fronter
- * Qualified tile — so this stays a label count until the contract adds one.
- * Matches the fronter seed in `tgs-caller-crm-be/scripts/seed.py`.
- */
-export const QUALIFIED_LABEL = 'Qualified - Transferred'
-
-/**
- * KPIs from this fronter's today payload. Calls/Transferred come from the
- * server summary fields; Qualified is still derived from disposition labels.
+ * KPIs from this fronter's today payload.
+ *
+ * Qualified counts `counts_as_qualified` off the catalogue row, not the label
+ * "Qualified - Transferred" it used to match. Renaming a catalogue entry would
+ * have silently zeroed this tile, and the flag is the same one the reports
+ * funnel reads — so the two cannot disagree about what qualified means.
  */
 export function summarizeTodaysStats(payload: TodaysStatsResponse): TodaysStatsSummary {
   return {
     callsToday: payload.calls_today,
-    qualified: payload.dispositions.filter((row) => row.label === QUALIFIED_LABEL).length,
+    qualified: payload.dispositions.filter((row) => row.counts_as_qualified).length,
     transferred: payload.calls_transferred,
   }
 }
