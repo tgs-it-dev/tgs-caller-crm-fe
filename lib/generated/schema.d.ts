@@ -1028,6 +1028,8 @@ export interface components {
              * Format: uuid
              */
             interaction_id: string;
+            /** Lead Name */
+            lead_name: string;
             /** Lead Phone */
             lead_phone: string;
             /**
@@ -1212,10 +1214,11 @@ export interface components {
          *
          *     Thin, but not bare. InteractionDetailResponse nests a qualification, which is
          *     right for one interaction and wasteful repeated down a page of them — so
-         *     nothing nested belongs here. The lead's phone and source are two scalars off
-         *     one join, and they are the only thing on this row a reader recognises: a page
-         *     of uuids and timestamps identifies nothing. Carrying them saves the client
-         *     reading every lead one at a time, which is the whole reason they are here.
+         *     nothing nested belongs here. The lead's name, phone and source are scalars
+         *     off one join (name from dialer_queue_entries, phone fallback when no queue
+         *     row), and they are what a reader recognises: a page of uuids and timestamps
+         *     identifies nothing. Carrying them saves the client reading every lead one at
+         *     a time, which is the whole reason they are here.
          */
         FunnelInteraction: {
             /**
@@ -1233,6 +1236,8 @@ export interface components {
              * Format: uuid
              */
             lead_id: string;
+            /** Lead Name */
+            lead_name: string;
             /** Lead Phone */
             lead_phone: string;
             /**

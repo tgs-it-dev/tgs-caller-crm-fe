@@ -30,6 +30,7 @@ export type CloserQueueEntry = {
   id: string
   /** Interaction id — workspace link target. */
   interaction_id: string
+  lead_name: string
   lead_phone: string
   fronter_user_id: string | null
   queued_at: string

@@ -83,17 +83,21 @@ function closerColumns(
     {
       id: 'lead',
       header: 'Lead',
-      render: (entry) =>
-        entry.status === 'accepted' ? (
-          <Link
-            href={closerWorkspaceHref(entry.interaction_id, entry.id)}
-            className="font-medium hover:text-navy hover:underline"
-          >
-            {formatPhone(entry.lead_phone)}
-          </Link>
-        ) : (
-          <span className="font-medium">{formatPhone(entry.lead_phone)}</span>
-        ),
+      render: (entry) => (
+        <>
+          {entry.status === 'accepted' ? (
+            <Link
+              href={closerWorkspaceHref(entry.interaction_id, entry.id)}
+              className="font-medium hover:text-navy hover:underline"
+            >
+              {entry.lead_name}
+            </Link>
+          ) : (
+            <span className="font-medium">{entry.lead_name}</span>
+          )}
+          <span className="mt-1 block text-xs text-slate">{formatPhone(entry.lead_phone)}</span>
+        </>
+      ),
     },
     {
       id: 'transfer',

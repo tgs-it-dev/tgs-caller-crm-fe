@@ -466,6 +466,7 @@ const MOCK_FRONTER_QUEUE: FronterQueueEntry[] = Array.from({ length: 48 }, (_, i
 const MOCK_CLOSER_QUEUE: CloserQueueEntry[] = Array.from({ length: 12 }, (_, index) => ({
   id: `transfer-${3000 + index}`,
   interaction_id: `int-${1100 + index}`,
+  lead_name: QUEUE_LEAD_NAMES[index % QUEUE_LEAD_NAMES.length],
   lead_phone: `+1323555${(2000 + index).toString().slice(-4)}`,
   fronter_user_id: index % 3 === 0 ? null : `fronter-${(index % 4) + 1}`,
   queued_at: new Date(QUEUE_SEEDED_AT - (120 - index * 5) * 1000).toISOString(),
