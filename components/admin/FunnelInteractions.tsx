@@ -46,13 +46,18 @@ const columnsIn = (timeZone: string): DataColumn<FunnelInteraction>[] => [
     // show — the contract says so — so the number is the whole identity.
     id: 'lead',
     header: 'Lead',
-    render: (row) => <span className="whitespace-nowrap">{formatPhone(row.lead_phone)}</span>,
+    render: (row) => (
+      <>
+      <span className="font-medium">{row.lead_name}</span>
+      <span className="mt-1 block text-xs text-slate">{formatPhone(row.lead_phone)}</span>
+      </>
+    ),
   },
   {
     id: 'interaction',
     header: 'Interaction',
     render: (row) => (
-      <span className="whitespace-nowrap font-mono text-xs">{row.id}</span>
+      <span className="whitespace-nowrap font-mono text-xs">{row.id.slice(0, 8)}…</span>
     ),
   },
   {

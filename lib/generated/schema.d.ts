@@ -564,9 +564,11 @@ export interface paths {
          * @description My Stats for the signed-in fronter or closer.
          *
          *     Scoped to the caller and to the configured business day — never another
-         *     agent's rows, never yesterday's. An empty day is empty arrays, not 404.
-         *     Fronter: dispositions they recorded and transfers they initiated.
-         *     Closer: dispositions they recorded and transfers they answered.
+         *     agent's rows, never yesterday's. An empty day is empty arrays and zero
+         *     counts, not 404. Includes summary integers for the My Stats cards
+         *     (``calls_today``, ``sales``, ``calls_transferred``). Fronter: dispositions
+         *     they recorded and transfers they initiated. Closer: dispositions they
+         *     recorded and transfers they answered.
          */
         get: operations["stats_today_me_stats_today_get"];
         put?: never;
@@ -1026,6 +1028,8 @@ export interface components {
              * Format: uuid
              */
             interaction_id: string;
+            /** Lead Name */
+            lead_name: string;
             /** Lead Phone */
             lead_phone: string;
             /**
@@ -1086,6 +1090,16 @@ export interface components {
         };
         /** DispositionResponse */
         DispositionResponse: {
+            /**
+             * Allows Transfer
+             * @description Whether this outcome may be handed to a closer. The transfer gate enforces it server-side; clients use it to offer the control.
+             */
+            allows_transfer: boolean;
+            /**
+             * Counts As Qualified
+             * @description Whether this outcome means the lead qualified. Separate from allows_transfer on purpose — a transferable disposition is not necessarily a qualified one.
+             */
+            counts_as_qualified: boolean;
             /**
              * Id
              * Format: uuid
@@ -1200,10 +1214,11 @@ export interface components {
          *
          *     Thin, but not bare. InteractionDetailResponse nests a qualification, which is
          *     right for one interaction and wasteful repeated down a page of them — so
-         *     nothing nested belongs here. The lead's phone and source are two scalars off
-         *     one join, and they are the only thing on this row a reader recognises: a page
-         *     of uuids and timestamps identifies nothing. Carrying them saves the client
-         *     reading every lead one at a time, which is the whole reason they are here.
+         *     nothing nested belongs here. The lead's name, phone and source are scalars
+         *     off one join (name from dialer_queue_entries, phone fallback when no queue
+         *     row), and they are what a reader recognises: a page of uuids and timestamps
+         *     identifies nothing. Carrying them saves the client reading every lead one at
+         *     a time, which is the whole reason they are here.
          */
         FunnelInteraction: {
             /**
@@ -1221,6 +1236,8 @@ export interface components {
              * Format: uuid
              */
             lead_id: string;
+            /** Lead Name */
+            lead_name: string;
             /** Lead Phone */
             lead_phone: string;
             /**
@@ -1677,6 +1694,8 @@ export interface components {
              * Format: uuid
              */
             interaction_id: string;
+            /** Lead Name */
+            lead_name: string;
             /**
              * Reason
              * @enum {string}
@@ -1756,6 +1775,8 @@ export interface components {
              * Format: uuid
              */
             actor_user_id: string;
+            /** Counts As Qualified */
+            counts_as_qualified: boolean;
             /**
              * Created At
              * Format: date-time

@@ -2,26 +2,36 @@
 
 import { useState, type FormEvent } from 'react'
 import Link from 'next/link'
-import { Alert } from '@/components/ui/Alert'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { requestPasswordReset } from '@/lib/invitations'
 import { waitForMocking } from '@/lib/mockReady'
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const SERVER_UNREACHABLE =
+  'Unable to reach the server. Please check your connection and try again.'
+
+/** Empty or malformed — same check on blur and on submit as login. */
+function emailProblem(email: string): string | undefined {
+  const trimmed = email.trim()
+  if (!trimmed) return 'Enter your email address.'
+  if (!EMAIL_PATTERN.test(trimmed)) return 'Enter a valid email address.'
+  return undefined
+}
+
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('')
   const [sent, setSent] = useState(false)
-  const [problem, setProblem] = useState<string | null>(null)
+  /** Present = red border; non-empty string = helper text under the field. */
+  const [problem, setProblem] = useState<string | undefined>()
   const [sending, setSending] = useState(false)
 
   async function submit(event: FormEvent) {
     event.preventDefault()
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setProblem('Enter a valid email address.')
-      return
-    }
+    const issue = emailProblem(email)
+    setProblem(issue)
+    if (issue) return
 
-    setProblem(null)
     setSending(true)
     try {
       await waitForMocking()
@@ -29,8 +39,9 @@ export default function ForgotPasswordPage() {
       setSent(true)
     } catch {
       // Never a verdict on the address: the endpoint answers 202 for every one
-      // alike, so only an unreachable or broken server lands here.
-      setProblem('Could not reach the server. Please try again.')
+      // alike, so only an unreachable or broken server lands here. Same copy
+      // as login's reachability failure (message sits under this sole field).
+      setProblem(SERVER_UNREACHABLE)
       setSending(false)
     }
   }
@@ -65,15 +76,35 @@ export default function ForgotPasswordPage() {
               </p>
             </div>
 
-            {problem && <Alert>{problem}</Alert>}
-
             <Input
               label="Email"
+              id="email"
+              name="email"
               type="email"
               autoComplete="email"
+              required
               value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              onChange={(e) => {
+                const next = e.target.value
+                setEmail(next)
+                if (problem == null) return
+                // Validation error: keep it honest while they type; clear once valid.
+                // Server reachability copy drops as soon as they edit.
+                setProblem(emailProblem(next))
+              }}
+              onBlur={() => {
+                const issue = emailProblem(email)
+                setProblem((prev) => {
+                  if (issue) return issue
+                  // Valid: clear a validation message, leave a server message alone.
+                  if (prev === SERVER_UNREACHABLE) return prev
+                  return undefined
+                })
+              }}
+              placeholder="Enter your email"
               autoFocus
+              error={problem != null}
+              helperText={problem || undefined}
             />
 
             <Button type="submit" isLoading={sending} loadingText="Sending…">

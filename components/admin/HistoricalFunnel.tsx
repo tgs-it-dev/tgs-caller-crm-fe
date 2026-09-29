@@ -11,8 +11,8 @@ import { formatDayRange, formatZone } from '@/lib/format'
 import { waitForMocking } from '@/lib/mockReady'
 import {
   businessDay,
+  defaultRange,
   fetchFunnel,
-  todayRange,
   type DateRange,
   type FunnelStage,
   type HistoricalFunnel as Funnel,
@@ -39,7 +39,7 @@ function messageFor(err: unknown): string {
 
 export function HistoricalFunnel() {
   const [selected, setSelected] = useState<Selection>(() => ({
-    range: todayRange(),
+    range: defaultRange(),
     auto: true,
   }))
   const [load, setLoad] = useState<LoadState>({ status: 'loading' })
@@ -68,13 +68,13 @@ export function HistoricalFunnel() {
         if (cancelled) return
         setZone(funnel.timezone)
 
-        // The page opens on today, and before the first reply there was no
-        // business zone to say which day that is — so it used the browser's.
-        // Where the two disagree these figures cover a day nobody asked for:
-        // they're dropped and the right one read instead, leaving the page
-        // loading rather than showing them.
+        // The page opens on yesterday–today, and before the first reply there
+        // was no business zone to say which days those are — so it used the
+        // browser's. Where the two disagree these figures cover a window
+        // nobody asked for: they're dropped and the right one read instead,
+        // leaving the page loading rather than showing them.
         if (selected.auto) {
-          const corrected = todayRange(funnel.timezone)
+          const corrected = defaultRange(funnel.timezone)
           if (corrected.start !== selected.range.start || corrected.end !== selected.range.end) {
             setPageMoved((moved) => moved + 1)
             select({ range: corrected, auto: true })
