@@ -29,6 +29,7 @@ import {
   canEndActiveCall,
   canTransferActiveCall,
   consentFromActiveCall,
+  dispositionAllowsTransfer,
   hasCapturedSomething,
   isActiveCallChecklistComplete,
   missingActiveCallTransferFields,
@@ -295,7 +296,7 @@ function ActiveCallBody({ interactionId }: { interactionId: string }) {
             endedAs={ended}
             onEndCall={handleEndCall}
             dispositionLabel={disposition?.label ?? null}
-            dispositionAllowsTransfer={disposition?.allows_transfer ?? false}
+            dispositionAllowsTransfer={dispositionAllowsTransfer(disposition)}
           />
         </div>
       </div>
