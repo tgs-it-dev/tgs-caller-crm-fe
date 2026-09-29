@@ -117,12 +117,21 @@ export function ExceptionsScreen() {
 
   const columns: DataColumn<ReconciliationException>[] = [
     {
-      id: 'interaction',
-      header: 'Interaction',
+      // lead_name is denormalised on the row so a uuid isn't the only identity.
+      // Empty is rare (no lead join) — fall back to the truncated id then.
+      id: 'lead',
+      header: 'Lead',
       render: (row) => (
-        <span className="whitespace-nowrap font-mono text-xs text-black">
-          {row.interaction_id}
-        </span>
+        <>
+          <span className="font-medium text-black">
+            {row.lead_name || `${row.interaction_id.slice(0, 8)}…`}
+          </span>
+          {row.lead_name ? (
+            <span className="mt-1 block whitespace-nowrap font-mono text-xs text-slate">
+              {row.interaction_id.slice(0, 8)}…
+            </span>
+          ) : null}
+        </>
       ),
     },
     { id: 'issue', header: 'Issue', render: (row) => reasonLabel(row.reason) },
@@ -156,7 +165,10 @@ export function ExceptionsScreen() {
               onClick={() => setExpandedId(open ? null : row.id)}
             >
               {open ? 'Hide' : 'Review'}
-              <span className="sr-only"> {reasonLabel(row.reason)}</span>
+              <span className="sr-only">
+                {' '}
+                {row.lead_name || reasonLabel(row.reason)}
+              </span>
             </Button>
           </div>
         )
@@ -181,8 +193,8 @@ export function ExceptionsScreen() {
           rows={load.list.items}
           columns={columns}
           getRowId={(row) => row.id}
-          // Ids and timestamps that must not wrap; the card scrolls if a
-          // viewport is too narrow to hold them.
+          // Timestamps that must not wrap; the card scrolls if a viewport is
+          // too narrow to hold them.
           minWidth="max-content"
           emptyMessage={
             query.resolution === 'open'
