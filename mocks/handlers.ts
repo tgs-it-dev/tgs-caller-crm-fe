@@ -451,6 +451,8 @@ const QUEUE_CAMPAIGNS = [
 const QUEUE_SEEDED_AT = Date.now()
 
 // 48 rows so the 5-per-page table paginates across 10 pages like the design.
+const LEFT_QUEUE = new Set<string>()
+
 const MOCK_FRONTER_QUEUE: FronterQueueEntry[] = Array.from({ length: 48 }, (_, index) => ({
   id: `int-${2000 + index}`,
   lead_name: QUEUE_LEAD_NAMES[index % QUEUE_LEAD_NAMES.length],
@@ -574,6 +576,10 @@ type MockDisposition = {
   id: string
   label: string
   stage: 'fronter' | 'closer'
+  /** May this outcome be handed to a closer? Gates the Transfer button. */
+  allows_transfer: boolean
+  /** Does this outcome mean the lead qualified? Counted by the funnel. */
+  counts_as_qualified: boolean
 }
 
 type MockInteractionDisposition = {
@@ -587,16 +593,29 @@ type MockInteractionDisposition = {
   created_at: string
 }
 
+/**
+ * Labels and flags mirror `tgs-caller-crm-be/scripts/seed.py`. Only
+ * "Qualified - Transferred" carries either flag, because only that row is
+ * confirmed — the rest of the taxonomy is the client's to settle, and a mock
+ * that guessed would let the UI through a state the real API refuses.
+ *
+ * The fronter labels are capitalised to match the real catalogue: Active Call
+ * matches "Do Not Call" to tick the DNC flag, so a mock-only spelling would
+ * break that link in mock mode alone.
+ */
+const HANDS_OVER = { allows_transfer: true, counts_as_qualified: true }
+const ENDS_THE_CALL = { allows_transfer: false, counts_as_qualified: false }
+
 const MOCK_DISPOSITION_CATALOG: MockDisposition[] = [
-  { id: 'disp-closer-sale', label: 'Sale', stage: 'closer' },
-  { id: 'disp-closer-callback', label: 'Callback Scheduled', stage: 'closer' },
-  { id: 'disp-closer-not-interested', label: 'Not Qualified', stage: 'closer' },
-  { id: 'disp-closer-dnc', label: 'Do Not Call', stage: 'closer' },
-  { id: 'disp-fronter-qualified', label: 'Qualified - Transferred', stage: 'fronter' },
-  { id: 'disp-fronter-not-interested', label: 'Not interested', stage: 'fronter' },
-  { id: 'disp-fronter-callback', label: 'Callback requested', stage: 'fronter' },
-  { id: 'disp-fronter-dnc', label: 'Do not call', stage: 'fronter' },
-  { id: 'disp-fronter-invalid', label: 'Invalid / wrong number', stage: 'fronter' },
+  { id: 'disp-closer-sale', label: 'Sale', stage: 'closer', ...ENDS_THE_CALL },
+  { id: 'disp-closer-callback', label: 'Callback Scheduled', stage: 'closer', ...ENDS_THE_CALL },
+  { id: 'disp-closer-not-interested', label: 'Not Qualified', stage: 'closer', ...ENDS_THE_CALL },
+  { id: 'disp-closer-dnc', label: 'Do Not Call', stage: 'closer', ...ENDS_THE_CALL },
+  { id: 'disp-fronter-qualified', label: 'Qualified - Transferred', stage: 'fronter', ...HANDS_OVER },
+  { id: 'disp-fronter-not-interested', label: 'Not Interested', stage: 'fronter', ...ENDS_THE_CALL },
+  { id: 'disp-fronter-callback', label: 'Callback Requested', stage: 'fronter', ...ENDS_THE_CALL },
+  { id: 'disp-fronter-dnc', label: 'Do Not Call', stage: 'fronter', ...ENDS_THE_CALL },
+  { id: 'disp-fronter-invalid', label: 'Wrong Number', stage: 'fronter', ...ENDS_THE_CALL },
 ]
 
 const MOCK_INTERACTION_DISPOSITIONS = new Map<string, MockInteractionDisposition[]>()
@@ -612,6 +631,7 @@ type MyStatsDispositionSeed = {
   actor_user_id: string
   lead_name: string
   lead_phone: string
+  counts_as_qualified: boolean
 }
 
 const MY_STATS_LABELS = [
@@ -674,6 +694,13 @@ function seedMyStatsForUser(
       actor_user_id: actorUserId,
       lead_name: MY_STATS_LEADS[(index + leadOffset) % MY_STATS_LEADS.length],
       lead_phone: `+9212345${actorUserId}${String(index).padStart(3, '0')}`,
+      // Read off the catalogue, as the API does — My Stats counts Qualified
+      // from this rather than matching the label.
+      counts_as_qualified: Boolean(
+        MOCK_DISPOSITION_CATALOG.find(
+          (row) => row.label === labels[index % labels.length] && row.stage === stage
+        )?.counts_as_qualified
+      ),
     }
   })
 
@@ -1222,10 +1249,34 @@ export const handlers = [
     return res(ctx.status(200), ctx.json(lead))
   }),
 
+  // Rows that have left the queue. Held apart from MOCK_FRONTER_QUEUE so that
+  // stays the seed and a reload restores it, the way re-running the seed script
+  // does against the real database.
+  rest.patch('/queue/fronter/:interactionId', async (req, res, ctx) => {
+    const interactionId = req.params.interactionId as string
+    const body = (await req.json()) as { left?: true; status?: 'ringing' | 'waiting' }
+    const entry = MOCK_FRONTER_QUEUE.find((row) => row.id === interactionId)
+    if (!entry || LEFT_QUEUE.has(interactionId)) {
+      return res(
+        ctx.status(404),
+        ctx.json({
+          detail: 'no open queue entry for this interaction',
+          code: 'queue.entry_not_found',
+        })
+      )
+    }
+    if (body.left) LEFT_QUEUE.add(interactionId)
+    if (body.status) entry.status = body.status
+    return res(ctx.status(200), ctx.json(entry))
+  }),
+
   rest.get('/queue', (req, res, ctx) => {
     const role = req.url.searchParams.get('role')
     if (role === 'fronter') {
-      return res(ctx.status(200), ctx.json(MOCK_FRONTER_QUEUE))
+      return res(
+        ctx.status(200),
+        ctx.json(MOCK_FRONTER_QUEUE.filter((row) => !LEFT_QUEUE.has(row.id)))
+      )
     }
     if (role === 'closer') {
       return res(ctx.status(200), ctx.json(MOCK_CLOSER_QUEUE))
@@ -1378,6 +1429,28 @@ export const handlers = [
   rest.post('/transfers', async (req, res, ctx) => {
     const body = (await req.json()) as TransferCreateRequest
     const now = new Date().toISOString()
+
+    // The same gate create_transfer applies. Without it, mock mode would allow
+    // handing "No Answer" to a closer — the exact state this change exists to
+    // prevent, and one that would then only surface against the real API.
+    const recorded = MOCK_INTERACTION_DISPOSITIONS.get(body.interaction_id) ?? []
+    const latest = recorded
+      .filter((row) => row.stage === 'fronter')
+      .sort((a, b) => b.version - a.version)[0]
+    const outcome = latest
+      ? MOCK_DISPOSITION_CATALOG.find((row) => row.id === latest.disposition_id)
+      : undefined
+    if (!outcome?.allows_transfer) {
+      return res(
+        ctx.status(422),
+        ctx.json({
+          detail: outcome
+            ? `'${outcome.label}' cannot be transferred to a closer`
+            : 'record a fronter disposition before transferring',
+          code: 'transfer.disposition_not_transferable',
+        })
+      )
+    }
 
     const transfer: TransferResponse = {
       id: `transfer-${++transferSeq}`,
