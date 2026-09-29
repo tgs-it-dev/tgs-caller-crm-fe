@@ -564,9 +564,11 @@ export interface paths {
          * @description My Stats for the signed-in fronter or closer.
          *
          *     Scoped to the caller and to the configured business day — never another
-         *     agent's rows, never yesterday's. An empty day is empty arrays, not 404.
-         *     Fronter: dispositions they recorded and transfers they initiated.
-         *     Closer: dispositions they recorded and transfers they answered.
+         *     agent's rows, never yesterday's. An empty day is empty arrays and zero
+         *     counts, not 404. Includes summary integers for the My Stats cards
+         *     (``calls_today``, ``sales``, ``calls_transferred``). Fronter: dispositions
+         *     they recorded and transfers they initiated. Closer: dispositions they
+         *     recorded and transfers they answered.
          */
         get: operations["stats_today_me_stats_today_get"];
         put?: never;
@@ -1026,6 +1028,8 @@ export interface components {
              * Format: uuid
              */
             interaction_id: string;
+            /** Lead Name */
+            lead_name: string;
             /** Lead Phone */
             lead_phone: string;
             /**
