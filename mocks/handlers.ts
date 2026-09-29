@@ -318,6 +318,12 @@ function mockFunnelStage(
       return {
         id: `int-${stage}-${nth}`,
         lead_id: `lead-${stage}-${nth}`,
+        // coalesce(dialer_queue_entries.lead_name, phone): every fourth row has
+        // no queue row behind it, which is what the fallback is for.
+        lead_name:
+          nth % 4 === 3
+            ? `+1555${String(2_000_000 + nth).slice(-7)}`
+            : QUEUE_LEAD_NAMES[nth % QUEUE_LEAD_NAMES.length],
         lead_phone: `+1555${String(2_000_000 + nth).slice(-7)}`,
         lead_source: nth % 5 === 0 ? ('ghl' as const) : ('vicidial' as const),
         created_at: new Date(latest - ((nth * 7 * 60_000) % span)).toISOString(),
@@ -744,6 +750,7 @@ const MOCK_EXCEPTIONS: ReconciliationException[] = [
   {
     id: 'exc-1',
     interaction_id: 'int-exc-1',
+    lead_name: QUEUE_LEAD_NAMES[1],
     reason: 'multi_leg_without_transfer',
     details: { leg_count: 3 },
     detected_at: HOURS_AGO(2),
@@ -754,6 +761,7 @@ const MOCK_EXCEPTIONS: ReconciliationException[] = [
   {
     id: 'exc-2',
     interaction_id: 'int-exc-2',
+    lead_name: '',
     reason: 'late_event_after_finalization',
     details: {
       finalized_at: HOURS_AGO(6),
@@ -768,6 +776,7 @@ const MOCK_EXCEPTIONS: ReconciliationException[] = [
   {
     id: 'exc-3',
     interaction_id: 'int-exc-3',
+    lead_name: QUEUE_LEAD_NAMES[3],
     reason: 'multi_leg_without_transfer',
     details: { leg_count: 2 },
     detected_at: HOURS_AGO(30),
@@ -778,6 +787,7 @@ const MOCK_EXCEPTIONS: ReconciliationException[] = [
   {
     id: 'exc-4',
     interaction_id: 'int-exc-4',
+    lead_name: QUEUE_LEAD_NAMES[4],
     reason: 'late_event_after_finalization',
     details: { finalized_at: HOURS_AGO(20), window_seconds: 300, late_event_ids: [] },
     detected_at: HOURS_AGO(19),
@@ -790,6 +800,7 @@ const MOCK_EXCEPTIONS: ReconciliationException[] = [
   ...Array.from({ length: 12 }, (_, index): ReconciliationException => ({
     id: `exc-${index + 5}`,
     interaction_id: `int-exc-bulk-${index + 1}`,
+    lead_name: QUEUE_LEAD_NAMES[(index + 5) % QUEUE_LEAD_NAMES.length],
     reason: index % 3 === 0 ? 'late_event_after_finalization' : 'multi_leg_without_transfer',
     details:
       index % 3 === 0

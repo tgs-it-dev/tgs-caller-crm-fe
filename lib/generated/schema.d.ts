@@ -1694,6 +1694,8 @@ export interface components {
              * Format: uuid
              */
             interaction_id: string;
+            /** Lead Name */
+            lead_name: string;
             /**
              * Reason
              * @enum {string}
