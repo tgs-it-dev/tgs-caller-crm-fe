@@ -289,6 +289,24 @@ export function hasCapturedSomething(form: ActiveCallForm): boolean {
 }
 
 /**
+ * Whether this catalogue row may be handed to a closer.
+ *
+ * Prefers `allows_transfer` when the API sends it. The live BE still returns
+ * only id/stage/label on `DispositionResponse`, so a missing flag must not
+ * lock Transfer forever — fall back to the one confirmed handoff label until
+ * the catalogue columns ship.
+ */
+export function dispositionAllowsTransfer(
+  disposition: DispositionResponse | null | undefined
+): boolean {
+  if (!disposition) return false
+  if (typeof disposition.allows_transfer === 'boolean') {
+    return disposition.allows_transfer
+  }
+  return disposition.label === 'Qualified - Transferred'
+}
+
+/**
  * Client gate for the Transfer button. The server enforces the same rule, so
  * this only decides whether to offer the control.
  *
@@ -301,7 +319,7 @@ export function canTransferActiveCall(
   opts: { disposition: DispositionResponse | null; overrideReason: string }
 ): boolean {
   if (form.dnc_flagged) return false
-  if (!opts.disposition?.allows_transfer) return false
+  if (!dispositionAllowsTransfer(opts.disposition)) return false
 
   // Checklist complete + a transferable outcome → no override needed.
   if (isActiveCallChecklistComplete(form)) return true
