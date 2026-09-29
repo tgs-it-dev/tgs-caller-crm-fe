@@ -188,6 +188,18 @@ export const theme = createTheme({
             borderColor: tokens.navy,
             borderWidth: 2,
           },
+          // Explicit so the chrome/navy overrides above never beat palette.error
+          // on a field marked `error` (login + forgot-password inline validation).
+          '&.Mui-error fieldset': {
+            borderColor: tokens.status.red,
+          },
+          '&.Mui-error:hover fieldset': {
+            borderColor: tokens.status.red,
+          },
+          '&.Mui-error.Mui-focused fieldset': {
+            borderColor: tokens.status.red,
+            borderWidth: 2,
+          },
           '&.MuiInputBase-multiline': {
             padding: 0,
           },
