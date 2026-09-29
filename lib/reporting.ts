@@ -61,8 +61,16 @@ export function businessDay(date: Date, timeZone?: string): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone }).format(date)
 }
 
-/** Today alone, the window the page opens on. */
-export function todayRange(timeZone?: string): DateRange {
+/** One calendar day before an ISO `YYYY-MM-DD`, in UTC so the zone never shifts it. */
+function dayBefore(isoDay: string): string {
+  const [y, m, d] = isoDay.split('-').map(Number)
+  const date = new Date(Date.UTC(y, m - 1, d))
+  date.setUTCDate(date.getUTCDate() - 1)
+  return date.toISOString().slice(0, 10)
+}
+
+/** Yesterday through today — the window the reports page opens on. */
+export function defaultRange(timeZone?: string): DateRange {
   const today = businessDay(new Date(), timeZone)
-  return { start: today, end: today }
+  return { start: dayBefore(today), end: today }
 }
