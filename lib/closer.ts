@@ -187,7 +187,7 @@ function vehicleFromSnap(snap: Record<string, unknown>): string {
   return [snap.vehicle_year, snap.vehicle_make, snap.vehicle_model]
     .map(snapString)
     .map((part) => part.trim())
-    .filter(Boolean)
+    .filter((part) => part.length > 0 && part.toLowerCase() !== 'not provided')
     .join(' ')
 }
 

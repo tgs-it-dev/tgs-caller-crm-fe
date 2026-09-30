@@ -159,6 +159,14 @@ const SNAPSHOT_ROWS: { key: string; label: string }[] = [
   { key: 'warranty_status', label: 'Warranty Status:' },
 ]
 
+/** Split keys Active Call may also write alongside free-text `vehicle`. */
+const VEHICLE_SPLIT_KEYS = ['vehicle_year', 'vehicle_make', 'vehicle_model'] as const
+
+/** Invented by an older write path — not a value a fronter typed. */
+function isVehiclePlaceholder(value: unknown): boolean {
+  return typeof value === 'string' && value.trim().toLowerCase() === 'not provided'
+}
+
 /**
  * The design asks for one Vehicle line; the snapshot may hold it as one key or
  * as year, make and model separately. Whichever keys it used are reported back,
@@ -168,17 +176,23 @@ function vehicleLine(snapshot: QualificationRecord['snapshot_json']): {
   value: unknown
   used: string[]
 } {
+  // Free-text line wins. Always consume the split keys too — older saves wrote
+  // both, and listing them again as snake_case extras was the bug.
   if (typeof snapshot.vehicle === 'string' && snapshot.vehicle) {
-    return { value: snapshot.vehicle, used: ['vehicle'] }
+    return { value: snapshot.vehicle, used: ['vehicle', ...VEHICLE_SPLIT_KEYS] }
   }
 
-  const parts = ['vehicle_year', 'vehicle_make', 'vehicle_model'].filter((key) => {
+  const parts = VEHICLE_SPLIT_KEYS.filter((key) => {
     const value = snapshot[key]
+    if (isVehiclePlaceholder(value)) return false
     return (typeof value === 'string' && value) || typeof value === 'number'
   })
-  if (parts.length === 0) return { value: null, used: ['vehicle'] }
+  if (parts.length === 0) return { value: null, used: ['vehicle', ...VEHICLE_SPLIT_KEYS] }
 
-  return { value: parts.map((key) => String(snapshot[key])).join(' '), used: ['vehicle', ...parts] }
+  return {
+    value: parts.map((key) => String(snapshot[key])).join(' '),
+    used: ['vehicle', ...VEHICLE_SPLIT_KEYS],
+  }
 }
 
 /** Whatever is in the JSON, readable — objects as JSON rather than "[object Object]". */
