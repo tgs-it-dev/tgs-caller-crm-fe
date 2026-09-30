@@ -1198,10 +1198,10 @@ export interface components {
             /** Transfers Accepted */
             transfers_accepted: number;
             /**
-             * Transfers Initiated
-             * @description Interactions with a transfer put to closers, counted from the moment it is initiated, whatever the outcome.
+             * Transfers Offered
+             * @description Interactions with a transfer put to closers, whatever the outcome.
              */
-            transfers_initiated: number;
+            transfers_offered: number;
             /**
              * Transfers Rejected
              * @description Interactions with a transfer a closer turned down. Timeouts and failures are not rejections.
@@ -1295,8 +1295,8 @@ export interface components {
             start: string;
             /** Timezone */
             timezone: string;
-            /** Transfer Attempts */
-            transfer_attempts: number;
+            /** Transferred */
+            transferred: number;
         };
         /** InboundEventListResponse */
         InboundEventListResponse: {
@@ -3540,7 +3540,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                stage: "attempts" | "connects" | "qualified" | "transfer_attempts";
+                stage: "attempts" | "connects" | "qualified" | "transferred";
             };
             cookie?: never;
         };

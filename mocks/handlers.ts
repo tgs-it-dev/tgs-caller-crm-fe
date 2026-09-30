@@ -245,7 +245,7 @@ function mockLiveStatus(): LiveStatus {
       leads: 26 + (tick % 20),
       interactions: 30 + (tick % 20),
       qualifications: 12 + (tick % 7),
-      transfers_initiated: 8 + (tick % 5),
+      transfers_offered: 8 + (tick % 5),
       transfers_accepted: 5 + (tick % 3),
       transfers_rejected: 1 + (tick % 2),
       sales: 2 + (tick % 2),
@@ -288,7 +288,9 @@ function mockFunnel(start: string, end: string): HistoricalFunnel {
     attempts,
     connects,
     qualified,
-    transfer_attempts: Math.round(qualified * 0.48),
+    // Well under Qualified: roughly half of all offers go unanswered, which is
+    // the gap this bar exists to show.
+    transferred: Math.round(qualified * 0.25),
   }
 }
 
