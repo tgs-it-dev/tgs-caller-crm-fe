@@ -22,8 +22,12 @@ import { withSession } from '@/lib/session'
 /** The list the bars scope; both sides of `aria-controls` read it from here. */
 const LIST_ID = 'funnel-interactions'
 
-/** A window the page chose rather than the user, and so one it may still correct. */
-type Selection = { range: DateRange; auto: boolean }
+/**
+ * A window the page chose rather than the user, and so one it may still
+ * correct. `timezone` is unset until someone picks one — the first read lets
+ * the server name the business day.
+ */
+type Selection = { range: DateRange; auto: boolean; timezone?: string }
 
 type LoadState =
   | { status: 'loading' }
@@ -34,6 +38,8 @@ function messageFor(err: unknown): string {
   if (err instanceof AuthError && err.status === 403) return 'You no longer have access to reports.'
   if (err instanceof AuthError && err.status === 401)
     return 'Your session has ended. Please sign in again.'
+  if (err instanceof AuthError && err.code === 'reporting.unknown_timezone')
+    return 'That time zone is not recognised.'
   return 'Could not load the funnel for this range.'
 }
 
@@ -63,7 +69,7 @@ export function HistoricalFunnel() {
     let cancelled = false
 
     waitForMocking()
-      .then(() => withSession((token) => fetchFunnel(selected.range, token)))
+      .then(() => withSession((token) => fetchFunnel(selected.range, token, selected.timezone)))
       .then((funnel) => {
         if (cancelled) return
         setZone(funnel.timezone)
@@ -77,7 +83,7 @@ export function HistoricalFunnel() {
           const corrected = defaultRange(funnel.timezone)
           if (corrected.start !== selected.range.start || corrected.end !== selected.range.end) {
             setPageMoved((moved) => moved + 1)
-            select({ range: corrected, auto: true })
+            select({ range: corrected, auto: true, timezone: selected.timezone })
             return
           }
         }
@@ -114,7 +120,7 @@ export function HistoricalFunnel() {
               key={pageMoved}
               range={selected.range}
               max={businessDay(new Date(), zone)}
-              onChange={(range) => select({ range, auto: false })}
+              onChange={(range) => select({ range, auto: false, timezone: selected.timezone })}
             />
           </header>
 
@@ -134,11 +140,20 @@ export function HistoricalFunnel() {
           )}
         </section>
 
-        {/* Keyed by stage so another bar remounts it at the first page, rather
-            than resetting the offset in an effect. Hidden on an empty window
-            because every stage is then empty and the chart already says so. */}
+        {/* Keyed by stage + window so another bar or zone remounts at the first
+            page, rather than resetting the offset in an effect. Hidden on an
+            empty window because every stage is then empty and the chart already
+            says so. */}
         {load.status === 'ready' && load.funnel.attempts > 0 && (
-          <FunnelInteractions key={stage} id={LIST_ID} stage={stage} funnel={load.funnel} />
+          <FunnelInteractions
+            key={`${stage}-${load.funnel.start}-${load.funnel.end}-${load.funnel.timezone}`}
+            id={LIST_ID}
+            stage={stage}
+            funnel={load.funnel}
+            onTimezoneChange={(timezone) =>
+              select({ range: selected.range, auto: false, timezone })
+            }
+          />
         )}
       </div>
     </PageShell>

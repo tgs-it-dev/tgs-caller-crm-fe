@@ -53,11 +53,7 @@ function TransferStatusBadge({
   )
 
   useEffect(() => {
-    if (!startedAt) {
-      setElapsed(null)
-      return
-    }
-    setElapsed(formatElapsed(startedAt))
+    if (!startedAt) return
     const id = setInterval(() => setElapsed(formatElapsed(startedAt)), 1000)
     return () => clearInterval(id)
   }, [startedAt])
@@ -389,6 +385,7 @@ function CloserActiveCallWorkspace({
       title="Active Call"
       actions={
         <TransferStatusBadge
+          key={transferStatus === 'accepted' ? (callStartedAt ?? 'pending') : 'pending'}
           label={statusText}
           tone={!isLoading && transferStatus !== 'accepted' ? 'neutral' : 'accepted'}
           startedAt={transferStatus === 'accepted' ? callStartedAt : null}
