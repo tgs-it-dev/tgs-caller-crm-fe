@@ -242,6 +242,16 @@ Attempts.
   finding nothing is how a zero gets confirmed instead of wondered about. An
   empty window renders no list card at all, because the chart already says the
   range is empty.
+- **The list is ordered by the stage's own event, not by the interaction's
+  creation** — rows behind Transfer Attempts sorted by when the *call* started
+  answer a question that bar didn't ask. `event_at` carries that instant:
+  creation for Attempts, the earliest call leg for Connects, the qualifying
+  disposition for Qualified, the first transfer for Transfer Attempts. A second
+  column headed from `STAGE_TIME_LABEL` shows it, except on Attempts where
+  creation *is* the event. `created_at` stays beside it as the cohort key, so
+  the two columns disagreeing is correct rather than a bug: a handoff can
+  outlive the day of the call that made it. Ordering is fixed per stage; there
+  is no sort control.
 - **The drill-down sends `timezone`; the aggregate deliberately doesn't.** Not
   an inconsistency. Dates alone don't say which 24 hours they mean: the server
   reads them in a zone, and the same days under another one are a different

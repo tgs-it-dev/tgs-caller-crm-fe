@@ -1227,6 +1227,11 @@ export interface components {
              */
             created_at: string;
             /**
+             * Event At
+             * Format: date-time
+             */
+            event_at: string;
+            /**
              * Id
              * Format: uuid
              */
