@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import MuiButton from '@mui/material/Button'
-import { STAGE_LABEL } from '@/components/admin/FunnelChart'
+import { STAGE_LABEL, STAGE_TIME_LABEL } from '@/components/admin/FunnelChart'
 import { Alert } from '@/components/ui/Alert'
 import { DataTable, type DataColumn } from '@/components/ui/DataTable'
 import { AuthError } from '@/lib/auth'
@@ -33,14 +33,7 @@ function messageFor(err: unknown): string {
 }
 
 /** Per zone: rows are drawn in the one the figure above them was counted in. */
-const columnsIn = (timeZone: string): DataColumn<FunnelInteraction>[] => [
-  {
-    id: 'started',
-    header: 'Started',
-    render: (row) => (
-      <span className="whitespace-nowrap">{formatDateTimeIn(row.created_at, timeZone)}</span>
-    ),
-  },
+const columnsIn = (timeZone: string, stage: FunnelStage): DataColumn<FunnelInteraction>[] => [
   {
     // The only field on the row a reader recognises. Leads have no name to
     // show — the contract says so — so the number is the whole identity.
@@ -51,6 +44,26 @@ const columnsIn = (timeZone: string): DataColumn<FunnelInteraction>[] => [
       <span className="font-medium">{row.lead_name}</span>
       <span className="mt-1 block text-xs text-slate">{formatPhone(row.lead_phone)}</span>
       </>
+    ),
+  },
+  // The event the list is ordered by. Dropped on Attempts, where creation *is*
+  // the event and the two columns would repeat each other.
+  ...(stage === 'attempts'
+    ? []
+    : [
+        {
+          id: 'event',
+          header: STAGE_TIME_LABEL[stage],
+          render: (row: FunnelInteraction) => (
+            <span className="whitespace-nowrap">{formatDateTimeIn(row.event_at, timeZone)}</span>
+          ),
+        },
+      ]),
+  {
+    id: 'started',
+    header: 'Started at',
+    render: (row) => (
+      <span className="whitespace-nowrap">{formatDateTimeIn(row.created_at, timeZone)}</span>
     ),
   },
   {
@@ -148,7 +161,7 @@ export function FunnelInteractions({
       title={heading}
       ariaLabel={heading}
       rows={load.list.items}
-      columns={columnsIn(load.list.timezone)}
+      columns={columnsIn(load.list.timezone, stage)}
       getRowId={(row) => row.id}
       // Ids and timestamps that must not wrap; the card scrolls if a viewport
       // is too narrow to hold them.
