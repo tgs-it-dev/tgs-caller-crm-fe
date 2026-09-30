@@ -39,7 +39,7 @@ export const tokens = {
     attempts: '#3E7CB1',
     connects: '#4F8A5B',
     qualified: '#7A5FA3',
-    transfers: '#C99A3E',
+    transferred: '#C99A3E',
   },
   /** Pill fills from Figma — all lighter than a 10% alpha of their text colour. */
   badge: {

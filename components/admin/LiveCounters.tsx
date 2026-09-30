@@ -8,7 +8,7 @@ const PHONE =
 type Counter = { label: string; value: string; icon: ReactNode; hint?: string }
 
 export function LiveCounters({ snapshot }: { snapshot: LiveStatus }) {
-  const { transfers_initiated, transfers_rejected } = snapshot.funnel_today
+  const { transfers_offered, transfers_rejected } = snapshot.funnel_today
   const counters: Counter[] = [
     {
       label: 'Agents Logged In',
@@ -44,7 +44,7 @@ export function LiveCounters({ snapshot }: { snapshot: LiveStatus }) {
     },
     {
       label: 'Transfers Offered/ Rejected',
-      value: `${transfers_initiated}/${transfers_rejected}`,
+      value: `${transfers_offered}/${transfers_rejected}`,
       icon: (
         <OutlineIcon>
           <path d={PHONE} />

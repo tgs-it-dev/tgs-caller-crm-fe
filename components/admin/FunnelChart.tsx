@@ -5,10 +5,8 @@ export const STAGE_LABEL: Record<FunnelStage, string> = {
   attempts: 'Attempts',
   connects: 'Connects',
   qualified: 'Qualified',
-  // Not the design's "Transferred". A transfer attempt is what the data can
-  // show: rejected and timed-out transfers are in this number, and whether a
-  // closer reached the lead isn't recorded anywhere.
-  transfer_attempts: 'Transfer Attempts',
+  // Doesn't claim the closer reached the lead — the caption says so.
+  transferred: 'Transferred',
 }
 
 /**
@@ -25,14 +23,14 @@ export const STAGE_LABEL: Record<FunnelStage, string> = {
 export const STAGE_TIME_LABEL: Record<Exclude<FunnelStage, 'attempts'>, string> = {
   connects: 'Connected at',
   qualified: 'Qualified at',
-  transfer_attempts: 'Transferred at',
+  transferred: 'Transferred at',
 }
 
 const STAGES = [
   { field: 'attempts', fill: 'bg-funnel-attempts' },
   { field: 'connects', fill: 'bg-funnel-connects' },
   { field: 'qualified', fill: 'bg-funnel-qualified' },
-  { field: 'transfer_attempts', fill: 'bg-funnel-transfers' },
+  { field: 'transferred', fill: 'bg-funnel-transferred' },
 ] as const satisfies readonly { field: FunnelStage; fill: string }[]
 
 export function FunnelChart({
@@ -107,10 +105,10 @@ export function FunnelChart({
 
       {/* Said here rather than in hover text, which a screen reader never reads. */}
       <p className="mt-5 text-xs leading-[150%] text-slate">
-        Connects counts interactions with at least one call leg; Qualified, those with a
-        qualification captured — not that the lead qualified; Transfer Attempts includes transfers a
-        closer rejected or that timed out. Figures stay provisional until dialer call events are
-        mapped.
+        Connects counts interactions with at least one call leg; Qualified, those whose fronter
+        recorded a qualifying outcome; Transferred, those a closer accepted — not that they reached
+        the lead, which isn’t recorded. Offers nobody took are on the dashboard, not here. Figures
+        stay provisional until dialer call events are mapped.
       </p>
     </>
   )

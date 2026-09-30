@@ -210,11 +210,27 @@ Attempts.
   events unmapped, Connects sits at 0 under a non-zero Qualified. Bars measure
   against the largest count and the page prints what the server sent; never
   reshape a figure to keep a funnel silhouette.
-- **The last bar is Transfer Attempts, not the design's "Transferred".** Whether
-  a closer reached the lead isn't recorded anywhere, so the number counts
-  attempts, rejections and timeouts included. Connects is a stand-in too, and
-  the page says so in a line under the chart rather than in hover text, which a
-  screen reader never reads.
+- **Transferred is the last bar — one word from the API key to the column
+  heading.** The stage key, the bar label and the drill-down header are all
+  "transferred"; only the database underneath speaks of the transfer being
+  *accepted*, because `status` has six values and `accepted` is one of them.
+  The bar does **not** claim the closer *reached* the lead — the dialer bridge
+  isn't recorded, and that is the PRD's separate "closer connected" stage. Its
+  `event_at` is `Transfer.answered_at`, deliberately not an `accepted_at`: the
+  column is stamped on a rejection too, and the stage's status filter is what
+  narrows it. Connects is a stand-in too, and the page says all of this in a
+  line under the chart rather than in hover text, which a screen reader never
+  reads.
+- **There is no Transfer Attempts bar, and re-adding one needs a reason.** It
+  counted every offer including the ones nobody took, and over all seeded
+  history it never once diverged from Qualified — the only outcome the transfer
+  gate accepts is the only one that counts as qualified, so the two measured the
+  same set. What it hid was the gap that matters: roughly half of all offers are
+  rejected or time out, which is what Transferred now exposes. The offered count
+  still exists — `transfer_attempts()` in the backend feeds the dashboard's
+  "Transfers Offered/Rejected" counter, read from `transfers_offered` — it is
+  just not a funnel stage. That field used to be `transfers_initiated`, which
+  named one of the six transfer statuses while counting offers of every status.
 - **Qualified is the fronter's verdict, not the presence of a form.** It counts
   interactions whose latest *fronter* disposition carries `counts_as_qualified`
   on the catalogue row. It used to count `exists(Qualification)`, which answered
@@ -243,10 +259,10 @@ Attempts.
   empty window renders no list card at all, because the chart already says the
   range is empty.
 - **The list is ordered by the stage's own event, not by the interaction's
-  creation** — rows behind Transfer Attempts sorted by when the *call* started
-  answer a question that bar didn't ask. `event_at` carries that instant:
-  creation for Attempts, the earliest call leg for Connects, the qualifying
-  disposition for Qualified, the first transfer for Transfer Attempts. A second
+  creation** — rows behind Transferred sorted by when the *call* started answer
+  a question that bar didn't ask. `event_at` carries that instant: creation for
+  Attempts, the earliest call leg for Connects, the qualifying disposition for
+  Qualified, the accepted transfer's `answered_at` for Transferred. A second
   column headed from `STAGE_TIME_LABEL` shows it, except on Attempts where
   creation *is* the event. `created_at` stays beside it as the cohort key, so
   the two columns disagreeing is correct rather than a bug: a handoff can
