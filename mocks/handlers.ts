@@ -271,20 +271,29 @@ function adminRefusal(authorization: string | null) {
   return null
 }
 
+/** Default business day when the client leaves `timezone` off, matching the API. */
+const MOCK_BUSINESS_TIMEZONE = 'America/New_York'
+
 /**
  * Funnel counts for a window, worked out from the window itself so the same
  * dates always answer the same figures and a different range visibly moves them.
+ *
+ * `timezone` is echoed so a deliberate region pick shows on the chart and list;
+ * a different zone also nudges the figures so mock mode can't hide a client
+ * that forgot to pass the choice through.
  */
-function mockFunnel(start: string, end: string): HistoricalFunnel {
+function mockFunnel(start: string, end: string, timezone?: string | null): HistoricalFunnel {
+  const zone = timezone || MOCK_BUSINESS_TIMEZONE
   const days = Math.max(1, Math.round((Date.parse(end) - Date.parse(start)) / 86_400_000) + 1)
-  const attempts = days * 40 + (Number(start.replace(/-/g, '')) % 97)
+  const zoneBias = zone.split('').reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % 11
+  const attempts = days * 40 + (Number(start.replace(/-/g, '')) % 97) + zoneBias
   const connects = Math.round(attempts * 0.67)
   const qualified = Math.round(connects * 0.62)
 
   return {
     start,
     end,
-    timezone: 'America/New_York',
+    timezone: zone,
     attempts,
     connects,
     qualified,
@@ -306,9 +315,11 @@ function mockFunnelStage(
   start: string,
   end: string,
   limit: number,
-  offset: number
+  offset: number,
+  timezone?: string | null
 ): FunnelInteractionList {
-  const total = mockFunnel(start, end)[stage]
+  const funnel = mockFunnel(start, end, timezone)
+  const total = funnel[stage]
   // Mid-afternoon on the window's last day, walked backwards, so rows read
   // newest first and stay inside the range in any plausible business zone.
   const latest = Date.parse(`${end}T17:00:00.000Z`)
@@ -337,7 +348,7 @@ function mockFunnelStage(
       }
     }),
     total,
-    timezone: 'America/New_York',
+    timezone: funnel.timezone,
     limit,
     offset,
   }
@@ -1231,7 +1242,10 @@ export const handlers = [
       return res(ctx.status(422), ctx.json(authErrorBody('Field required', 'validation_error')))
     }
 
-    return res(ctx.status(200), ctx.json(mockFunnel(start, end)))
+    return res(
+      ctx.status(200),
+      ctx.json(mockFunnel(start, end, req.url.searchParams.get('timezone')))
+    )
   }),
 
   rest.get('/reporting/funnel/:stage', (req, res, ctx) => {
@@ -1248,7 +1262,12 @@ export const handlers = [
     const limit = Number(req.url.searchParams.get('limit') ?? 50)
     const offset = Number(req.url.searchParams.get('offset') ?? 0)
 
-    return res(ctx.status(200), ctx.json(mockFunnelStage(stage, start, end, limit, offset)))
+    return res(
+      ctx.status(200),
+      ctx.json(
+        mockFunnelStage(stage, start, end, limit, offset, req.url.searchParams.get('timezone'))
+      )
+    )
   }),
 
   rest.get('/interactions', (_req, res, ctx) => {

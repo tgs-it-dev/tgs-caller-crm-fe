@@ -15,13 +15,46 @@ export type FunnelInteractionList = components['schemas']['FunnelInteractionList
 export type DateRange = { start: string; end: string }
 
 /**
+ * Zones an administrator can ask the funnel to count in.
+ *
+ * Any IANA name the server knows is valid; this is only the menu. The reply's
+ * zone is always offered too, so a configured business day outside the list
+ * still appears as the current choice.
+ */
+export const REPORT_TIMEZONES = [
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+  'America/Phoenix',
+  'UTC',
+  'Europe/London',
+  'Asia/Karachi',
+] as const
+
+/** Menu options for a funnel reply — curated list plus the zone on screen. */
+export function reportTimezoneOptions(current: string): string[] {
+  if ((REPORT_TIMEZONES as readonly string[]).includes(current)) {
+    return [...REPORT_TIMEZONES]
+  }
+  return [current, ...REPORT_TIMEZONES]
+}
+
+/**
  * Funnel counts for a range of business days.
  *
- * No `timezone` is sent: a business day is the server's to define, and the
- * answer names the zone it counted in, so a figure says which days it covers.
+ * Omit `timezone` on the first read so the server names the configured
+ * business day. Pass one after that when someone deliberately picks another
+ * region — the same dates mean a different cohort under a different zone.
  */
-export async function fetchFunnel(range: DateRange, token: string): Promise<HistoricalFunnel> {
-  const res = await fetch(apiUrl(`/reporting/funnel?${new URLSearchParams(range)}`), {
+export async function fetchFunnel(
+  range: DateRange,
+  token: string,
+  timezone?: string
+): Promise<HistoricalFunnel> {
+  const query = new URLSearchParams(range)
+  if (timezone) query.set('timezone', timezone)
+  const res = await fetch(apiUrl(`/reporting/funnel?${query}`), {
     headers: { Authorization: `Bearer ${token}` },
   })
   if (!res.ok) throw await authError(res)
