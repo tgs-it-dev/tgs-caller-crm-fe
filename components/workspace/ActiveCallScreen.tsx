@@ -31,8 +31,8 @@ import {
   consentFromActiveCall,
   dispositionAllowsTransfer,
   hasCapturedSomething,
-  isActiveCallChecklistComplete,
   missingActiveCallTransferFields,
+  needsActiveCallOverride,
   snapshotJsonFromActiveCall,
   submitQualification,
   type ActiveCallForm,
@@ -249,7 +249,7 @@ function ActiveCallBody({ interactionId }: { interactionId: string }) {
   // just asserted is the one direction that loses something.
   const dncByDisposition = disposition?.label === DNC_LABEL
   const eligible = canTransferActiveCall(form, { disposition, overrideReason })
-  const needsOverride = !isActiveCallChecklistComplete(form) && !form.dnc_flagged
+  const needsOverride = needsActiveCallOverride(form)
 
   return (
     <PageShell
