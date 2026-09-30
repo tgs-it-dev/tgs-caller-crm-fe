@@ -11,6 +11,23 @@ export const STAGE_LABEL: Record<FunnelStage, string> = {
   transfer_attempts: 'Transfer Attempts',
 }
 
+/**
+ * What `event_at` is on each stage's list, and what that column is headed.
+ *
+ * "at" throughout, unlike the bare participles elsewhere in the app: this table
+ * is the one place two time columns sit together, and "Started / Qualified"
+ * reads as a pair of statuses. Keep Started at in step with these.
+ *
+ * Attempts is excluded rather than carrying an entry nothing draws — there the
+ * list renders no second column. Still exhaustive, so a new stage fails the
+ * build here.
+ */
+export const STAGE_TIME_LABEL: Record<Exclude<FunnelStage, 'attempts'>, string> = {
+  connects: 'Connected at',
+  qualified: 'Qualified at',
+  transfer_attempts: 'Transferred at',
+}
+
 const STAGES = [
   { field: 'attempts', fill: 'bg-funnel-attempts' },
   { field: 'connects', fill: 'bg-funnel-connects' },

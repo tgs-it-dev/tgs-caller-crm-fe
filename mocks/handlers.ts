@@ -298,6 +298,8 @@ function mockFunnel(start: string, end: string): HistoricalFunnel {
  * `total` comes off `mockFunnel` so the footer count equals the bar above it;
  * a fixture that drifted from its own aggregate would make a real disagreement
  * look normal. Rows follow the offset, so paging never repeats a row.
+ *
+ * Rows are newest-first by `event_at`, the way the real drill-down orders them.
  */
 function mockFunnelStage(
   stage: FunnelStage,
@@ -311,10 +313,14 @@ function mockFunnelStage(
   // newest first and stay inside the range in any plausible business zone.
   const latest = Date.parse(`${end}T17:00:00.000Z`)
   const span = Math.max(1, Date.parse(end) - Date.parse(start) + 86_400_000)
+  // Non-zero off attempts, so the event column shows something the created_at
+  // one doesn't and mock mode can't hide a client reading the wrong field.
+  const eventDelayMs = stage === 'attempts' ? 0 : 4 * 60_000
 
   return {
     items: Array.from({ length: Math.max(0, Math.min(limit, total - offset)) }, (_, index) => {
       const nth = offset + index
+      const createdAt = new Date(latest - ((nth * 7 * 60_000) % span))
       return {
         id: `int-${stage}-${nth}`,
         lead_id: `lead-${stage}-${nth}`,
@@ -326,7 +332,8 @@ function mockFunnelStage(
             : QUEUE_LEAD_NAMES[nth % QUEUE_LEAD_NAMES.length],
         lead_phone: `+1555${String(2_000_000 + nth).slice(-7)}`,
         lead_source: nth % 5 === 0 ? ('ghl' as const) : ('vicidial' as const),
-        created_at: new Date(latest - ((nth * 7 * 60_000) % span)).toISOString(),
+        created_at: createdAt.toISOString(),
+        event_at: new Date(createdAt.getTime() + eventDelayMs).toISOString(),
       }
     }),
     total,
