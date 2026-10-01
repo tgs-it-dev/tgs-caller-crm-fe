@@ -5,8 +5,9 @@ import AppProviders from './providers/AppProviders'
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 
 export const metadata = {
-  title: 'Auto Warranty CRM',
-  description: 'Frontend scaffold for Auto Warranty CRM'
+  title: 'TGS Caller CRM — Auto Warranty Campaign',
+  description:
+    'Sell more warranties. Lose fewer campaign leads. The sales-floor CRM that keeps every Auto Warranty Campaign with the team that bought it.',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
