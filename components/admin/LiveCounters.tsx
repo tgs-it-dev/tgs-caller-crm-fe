@@ -44,7 +44,7 @@ export function LiveCounters({ snapshot }: { snapshot: LiveStatus }) {
     },
     {
       label: 'Transfers Offered/ Rejected',
-      value: `${transfers_offered}/${transfers_rejected}`,
+      value: `${transfers_offered ?? 0} / ${transfers_rejected ?? 0}`,
       icon: (
         <OutlineIcon>
           <path d={PHONE} />
