@@ -95,7 +95,7 @@ export function FunnelChart({
                   />
                 </span>
                 <span className="w-24 shrink-0 text-right text-lg font-semibold leading-none text-ink tabular-nums">
-                  {count.toLocaleString()}
+                  {(count ?? 0).toLocaleString()}
                 </span>
               </button>
             </li>
