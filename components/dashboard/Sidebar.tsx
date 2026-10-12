@@ -138,6 +138,7 @@ const BASE_PATH: Record<Role, string> = {
   fronter: '/fronter',
   closer: '/closer',
   administrator: '/admin',
+  super_admin: '/admin',
 }
 
 /** One icon per desk, for the menu's rows. */
@@ -145,6 +146,7 @@ const DESK_ICON: Record<Role, ComponentType> = {
   fronter: FronterDeskIcon,
   closer: CloserDeskIcon,
   administrator: AdminDeskIcon,
+  super_admin: AdminDeskIcon,
 }
 
 const ADMIN_NAV: NavItem[] = [
@@ -270,7 +272,11 @@ function SidebarInner() {
       : `${workspacePathPrefix}/?id=${encodeURIComponent(workspaceIdFromUrl)}`
     : basePath
 
-  const navItems = role === 'administrator' ? ADMIN_NAV : deskNav(role, activeCallHref)
+  // Super Admin shares the admin nav; deskNav is fronter/closer only.
+  const navItems =
+    role === 'administrator' || role === 'super_admin'
+      ? ADMIN_NAV
+      : deskNav(role, activeCallHref)
 
   // Somebody may hold more than one role, and the nav only ever shows the desk
   // they are on — so without a way across, the others are unreachable. One role

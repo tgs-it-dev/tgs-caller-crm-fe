@@ -30,6 +30,7 @@ const ROLE_LABEL: Record<Role, string> = {
   fronter: 'Fronter',
   closer: 'Closer',
   administrator: 'Administrator',
+  super_admin: 'Super Admin',
 }
 
 export function AgentStatusTable({
