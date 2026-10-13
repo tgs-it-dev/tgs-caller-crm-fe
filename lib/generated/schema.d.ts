@@ -259,6 +259,88 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/users/{user_id}/team": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Assign a user to a team (Super Admin only)
+         * @description Pin the user to exactly one team (PUT set / replace).
+         *
+         *     Locked contract: a second assign replaces ``team_id``; ``super_admin``
+         *     targets are rejected (company-wide scope is no ``user_teams`` row).
+         */
+        put: operations["assign_user_team_auth_users__user_id__team_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/campaigns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List campaigns */
+        get: operations["list_campaigns_campaigns_get"];
+        put?: never;
+        /** Create a campaign */
+        post: operations["create_campaign_campaigns_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/campaigns/{campaign_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Fetch one campaign */
+        get: operations["get_campaign_campaigns__campaign_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update a campaign */
+        patch: operations["update_campaign_campaigns__campaign_id__patch"];
+        trace?: never;
+    };
+    "/campaigns/{campaign_id}/teams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Assign teams to a campaign (Super Admin only)
+         * @description Replace the campaign's full team set (PUT set semantics).
+         *
+         *     ``[]`` unlinks every team. An unknown team id is 404 and leaves the
+         *     existing set unchanged.
+         */
+        put: operations["assign_campaign_teams_campaigns__campaign_id__teams_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dispositions": {
         parameters: {
             query?: never;
@@ -294,12 +376,35 @@ export interface paths {
          * Stored events, as they arrived
          * @description What the dialer actually sent, independent of what we concluded from it.
          *
-         *     Administrator only: raw payloads carry whatever the dialer put in them, and
-         *     nothing here is scoped to one agent's work.
+         *     Team Admin: only events already linked to their team's interactions.
+         *     Super Admin: all teams, including unlinked (unmapped) envelopes.
          */
         get: operations["list_inbound_events_events_inbound_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/events/inbound/{event_id}/replay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re-queue a stored envelope for apply
+         * @description Clear processing stamps and enqueue ``process_vicidial_event`` again.
+         *
+         *     Linked events: Team Admin may replay their own team's only. Unlinked
+         *     (unmapped) envelopes: Super Admin only — Team Admin gets 403.
+         */
+        post: operations["replay_inbound_event_events_inbound__event_id__replay_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -421,7 +526,8 @@ export interface paths {
          *
          *     An empty list is the expected answer today and not an error: nothing
          *     populates call_legs while the dialer's push carries no call id, so this
-         *     reads empty until that mapping lands. See ADR 0004.
+         *     reads empty until that mapping lands. See ADR 0004. Team-scoped for Team
+         *     Admin; Super Admin may open any interaction.
          */
         get: operations["list_call_legs_interactions__interaction_id__call_legs_get"];
         put?: never;
@@ -477,6 +583,7 @@ export interface paths {
          *     Only events the worker linked. One stored before the link existed, one still
          *     unprocessed, and one identifying no interaction all read as absent, so an
          *     empty list means none were recorded rather than none arrived.
+         *     Team-scoped for Team Admin.
          */
         get: operations["list_events_interactions__interaction_id__events_get"];
         put?: never;
@@ -500,6 +607,7 @@ export interface paths {
          *
          *     A rejected or timed-out transfer releases the interaction to be retried, so
          *     the attempts are the history somebody reviewing this came to see.
+         *     Team-scoped for Team Admin.
          */
         get: operations["list_transfers_interactions__interaction_id__transfers_get"];
         put?: never;
@@ -529,6 +637,28 @@ export interface paths {
          *     returning caller.
          */
         post: operations["create_lead_leads_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/leads/duplicates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List phones that exist on more than one team
+         * @description Super Admin compliance read: the same consumer as leads on multiple teams.
+         *
+         *     Includes whether the number is already on the company-wide suppression list.
+         */
+        get: operations["list_cross_team_duplicates_leads_duplicates_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -700,7 +830,7 @@ export interface paths {
          *
          *     Outstanding only by default. The queue is a list of work to do, and
          *     something dealt with last month is not that; ask for "resolved" or "any"
-         *     to see the rest.
+         *     to see the rest. Scoped to the caller's team(s).
          */
         get: operations["list_exceptions_reconciliation_exceptions_get"];
         put?: never;
@@ -731,7 +861,7 @@ export interface paths {
          *     These mismatches cannot heal — an interaction with two legs and no transfer
          *     still has both tomorrow — so resolving means somebody looked and dealt with
          *     it, and the sweep leaves that alone rather than reopening it every five
-         *     minutes.
+         *     minutes. Cross-team ids read as not found.
          */
         patch: operations["resolve_exception_reconciliation_exceptions__exception_id__patch"];
         trace?: never;
@@ -750,9 +880,9 @@ export interface paths {
          *     Both dates are inclusive days, so one day is start == end. Each number has a
          *     matching drill-down at /reporting/funnel/{stage}.
          *
-         *     Administrator only: these are company-wide figures. An agent's own numbers
-         *     are a different report, and one the schema cannot produce yet — interactions,
-         *     call legs and qualifications record no user.
+         *     Administrators only. An agent's own numbers are a different report, and one
+         *     the schema cannot produce yet — interactions, call legs and qualifications
+         *     record no user.
          */
         get: operations["funnel_reporting_funnel_get"];
         put?: never;
@@ -775,8 +905,8 @@ export interface paths {
          * @description The records the number is made of, newest first.
          *
          *     `total` is produced by the same select the aggregate counts, so it always
-         *     equals the figure this stage reports — pass the same window and timezone the
-         *     aggregate was read with.
+         *     equals the figure this stage reports — pass the same window, timezone and
+         *     team_id the aggregate was read with.
          */
         get: operations["funnel_drilldown_reporting_funnel__stage__get"];
         put?: never;
@@ -814,6 +944,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/teams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List teams */
+        get: operations["list_teams_teams_get"];
+        put?: never;
+        /** Create a team */
+        post: operations["create_team_teams_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/teams/{team_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Fetch one team */
+        get: operations["get_team_teams__team_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update a team */
+        patch: operations["update_team_teams__team_id__patch"];
+        trace?: never;
+    };
     "/transfers": {
         parameters: {
             query?: never;
@@ -843,7 +1009,7 @@ export interface paths {
         };
         /**
          * List closers for the Active Call Transfer panel
-         * @description Returns active closers with availability matching the transfer gate (``transfer.no_closer_available``). Transfer stays auto-assign: this list is read-only display for the Figma Available Closers table; ``POST /transfers`` does not accept a closer selection.
+         * @description Returns active closers on the caller's team, with availability matching the transfer gate (``transfer.no_closer_available``). Transfer stays auto-assign: this list is read-only display for the Figma Available Closers table; ``POST /transfers`` does not accept a closer selection.
          */
         get: operations["list_closers_transfers_closers_get"];
         put?: never;
@@ -929,7 +1095,7 @@ export interface components {
              * Role
              * @enum {string}
              */
-            role: "fronter" | "closer" | "administrator";
+            role: "fronter" | "closer" | "administrator" | "super_admin";
             /**
              * Since
              * Format: date-time
@@ -947,6 +1113,30 @@ export interface components {
              * Format: uuid
              */
             user_id: string;
+        };
+        /**
+         * AssignCampaignTeamsRequest
+         * @description Body for PUT /campaigns/{id}/teams — replaces the campaign's full team set.
+         *
+         *     An empty list unlinks every team.
+         */
+        AssignCampaignTeamsRequest: {
+            /** Team Ids */
+            team_ids: string[];
+        };
+        /**
+         * AssignUserTeamRequest
+         * @description Body for PUT /auth/users/{id}/team — pin the user to exactly one team.
+         *
+         *     Rejects ``super_admin`` targets (no ``user_teams`` row). A second
+         *     assign **replaces** the existing membership (PUT set semantics).
+         */
+        AssignUserTeamRequest: {
+            /**
+             * Team Id
+             * Format: uuid
+             */
+            team_id: string;
         };
         /** AvailableCloserItem */
         AvailableCloserItem: {
@@ -1003,6 +1193,73 @@ export interface components {
         CallLegListResponse: {
             /** Items */
             items: components["schemas"]["CallLegItem"][];
+        };
+        /** CampaignCreateRequest */
+        CampaignCreateRequest: {
+            /**
+             * Active
+             * @default true
+             */
+            active: boolean;
+            /**
+             * Match Type
+             * @enum {string}
+             */
+            match_type: "campaign" | "list" | "did";
+            /** Match Value */
+            match_value: string;
+            /** Name */
+            name?: string | null;
+        };
+        /** CampaignListResponse */
+        CampaignListResponse: {
+            /** Items */
+            items: components["schemas"]["CampaignResponse"][];
+        };
+        /** CampaignResponse */
+        CampaignResponse: {
+            /** Active */
+            active: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Match Type
+             * @enum {string}
+             */
+            match_type: "campaign" | "list" | "did";
+            /** Match Value */
+            match_value: string;
+            /** Name */
+            name: string | null;
+            /** Team Ids */
+            team_ids: string[];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * CampaignUpdateRequest
+         * @description Partial update for PATCH /campaigns/{id}. At least one field required.
+         */
+        CampaignUpdateRequest: {
+            /** Active */
+            active?: boolean | null;
+            /** Match Type */
+            match_type?: ("campaign" | "list" | "did") | null;
+            /** Match Value */
+            match_value?: string | null;
+            /** Name */
+            name?: string | null;
         };
         /**
          * ChangePasswordRequest
@@ -1073,7 +1330,12 @@ export interface components {
             /** Password */
             password?: string | null;
             /** Roles */
-            roles: ("fronter" | "closer" | "administrator")[];
+            roles: ("fronter" | "closer" | "administrator" | "super_admin")[];
+            /**
+             * Team Id
+             * @description Team the account joins: a Team Admin's own team, which they may leave out. A Super Admin must name one, except for a super_admin account.
+             */
+            team_id?: string | null;
         };
         /** DispositionCaptureRequest */
         DispositionCaptureRequest: {
@@ -1112,6 +1374,39 @@ export interface components {
              * @enum {string}
              */
             stage: "fronter" | "closer";
+            /**
+             * Suppresses Phone
+             * @description Whether capturing this outcome places the lead's phone on the company-wide do-not-call list (Ticket 19).
+             */
+            suppresses_phone: boolean;
+        };
+        /** DuplicatePhoneListResponse */
+        DuplicatePhoneListResponse: {
+            /** Items */
+            items: components["schemas"]["DuplicatePhoneResponse"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * DuplicatePhoneResponse
+         * @description One phone that exists as a lead on more than one team.
+         */
+        DuplicatePhoneResponse: {
+            /** Lead Count */
+            lead_count: number;
+            /** Phone Normalized */
+            phone_normalized: string;
+            /**
+             * Suppressed
+             * @description Whether this number is on the company-wide DNC / suppression list.
+             */
+            suppressed: boolean;
+            /** Team Count */
+            team_count: number;
         };
         /** ErrorResponse */
         ErrorResponse: {
@@ -1189,7 +1484,10 @@ export interface components {
         FunnelCounts: {
             /** Interactions */
             interactions: number;
-            /** Leads */
+            /**
+             * Leads
+             * @description Distinct phone numbers among today's calls. A number is unique within a team, so for one team this is its leads; across teams, someone who is a lead on two teams counts once.
+             */
             leads: number;
             /** Qualifications */
             qualifications: number;
@@ -1219,6 +1517,12 @@ export interface components {
          *     row), and they are what a reader recognises: a page of uuids and timestamps
          *     identifies nothing. Carrying them saves the client reading every lead one at
          *     a time, which is the whole reason they are here.
+         *
+         *     ``event_at`` is the stage's own instant — creation for Attempts, the
+         *     earliest call leg for Connects, the qualifying fronter disposition for
+         *     Qualified, the closer's acceptance for Transferred — so the drill-down
+         *     list can order and label by what the bar counted, not only by when the
+         *     call started.
          */
         FunnelInteraction: {
             /**
@@ -1753,6 +2057,53 @@ export interface components {
             /** Resolved */
             resolved: boolean;
         };
+        /** TeamCreateRequest */
+        TeamCreateRequest: {
+            /**
+             * Active
+             * @default true
+             */
+            active: boolean;
+            /** Name */
+            name: string;
+        };
+        /** TeamListResponse */
+        TeamListResponse: {
+            /** Items */
+            items: components["schemas"]["TeamResponse"][];
+        };
+        /** TeamResponse */
+        TeamResponse: {
+            /** Active */
+            active: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * TeamUpdateRequest
+         * @description Partial update for PATCH /teams/{id}. At least one field required.
+         */
+        TeamUpdateRequest: {
+            /** Active */
+            active?: boolean | null;
+            /** Name */
+            name?: string | null;
+        };
         /** TicketResponse */
         TicketResponse: {
             /**
@@ -1941,7 +2292,7 @@ export interface components {
             /** Name */
             name?: string | null;
             /** Roles */
-            roles?: ("fronter" | "closer" | "administrator")[] | null;
+            roles?: ("fronter" | "closer" | "administrator" | "super_admin")[] | null;
         };
         /** UserListResponse */
         UserListResponse: {
@@ -1979,7 +2330,9 @@ export interface components {
             /** Name */
             name: string;
             /** Roles */
-            roles: ("fronter" | "closer" | "administrator")[];
+            roles: ("fronter" | "closer" | "administrator" | "super_admin")[];
+            /** Team Id */
+            team_id?: string | null;
         };
     };
     responses: never;
@@ -2368,7 +2721,9 @@ export interface operations {
                 /** @description Filter by account state */
                 active?: boolean | null;
                 /** @description Filter by role held */
-                role?: ("fronter" | "closer" | "administrator") | null;
+                role?: ("fronter" | "closer" | "administrator" | "super_admin") | null;
+                /** @description Members of this team only (Super Admins never match) */
+                team_id?: string | null;
                 /** @description Substring of email or name */
                 search?: string | null;
             };
@@ -2571,6 +2926,258 @@ export interface operations {
             };
         };
     };
+    assign_user_team_auth_users__user_id__team_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssignUserTeamRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_campaigns_campaigns_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignListResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    create_campaign_campaigns_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CampaignCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_campaign_campaigns__campaign_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    update_campaign_campaigns__campaign_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CampaignUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    assign_campaign_teams_campaigns__campaign_id__teams_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssignCampaignTeamsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     list_dispositions_dispositions_get: {
         parameters: {
             query?: {
@@ -2621,6 +3228,8 @@ export interface operations {
                 failed?: boolean;
                 limit?: number;
                 offset?: number;
+                /** @description Super Admin may name one team or omit for every team (including unlinked envelopes); Team Admin may only name their own. */
+                team_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -2635,6 +3244,48 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InboundEventListResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    replay_inbound_event_events_inbound__event_id__replay_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
                 };
             };
             /** @description Client Error */
@@ -3033,6 +3684,8 @@ export interface operations {
                 limit?: number;
                 offset?: number;
                 phone_normalized?: string | null;
+                /** @description A Super Admin names one team's leads, or leaves it out for every team; anyone else may only name their own team. */
+                team_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -3089,6 +3742,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeadResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_cross_team_duplicates_leads_duplicates_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DuplicatePhoneListResponse"];
                 };
             };
             /** @description Client Error */
@@ -3279,6 +3973,8 @@ export interface operations {
             query: {
                 /** @description Which queue to return: fronter (dialer) or closer (transfers) */
                 role: "fronter" | "closer";
+                /** @description Closer queue only. A Super Admin names one team's transfers, or leaves it out for every team; anyone else may only name their own team. */
+                team_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -3405,6 +4101,8 @@ export interface operations {
                 /** @description Which slice of the queue: outstanding, dealt with, or both */
                 resolution?: "open" | "resolved" | "any";
                 reason?: ("multi_leg_without_transfer" | "late_event_after_finalization") | null;
+                /** @description Super Admin may name one team or omit for every team; Team Admin may only name their own. */
+                team_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -3492,6 +4190,8 @@ export interface operations {
                 end: string;
                 /** @description IANA name deciding which day the dates mean, e.g. America/New_York. Defaults to the configured business day, so figures stay comparable between people unless someone deliberately asks for another region's. */
                 timezone?: string | null;
+                /** @description A Super Admin names one team, or leaves it out for the whole company. Anyone else always gets their own team; naming another is refused with 403 team.forbidden. */
+                team_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -3535,6 +4235,8 @@ export interface operations {
                 end: string;
                 /** @description IANA name deciding which day the dates mean, e.g. America/New_York. Defaults to the configured business day, so figures stay comparable between people unless someone deliberately asks for another region's. */
                 timezone?: string | null;
+                /** @description A Super Admin names one team, or leaves it out for the whole company. Anyone else always gets their own team; naming another is refused with 403 team.forbidden. */
+                team_id?: string | null;
                 limit?: number;
                 offset?: number;
             };
@@ -3577,7 +4279,10 @@ export interface operations {
     };
     live_status_reporting_live_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description A Super Admin names one team, or leaves it out for the whole company. Anyone else always gets their own team; naming another is refused with 403 team.forbidden. */
+                team_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3591,6 +4296,170 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LiveStatusResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_teams_teams_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamListResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    create_team_teams_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_team_teams__team_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                team_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    update_team_teams__team_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                team_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamResponse"];
                 };
             };
             /** @description Client Error */
@@ -3657,7 +4526,10 @@ export interface operations {
     };
     list_closers_transfers_closers_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description A Super Admin names one team's closers, or leaves it out for every team; anyone else may only name their own team. */
+                team_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;

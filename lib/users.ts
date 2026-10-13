@@ -17,6 +17,7 @@ const ROLE_LABELS: Record<Role, string> = {
   fronter: 'Fronter',
   closer: 'Closer',
   administrator: 'Administrator',
+  super_admin: 'Super Admin',
 }
 
 export const ASSIGNABLE_ROLES = Object.keys(ROLE_LABELS) as Role[]

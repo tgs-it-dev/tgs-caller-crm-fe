@@ -46,7 +46,7 @@ const MOCK_USERS: MockUser[] = [
   { id: '7', email: 'both@tgs.com', password: 'password1', name: 'Bea Both', roles: ['fronter', 'closer'], active: true, created_at: SEEDED_AT },
 ]
 
-const KNOWN_ROLES: Role[] = ['fronter', 'closer', 'administrator']
+const KNOWN_ROLES: Role[] = ['fronter', 'closer', 'administrator', 'super_admin']
 
 type MockLink = { token: string; userId: string; purpose: 'invite' | 'reset'; state: 'live' | 'used' | 'superseded' | 'expired' }
 

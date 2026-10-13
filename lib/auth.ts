@@ -29,6 +29,8 @@ const ROLE_LANDING: Record<Role, string> = {
   // Closer desk opens on Queue (pick/accept a transfer); Active Call is `/closer`.
   closer: '/closer/queue',
   administrator: '/admin',
+  // Same desk surface as Team Admin; FE-1 teaches RequireRole to admit SA there.
+  super_admin: '/admin',
 }
 
 export async function authError(res: Response): Promise<AuthError> {
@@ -72,18 +74,20 @@ export async function getCurrentUser(token: string): Promise<CurrentUser> {
 
 // The backend may grant more than one role; the primary role decides
 // where the user lands, in order of seniority.
-const ROLE_PRIORITY: Role[] = ['administrator', 'closer', 'fronter']
+const ROLE_PRIORITY: Role[] = ['super_admin', 'administrator', 'closer', 'fronter']
 
 const DESK_LABEL: Record<Role, string> = {
   fronter: 'CRM — Fronter',
   closer: 'CRM — Closer',
   administrator: 'CRM — Admin',
+  super_admin: 'CRM — Admin',
 }
 
 const ROLE_NAME: Record<Role, string> = {
   fronter: 'Fronter',
   closer: 'Closer',
   administrator: 'Administrator',
+  super_admin: 'Super Admin',
 }
 
 export function primaryRole(roles: Role[]): Role | null {
