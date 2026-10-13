@@ -75,8 +75,10 @@ async function resolveCurrentUser(bust = false): Promise<CurrentUserState> {
 }
 
 /**
- * App-wide profile from `GET /auth/me` — name, email, roles, id, active.
- * Mount once in AppProviders; desk layouts and login consume via `useCurrentUser`.
+ * App-wide profile from `GET /auth/me` — name, email, roles, id, active, team_id.
+ * `team_id` is passed through as the API sent it (null for Super Admin); never
+ * invent a fake team here. Mount once in AppProviders; desks/login use
+ * `useCurrentUser`.
  */
 export function CurrentUserProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<CurrentUserState>({ status: 'loading', user: null })

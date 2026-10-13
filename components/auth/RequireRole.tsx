@@ -6,7 +6,7 @@ import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import { Alert } from '@/components/ui/Alert'
 import { Button } from '@/components/ui/Button'
 import { FullPageLoader } from '@/components/ui/FullPageLoader'
-import { readToken, type Role } from '@/lib/auth'
+import { readToken, roleSatisfies, type Role } from '@/lib/auth'
 
 type GateStatus = 'checking' | 'authorized' | 'error'
 
@@ -28,7 +28,8 @@ function useAuthorization(role?: Role): { status: GateStatus; retry: () => void 
       return
     }
 
-    if (userStatus === 'ready' && role && !user.roles.includes(role)) {
+    // Super Admin inherits Team Admin gates; fronter/closer stay exact.
+    if (userStatus === 'ready' && role && !roleSatisfies(user.roles, role)) {
       router.replace('/login')
     }
   }, [router, role, user, userStatus])
@@ -38,7 +39,7 @@ function useAuthorization(role?: Role): { status: GateStatus; retry: () => void 
   if (userStatus === 'loading') return { status: 'checking', retry: refresh }
   // Token still present → transient failure; Retry reuses the provider fetch.
   if (userStatus === 'error') return { status: 'error', retry: refresh }
-  if (role && !user.roles.includes(role)) return { status: 'checking', retry: refresh }
+  if (role && !roleSatisfies(user.roles, role)) return { status: 'checking', retry: refresh }
 
   return { status: 'authorized', retry: refresh }
 }

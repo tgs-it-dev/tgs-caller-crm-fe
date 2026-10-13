@@ -127,6 +127,23 @@ function UsersIcon() {
   )
 }
 
+function TeamsIcon() {
+  return (
+    <OutlineIcon>
+      <path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6" />
+    </OutlineIcon>
+  )
+}
+
+function CampaignsIcon() {
+  return (
+    <OutlineIcon>
+      <path d="M3 11l18-5v12L3 13v-2z" />
+      <path d="M11.6 16.8a3 3 0 11-5.2-3" />
+    </OutlineIcon>
+  )
+}
+
 type NavItem = {
   href: string
   label: string
@@ -149,7 +166,8 @@ const DESK_ICON: Record<Role, ComponentType> = {
   super_admin: AdminDeskIcon,
 }
 
-const ADMIN_NAV: NavItem[] = [
+/** Team Admin desk — Dashboard / Reports / Exceptions / Users. */
+const TEAM_ADMIN_NAV: NavItem[] = [
   { href: '/admin', label: 'Dashboard', icon: DashboardIcon, isActive: (p) => p === '/admin' },
   {
     href: '/admin/reports',
@@ -173,6 +191,32 @@ const ADMIN_NAV: NavItem[] = [
     isActive: (p) => p.startsWith('/admin/users'),
   },
 ]
+
+/** Super Admin modules — Users / Teams / Campaigns only. */
+const SUPER_ADMIN_NAV: NavItem[] = [
+  {
+    href: '/admin/users',
+    label: 'Users',
+    icon: UsersIcon,
+    isActive: (p) => p.startsWith('/admin/users'),
+  },
+  {
+    href: '/admin/teams',
+    label: 'Teams',
+    icon: TeamsIcon,
+    isActive: (p) => p.startsWith('/admin/teams'),
+  },
+  {
+    href: '/admin/campaigns',
+    label: 'Campaigns',
+    icon: CampaignsIcon,
+    isActive: (p) => p.startsWith('/admin/campaigns'),
+  },
+]
+
+function adminNavFor(role: Role): NavItem[] {
+  return role === 'super_admin' ? SUPER_ADMIN_NAV : TEAM_ADMIN_NAV
+}
 
 /** `trailingSlash: true` makes usePathname() return `/fronter/`; nav hrefs stay `/fronter`. */
 function normalizePath(pathname: string): string {
@@ -242,8 +286,11 @@ function SidebarInner() {
   }
 
   // Desk from the URL when under a role segment; otherwise primary role from `/auth/me`.
+  // On `/admin/*`, roles resolve Super Admin vs Team Admin (path alone cannot).
   const role: Role =
-    deskRoleFromPath(pathname) ?? (userReady ? primaryRole(user.roles) : null) ?? 'fronter'
+    deskRoleFromPath(pathname, userReady ? user.roles : undefined) ??
+    (userReady ? primaryRole(user.roles) : null) ??
+    'fronter'
 
   const basePath = BASE_PATH[role]
   const workspacePathPrefix = `${basePath}/workspace`
@@ -272,10 +319,10 @@ function SidebarInner() {
       : `${workspacePathPrefix}/?id=${encodeURIComponent(workspaceIdFromUrl)}`
     : basePath
 
-  // Super Admin shares the admin nav; deskNav is fronter/closer only.
+  // Team Admin vs Super Admin get different /admin modules.
   const navItems =
     role === 'administrator' || role === 'super_admin'
-      ? ADMIN_NAV
+      ? adminNavFor(role)
       : deskNav(role, activeCallHref)
 
   // Somebody may hold more than one role, and the nav only ever shows the desk
