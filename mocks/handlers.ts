@@ -1,6 +1,6 @@
 import { rest } from 'msw'
 import type { FieldError } from '../lib/apiError'
-import type { Role } from '../lib/auth'
+import { roleSatisfies, type Role } from '../lib/auth'
 import { CLOSER_DESK_SEEDS } from '../lib/closer'
 import type { ReconciliationException } from '../lib/exceptions'
 import type { CallLeg, InteractionEvent, InteractionTransfer } from '../lib/interactionDetail'
@@ -24,26 +24,61 @@ type MockUser = {
   roles: Role[]
   active: boolean
   created_at: string
+  /** Super Admin has no team pin; everyone else belongs to the mock team. */
+  team_id: string | null
 }
 
 const SEEDED_AT = new Date(Date.now() - 1000 * 60 * 60 * 24 * 30).toISOString()
+
+/** Seeded teams so Super Admin can group the Users tab by team_id. */
+const MOCK_TEAM_EAST = '11111111-1111-1111-1111-111111111111'
+const MOCK_TEAM_WEST = '22222222-2222-2222-2222-222222222222'
+/** Default pin for newly created non–Super Admin accounts. */
+const MOCK_TEAM_ID = MOCK_TEAM_EAST
+
+type MockTeam = {
+  id: string
+  name: string
+  active: boolean
+  created_at: string
+  updated_at: string
+}
+
+const MOCK_TEAMS: MockTeam[] = [
+  {
+    id: MOCK_TEAM_EAST,
+    name: 'East Coast',
+    active: true,
+    created_at: SEEDED_AT,
+    updated_at: SEEDED_AT,
+  },
+  {
+    id: MOCK_TEAM_WEST,
+    name: 'West Coast',
+    active: true,
+    created_at: SEEDED_AT,
+    updated_at: SEEDED_AT,
+  },
+]
 
 // Demo accounts for local/dev use only, until the real /auth endpoints ship (week 2).
 // The admin console reads and writes this same list, so a user added there can
 // sign in, and one deactivated there stops being able to.
 const MOCK_USERS: MockUser[] = [
-  { id: '1', email: 'fronter@tgs.com', password: 'password1', name: 'Fiona Fronter', roles: ['fronter'], active: true, created_at: SEEDED_AT },
+  { id: '1', email: 'fronter@tgs.com', password: 'password1', name: 'Fiona Fronter', roles: ['fronter'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_EAST },
   // Second fronter — proves /me/stats/today is scoped per logged-in user (FE-08 AC).
-  { id: '4', email: 'fronter2@tgs.com', password: 'password1', name: 'Frank Fronter', roles: ['fronter'], active: true, created_at: SEEDED_AT },
-  { id: '2', email: 'closer@tgs.com', password: 'password1', name: 'Carl Closer', roles: ['closer'], active: true, created_at: SEEDED_AT },
-  { id: '3', email: 'admin@tgs.com', password: 'password1', name: 'Ana Admin', roles: ['administrator'], active: true, created_at: SEEDED_AT },
+  { id: '4', email: 'fronter2@tgs.com', password: 'password1', name: 'Frank Fronter', roles: ['fronter'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_WEST },
+  { id: '2', email: 'closer@tgs.com', password: 'password1', name: 'Carl Closer', roles: ['closer'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_WEST },
+  { id: '3', email: 'admin@tgs.com', password: 'password1', name: 'Ana Admin', roles: ['administrator'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_EAST },
   // Deactivated, so the list has something to show in that state from the start.
-  { id: '5', email: 'former@tgs.com', password: 'password1', name: 'Nadia Former', roles: ['closer'], active: false, created_at: SEEDED_AT },
+  { id: '5', email: 'former@tgs.com', password: 'password1', name: 'Nadia Former', roles: ['closer'], active: false, created_at: SEEDED_AT, team_id: MOCK_TEAM_EAST },
   // Multi-role, so the sidebar's desk switcher is reachable locally: every other
   // account here holds exactly one role, which is the case that hides it.
-  { id: '6', email: 'everything@tgs.com', password: 'password1', name: 'Mo Everything', roles: ['administrator', 'closer', 'fronter'], active: true, created_at: SEEDED_AT },
-  // Two desks and no admin — the switcher without an Administrator entry.
-  { id: '7', email: 'both@tgs.com', password: 'password1', name: 'Bea Both', roles: ['fronter', 'closer'], active: true, created_at: SEEDED_AT },
+  { id: '6', email: 'everything@tgs.com', password: 'password1', name: 'Mo Everything', roles: ['administrator', 'closer', 'fronter'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_EAST },
+  // Two desks and no admin — the switcher without a Team Admin entry.
+  { id: '7', email: 'both@tgs.com', password: 'password1', name: 'Bea Both', roles: ['fronter', 'closer'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_WEST },
+  // Company-wide admin — no team pin; inherits every Team Admin surface.
+  { id: '8', email: 'super@tgs.com', password: 'password1', name: 'Sam Super', roles: ['super_admin'], active: true, created_at: SEEDED_AT, team_id: null },
 ]
 
 const KNOWN_ROLES: Role[] = ['fronter', 'closer', 'administrator', 'super_admin']
@@ -167,6 +202,7 @@ function userBody(user: MockUser) {
     active: user.active,
     roles: user.roles,
     created_at: user.created_at,
+    team_id: user.team_id,
   }
 }
 
@@ -253,7 +289,7 @@ function mockLiveStatus(): LiveStatus {
   }
 }
 
-/** Why an administrator-only route would turn this request away, or null. */
+/** Why an admin-only route would turn this request away, or null. */
 function adminRefusal(authorization: string | null) {
   const user = MOCK_TOKENS.get((authorization || '').replace(/^Bearer\s+/i, ''))
   if (!user || !user.active) {
@@ -262,13 +298,37 @@ function adminRefusal(authorization: string | null) {
       body: authErrorBody('Could not validate credentials', 'auth.not_authenticated'),
     }
   }
-  if (!user.roles.includes('administrator')) {
+  // Super Admin inherits every Team Admin surface (same rule as RequireRole).
+  if (!roleSatisfies(user.roles, 'administrator')) {
     return {
       status: 403,
       body: authErrorBody('Insufficient role for this operation', 'auth.forbidden'),
     }
   }
   return null
+}
+
+/**
+ * Roles this actor may assign. Super Admin ≠ Team Admin: the latter may only
+ * staff Fronter / Closer. Neither may promote someone to Super Admin here.
+ */
+function grantableBy(actor: MockUser): Role[] {
+  if (actor.roles.includes('super_admin')) {
+    return KNOWN_ROLES.filter((role) => role !== 'super_admin')
+  }
+  if (actor.roles.includes('administrator')) return ['fronter', 'closer']
+  return []
+}
+
+/** 403 when the actor tries to grant above their ceiling. */
+function grantCeilingRefusal(actor: MockUser, roles: Role[]) {
+  const allowed = grantableBy(actor)
+  const forbidden = roles.filter((role) => !allowed.includes(role))
+  if (forbidden.length === 0) return null
+  return {
+    status: 403,
+    body: authErrorBody('cannot grant roles above your ceiling', 'auth.forbidden'),
+  }
 }
 
 /** Default business day when the client leaves `timezone` off, matching the API. */
@@ -1107,6 +1167,12 @@ export const handlers = [
     return res(ctx.status(200), ctx.json(issueMockTokens(user)))
   }),
 
+  rest.get('/teams', (req, res, ctx) => {
+    const refused = adminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    return res(ctx.status(200), ctx.json({ items: MOCK_TEAMS }))
+  }),
+
   rest.get('/auth/users', (req, res, ctx) => {
     const refused = adminRefusal(req.headers.get('authorization'))
     if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
@@ -1117,8 +1183,12 @@ export const handlers = [
     const active = params.get('active')
     const role = params.get('role')
     const search = (params.get('search') ?? '').toLowerCase()
+    const teamId = params.get('team_id')
 
     const matching = MOCK_USERS.filter((user) => {
+      // Super Admin accounts stay off the Users tab (and any team-scoped list).
+      if (user.roles.includes('super_admin')) return false
+      if (teamId && user.team_id !== teamId) return false
       if (active !== null && user.active !== (active === 'true')) return false
       if (role && !user.roles.includes(role as Role)) return false
       if (search && !`${user.name} ${user.email}`.toLowerCase().includes(search)) return false
@@ -1152,6 +1222,15 @@ export const handlers = [
     const invalid = describeUser(body)
     if (invalid) return res(ctx.status(invalid.status), ctx.json(invalid.body))
 
+    const actor = MOCK_TOKENS.get(
+      (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '')
+    )
+    const roles = body.roles as Role[]
+    if (actor) {
+      const ceiling = grantCeilingRefusal(actor, roles)
+      if (ceiling) return res(ctx.status(ceiling.status), ctx.json(ceiling.body))
+    }
+
     const email = normalizeEmail(body.email)
     if (MOCK_USERS.some((user) => user.email === email)) {
       return res(
@@ -1170,9 +1249,11 @@ export const handlers = [
       // null until they follow their invitation and choose one.
       password: body.password ? String(body.password) : null,
       name: String(body.name),
-      roles: body.roles as Role[],
+      roles,
       active: true,
       created_at: new Date().toISOString(),
+      // Super Admin has no team pin; grant-ceiling / assign-team is FE-2.
+      team_id: roles.includes('super_admin') ? null : MOCK_TEAM_ID,
     }
     MOCK_USERS.push(created)
     if (!body.password) issueMockLink(created.id, 'invite')
@@ -1204,16 +1285,24 @@ export const handlers = [
           )
         )
       }
+      if (actor) {
+        const ceiling = grantCeilingRefusal(actor, body.roles)
+        if (ceiling) return res(ctx.status(ceiling.status), ctx.json(ceiling.body))
+      }
     }
 
-    // The API refuses to let an administrator lock themselves out.
-    const losingOwnAdmin = body.roles && !body.roles.includes('administrator')
+    // The API refuses to let an admin lock themselves out of their elevated role.
+    // Super Admin and Team Admin are separate locks — each only protects its own.
+    const losingOwnAdmin =
+      body.roles &&
+      ((user.roles.includes('administrator') && !body.roles.includes('administrator')) ||
+        (user.roles.includes('super_admin') && !body.roles.includes('super_admin')))
     if (actor?.id === user.id && (body.active === false || losingOwnAdmin)) {
       return res(
         ctx.status(400),
         ctx.json(
           authErrorBody(
-            'cannot deactivate yourself or drop your own administrator role',
+            'cannot deactivate yourself or drop your own admin role',
             'user.cannot_demote_self'
           )
         )

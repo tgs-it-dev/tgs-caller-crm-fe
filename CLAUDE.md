@@ -66,10 +66,11 @@ Contract (typed in `lib/generated/schema.d.ts`):
   presenting a spent refresh token is treated as theft and ends every session of
   that user, so a refresh token must never be sent twice.
 - `POST /auth/logout` `{refresh_token}` → 204, whether or not the token was live.
-- `GET /auth/me` (Bearer token) → `{id, email, name, active, roles, created_at}`
-- `RoleName = "fronter" | "closer" | "administrator"` — a user can hold
-  multiple roles; frontend picks the landing route by priority
-  (`administrator` > `closer` > `fronter`), see `lib/auth.ts`.
+- `GET /auth/me` (Bearer token) → `{id, email, name, active, roles, team_id, created_at}`
+- `RoleName = "fronter" | "closer" | "administrator" | "super_admin"` — a user can
+  hold multiple roles; frontend picks the landing route by priority
+  (`super_admin` > `administrator` > `closer` > `fronter`), see `lib/auth.ts`.
+  Super Admin inherits every Team Admin `/admin` surface (`roleSatisfies`).
 - Every error response is `{detail, code, fields?}`, read with `readApiError()`.
   Branch on `code`, never on `detail`: `auth.not_authenticated` (token missing,
   invalid or expired), `auth.invalid_credentials`, `auth.invalid_refresh_token`,

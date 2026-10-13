@@ -9,18 +9,23 @@ import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type DataColumn } from '@/components/ui/DataTable'
 import { PageShell } from '@/components/ui/PageShell'
-import { AuthError } from '@/lib/auth'
+import { Select } from '@/components/ui/Select'
+import { AuthError, isSuperAdmin } from '@/lib/auth'
 import { waitForMocking } from '@/lib/mockReady'
 import { withSession } from '@/lib/session'
+import { listTeams, type Team } from '@/lib/teams'
 import { listUsers, rolesLabel, type User } from '@/lib/users'
 
 type LoadState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; users: User[] }
+  | { status: 'ready'; users: User[]; teams: Team[] }
 
 /** The dialog's subject: a user to edit, null to add one, or closed. */
 type Editing = { user: User | null } | null
+
+/** Empty string = every team (no `team_id` on the list call). */
+type TeamFilter = string
 
 function messageFor(err: unknown): string {
   if (err instanceof AuthError && err.status === 403) {
@@ -38,14 +43,27 @@ export function UsersScreen() {
   const [editing, setEditing] = useState<Editing>(null)
   // Bumped to read the list again — after adding someone, or changing one.
   const [reloads, setReloads] = useState(0)
+  const [teamFilter, setTeamFilter] = useState<TeamFilter>('')
+  const saView = Boolean(signedIn && isSuperAdmin(signedIn.roles))
 
   useEffect(() => {
     let cancelled = false
 
     waitForMocking()
-      .then(() => withSession(listUsers))
-      .then((list) => {
-        if (!cancelled) setLoad({ status: 'ready', users: list.items })
+      .then(() =>
+        withSession(async (token) => {
+          const list = await listUsers(token, {
+            teamId: saView && teamFilter ? teamFilter : null,
+          })
+          // Team names label the SA Team column + filter; Team Admin does not need the catalogue.
+          const teams = saView ? (await listTeams(token)).items : []
+          return { list, teams }
+        })
+      )
+      .then(({ list, teams }) => {
+        // Super Admin rows are not managed from this tab.
+        const users = list.items.filter((user) => !user.roles.includes('super_admin'))
+        if (!cancelled) setLoad({ status: 'ready', users, teams })
       })
       .catch((err) => {
         // The list goes with the access that allowed it.
@@ -55,9 +73,12 @@ export function UsersScreen() {
     return () => {
       cancelled = true
     }
-  }, [reloads])
+  }, [reloads, saView, teamFilter])
 
   const isSelf = (user: User) => user.id === signedIn?.id
+
+  const teamNameById =
+    load.status === 'ready' ? new Map(load.teams.map((team) => [team.id, team.name])) : new Map()
 
   const columns: DataColumn<User>[] = [
     { id: 'name', header: 'Name', render: (user) => user.name },
@@ -69,6 +90,30 @@ export function UsersScreen() {
       render: (user) => <span className="break-all">{user.email}</span>,
     },
     { id: 'roles', header: 'Role', render: (user) => rolesLabel(user.roles) },
+    ...(saView
+      ? [
+          {
+            id: 'team_name',
+            header: 'Team',
+            render: (user: User) =>
+              user.team_id ? (
+                (teamNameById.get(user.team_id) ?? 'Unknown team')
+              ) : (
+                <span className="text-slate">—</span>
+              ),
+          } satisfies DataColumn<User>,
+          {
+            id: 'team_id',
+            header: 'Team ID',
+            render: (user: User) =>
+              user.team_id ? (
+                <span className="break-all font-mono text-sm">{user.team_id}</span>
+              ) : (
+                <span className="text-slate">—</span>
+              ),
+          } satisfies DataColumn<User>,
+        ]
+      : []),
     {
       id: 'status',
       header: 'Status',
@@ -97,6 +142,38 @@ export function UsersScreen() {
     },
   ]
 
+  const tableActions = (
+    <div className="flex items-center gap-3">
+      {saView && load.status === 'ready' && (
+        <div className="w-[200px]">
+          <Select
+            label=""
+            size="small"
+            value={teamFilter}
+            onChange={(event) => setTeamFilter(event.target.value)}
+          >
+            <option value="">All teams</option>
+            {[...load.teams]
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .map((team) => (
+                <option key={team.id} value={team.id}>
+                  {team.name}
+                </option>
+              ))}
+          </Select>
+        </div>
+      )}
+      <div className="w-[140px]">
+        <Button size="small" onClick={() => setEditing({ user: null })}>
+          <span className="flex items-center justify-center gap-2">
+            <Plus className="h-4 w-4" strokeWidth={2} aria-hidden />
+            Add User
+          </span>
+        </Button>
+      </div>
+    </div>
+  )
+
   return (
     <PageShell title="Users">
       {load.status === 'loading' && (
@@ -114,24 +191,16 @@ export function UsersScreen() {
           rows={load.users}
           columns={columns}
           getRowId={(user) => user.id}
-          emptyMessage="No users yet."
+          emptyMessage={teamFilter ? 'No users on this team.' : 'No users yet.'}
           pageSize={10}
-          actions={
-            <div className="w-[140px]">
-              <Button size="small" onClick={() => setEditing({ user: null })}>
-                <span className="flex items-center justify-center gap-2">
-                  <Plus className="h-4 w-4" strokeWidth={2} aria-hidden />
-                  Add User
-                </span>
-              </Button>
-            </div>
-          }
+          actions={tableActions}
         />
       )}
 
-      {editing && (
+      {editing && signedIn && (
         <UserFormDialog
           user={editing.user}
+          actorRoles={signedIn.roles}
           isSelf={Boolean(editing.user && isSelf(editing.user))}
           onClose={() => setEditing(null)}
           onSaved={() => {

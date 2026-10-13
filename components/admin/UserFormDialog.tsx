@@ -13,8 +13,8 @@ import { Input } from '@/components/ui/Input'
 import { AuthError, type Role } from '@/lib/auth'
 import { withSession } from '@/lib/session'
 import {
-  ASSIGNABLE_ROLES,
   createUser,
+  grantableRoles,
   roleLabel,
   updateUser,
   type User,
@@ -66,10 +66,12 @@ const RADIO_CONTROL_SX = {
 
 function bannerFor(err: AuthError): string {
   if (err.code === 'user.cannot_demote_self') {
-    return 'You cannot remove your own administrator role or deactivate yourself.'
+    return 'You cannot remove your own elevated role or deactivate yourself.'
   }
   if (err.code === 'user.not_found') return 'That user no longer exists.'
-  if (err.status === 403) return 'You no longer have access to user administration.'
+  if (err.status === 403) {
+    return 'You cannot grant that role, or you no longer have access to user administration.'
+  }
   if (err.status === 401) return 'Your session has ended. Please sign in again.'
   return err.message
 }
@@ -79,20 +81,26 @@ const sameRoles = (a: Role[], b: Role[]) =>
 
 export function UserFormDialog({
   user,
+  actorRoles,
   isSelf,
   onClose,
   onSaved,
 }: {
   /** The user being edited, or null to add one. */
   user: User | null
-  /** This is the signed-in administrator's own account. */
+  /** Signed-in roles — Super Admin and Team Admin get different grant ceilings. */
+  actorRoles: Role[]
+  /** This is the signed-in admin's own account. */
   isSelf: boolean
   onClose: () => void
   onSaved: () => void
 }) {
   const formId = useId()
+  const offerable = grantableRoles(actorRoles)
   const [name, setName] = useState(user?.name ?? '')
   const [email, setEmail] = useState(user?.email ?? '')
+  // Keep the full set so an edit cannot strip roles the actor is not allowed
+  // to grant (those checkboxes are simply not offered).
   const [roles, setRoles] = useState<Role[]>(user?.roles ?? [])
   const [active, setActive] = useState(user?.active ?? true)
   const [signIn, setSignIn] = useState<SignInMethod>('password')
@@ -101,6 +109,14 @@ export function UserFormDialog({
   const [problems, setProblems] = useState<Record<string, string>>({})
   const [banner, setBanner] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+
+  function roleLocked(role: Role): boolean {
+    // Only lock the elevated role the actor themselves holds — SA ≠ Team Admin.
+    if (!isSelf) return false
+    // if (role === 'super_admin') return actorRoles.includes('super_admin')
+    if (role === 'administrator') return actorRoles.includes('administrator')
+    return false
+  }
 
   /** What can be answered without asking the server. */
   function checkHere(): Record<string, string> {
@@ -177,8 +193,10 @@ export function UserFormDialog({
     }
   }
 
-  const toggleRole = (role: Role) =>
+  const toggleRole = (role: Role) => {
+    if (!offerable.includes(role) || roleLocked(role)) return
     setRoles((held) => (held.includes(role) ? held.filter((r) => r !== role) : [...held, role]))
+  }
 
   return (
     <Dialog
@@ -291,22 +309,28 @@ export function UserFormDialog({
           {/* A column: each control is an inline-flex label, so they would
               otherwise run together on one line. */}
           <div className="flex flex-col items-start gap-2">
-            {ASSIGNABLE_ROLES.map((role) => (
+            {offerable.map((role) => (
               <Checkbox
                 key={role}
                 label={roleLabel(role)}
                 checked={roles.includes(role)}
                 onChange={() => toggleRole(role)}
-                // The API refuses to let an administrator drop their own role.
-                disabled={isSelf && role === 'administrator'}
+                disabled={roleLocked(role)}
               />
             ))}
           </div>
-          {isSelf && (
+          {actorRoles.includes('super_admin') && (
             <p className="mt-2 text-xs leading-[150%] text-slate">
-              You cannot remove your own administrator role.
+              Super Admin cannot be granted from this console.
             </p>
           )}
+          {isSelf &&
+            actorRoles.includes('administrator') &&
+            !actorRoles.includes('super_admin') && (
+              <p className="mt-2 text-xs leading-[150%] text-slate">
+                You cannot remove your own Team Admin role.
+              </p>
+            )}
           {problems.roles && (
             <p role="alert" className="mt-2 text-xs leading-[150%] text-status-red">
               {problems.roles}

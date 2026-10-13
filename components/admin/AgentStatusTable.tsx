@@ -29,7 +29,7 @@ const STATUS: Record<
 const ROLE_LABEL: Record<Role, string> = {
   fronter: 'Fronter',
   closer: 'Closer',
-  administrator: 'Administrator',
+  administrator: 'Team Admin',
   super_admin: 'Super Admin',
 }
 
