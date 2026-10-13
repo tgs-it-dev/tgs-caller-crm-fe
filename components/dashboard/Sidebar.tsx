@@ -351,12 +351,12 @@ function SidebarInner() {
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex h-full flex-shrink-0 flex-col border-r border-slate/15 bg-white transition-transform duration-200 ease-in-out lg:static lg:z-auto lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex h-full min-h-0 flex-shrink-0 flex-col overflow-hidden overscroll-none border-r border-slate/15 bg-white transition-transform duration-200 ease-in-out lg:static lg:z-auto lg:translate-x-0 ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         } ${collapsed ? 'lg:w-16' : 'w-72 lg:w-72'}`}
       >
         <div
-          className={`flex py-4 ${
+          className={`flex shrink-0 py-4 ${
             collapsed ? 'lg:flex-col lg:items-center lg:gap-2 lg:py-3 lg:px-2 px-4' : 'items-center gap-3 px-4'
           }`}
         >
@@ -471,7 +471,13 @@ function SidebarInner() {
           })}
         </MuiMenu>
 
-        <nav className={`flex-1 space-y-1 py-4 ${collapsed ? 'lg:py-3 lg:px-2 px-3' : 'px-3'}`}>
+        {/* min-h-0 + overscroll-none: wheel over the sidebar must not chain into
+            the document (white band under the desk shell). */}
+        <nav
+          className={`min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-none py-4 ${
+            collapsed ? 'lg:py-3 lg:px-2 px-3' : 'px-3'
+          }`}
+        >
           {navItems.map(({ href, label, icon: Icon, isActive }) => {
             const active = isActive(normalizePath(pathname))
             return (
@@ -492,7 +498,11 @@ function SidebarInner() {
           })}
         </nav>
 
-        <div className={`border-t border-slate/15 py-4 ${collapsed ? 'lg:py-3 lg:px-2 px-3' : 'px-3'}`}>
+        <div
+          className={`shrink-0 border-t border-slate/15 py-4 ${
+            collapsed ? 'lg:py-3 lg:px-2 px-3' : 'px-3'
+          }`}
+        >
           <div
             className={`flex items-center gap-3 rounded-lg py-2.5 text-sm font-medium text-ink ${
               collapsed ? 'lg:justify-center lg:px-2 px-3' : 'justify-between px-3'
