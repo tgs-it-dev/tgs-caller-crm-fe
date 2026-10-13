@@ -197,11 +197,12 @@ export function UsersScreen() {
         />
       )}
 
-      {editing && signedIn && (
+      {editing && signedIn && load.status === 'ready' && (
         <UserFormDialog
           user={editing.user}
           actorRoles={signedIn.roles}
           isSelf={Boolean(editing.user && isSelf(editing.user))}
+          teams={load.teams}
           onClose={() => setEditing(null)}
           onSaved={() => {
             // Their own name or roles may have changed; the sidebar shows both.

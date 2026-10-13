@@ -1217,6 +1217,7 @@ export const handlers = [
       name?: string
       password?: string
       roles?: Role[]
+      team_id?: string | null
     }
 
     const invalid = describeUser(body)
@@ -1243,6 +1244,22 @@ export const handlers = [
       )
     }
 
+    // Super Admin has no team pin. Everyone else: SA must name a team; TA falls
+    // back to the mock default (the API would use the actor's own team).
+    const knownTeamIds = new Set(MOCK_TEAMS.map((team) => team.id))
+    const requestedTeam =
+      typeof body.team_id === 'string' && knownTeamIds.has(body.team_id) ? body.team_id : null
+    if (actor?.roles.includes('super_admin') && !roles.includes('super_admin') && !requestedTeam) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody('team_id is required', 'validation_error', [
+            { field: 'team_id', in: 'body', message: 'required' },
+          ])
+        )
+      )
+    }
+
     const created: MockUser = {
       id: String(++userSeq),
       email,
@@ -1252,8 +1269,7 @@ export const handlers = [
       roles,
       active: true,
       created_at: new Date().toISOString(),
-      // Super Admin has no team pin; grant-ceiling / assign-team is FE-2.
-      team_id: roles.includes('super_admin') ? null : MOCK_TEAM_ID,
+      team_id: roles.includes('super_admin') ? null : (requestedTeam ?? MOCK_TEAM_ID),
     }
     MOCK_USERS.push(created)
     if (!body.password) issueMockLink(created.id, 'invite')
