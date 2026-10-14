@@ -49,6 +49,8 @@ function whyTransferIsUnavailable({
 
 export function TransferPanel({
   closers,
+  selectedCloserUserId,
+  onCloserSelect,
   canTransfer,
   needsOverride,
   dncFlagged = false,
@@ -66,6 +68,9 @@ export function TransferPanel({
   dispositionAllowsTransfer,
 }: {
   closers: AvailableCloserItem[]
+  /** `null` omits closer_user_id — any free closer may accept. */
+  selectedCloserUserId: string | null
+  onCloserSelect: (userId: string | null) => void
   canTransfer: boolean
   needsOverride: boolean
   dncFlagged?: boolean
@@ -85,6 +90,10 @@ export function TransferPanel({
 }) {
   const busy = isTransferring || isEnding
   const settled = Boolean(transferStatus || endedAs)
+  const pinnedName =
+    selectedCloserUserId == null
+      ? null
+      : (closers.find((row) => row.user_id === selectedCloserUserId)?.name ?? null)
   return (
     <div className="rounded-xl border-hairline border-slate bg-white p-6">
       <h2 className="border-b border-slate/20 pb-4 text-lg font-medium leading-[120%] text-ink">
@@ -93,11 +102,18 @@ export function TransferPanel({
 
       <p className="mt-4 text-sm font-medium text-ink">Available Closers</p>
       <div className="mt-3">
-        <ClosersTable closers={closers} />
+        <ClosersTable
+          closers={closers}
+          selectedUserId={selectedCloserUserId}
+          onSelect={onCloserSelect}
+          disabled={busy || settled}
+        />
       </div>
-      {/* <p className="mt-2 text-xs text-slate">
-        Read-only — the server assigns an available closer when you transfer.
-      </p> */}
+      <p className="mt-2 text-xs text-slate">
+        {pinnedName
+          ? `Offer pinned to ${pinnedName}. Only they will see it.`
+          : 'No closer selected — any free closer can accept. Click a name to pin the offer.'}
+      </p>
 
       {transferStatus && (
         <p className="mt-3 text-sm text-status-green">Transfer {transferStatus}</p>
@@ -113,7 +129,11 @@ export function TransferPanel({
 
       <div className="mt-5 space-y-3">
         <Button type="button" disabled={!canTransfer || busy || settled} onClick={onTransfer}>
-          {isTransferring ? 'Transferring…' : 'Transfer to Closer'}
+          {isTransferring
+            ? 'Transferring…'
+            : pinnedName
+              ? `Transfer to ${pinnedName}`
+              : 'Transfer to Closer'}
         </Button>
         {/* Always offered, never hidden. A qualified lead with no closer free is
             refused by the server, and a fronter with nowhere to record that call

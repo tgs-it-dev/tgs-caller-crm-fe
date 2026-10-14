@@ -74,7 +74,10 @@ export async function rejectTransfer(
   return res.json() as Promise<TransferResponse>
 }
 
-/** Read-only list for the Active Call Transfer panel — transfer stays auto-assign. */
+/**
+ * Closers for the Active Call Transfer panel. Pass a row's `user_id` as
+ * optional `closer_user_id` on create to pin the offer; omit for auto-assign.
+ */
 export async function listAvailableClosers(token: string): Promise<AvailableCloserItem[]> {
   const res = await fetch(apiUrl('/transfers/closers'), {
     headers: { Authorization: `Bearer ${token}` },
