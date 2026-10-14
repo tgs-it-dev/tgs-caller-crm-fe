@@ -128,7 +128,7 @@ export function UsersScreen() {
     },
     {
       id: 'actions',
-      header: <span className="sr-only">Actions</span>,
+      header: 'Actions',
       align: 'right',
       render: (user) => (
         <button
