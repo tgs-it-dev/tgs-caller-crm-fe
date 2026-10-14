@@ -33,8 +33,12 @@ const SEEDED_AT = new Date(Date.now() - 1000 * 60 * 60 * 24 * 30).toISOString()
 /** Seeded teams so Super Admin can group the Users tab by team_id. */
 const MOCK_TEAM_EAST = '11111111-1111-1111-1111-111111111111'
 const MOCK_TEAM_WEST = '22222222-2222-2222-2222-222222222222'
+const MOCK_TEAM_DEFAULT = '00000000-0000-0000-0000-000000000001'
 /** Default pin for newly created non–Super Admin accounts. */
 const MOCK_TEAM_ID = MOCK_TEAM_EAST
+
+/** Locked name — rename / deactivate refused with `team.default_locked`. */
+const DEFAULT_TEAM_NAME = 'Default Team'
 
 type MockTeam = {
   id: string
@@ -45,6 +49,13 @@ type MockTeam = {
 }
 
 const MOCK_TEAMS: MockTeam[] = [
+  {
+    id: MOCK_TEAM_DEFAULT,
+    name: DEFAULT_TEAM_NAME,
+    active: true,
+    created_at: SEEDED_AT,
+    updated_at: SEEDED_AT,
+  },
   {
     id: MOCK_TEAM_EAST,
     name: 'East Coast',
@@ -300,6 +311,24 @@ function adminRefusal(authorization: string | null) {
   }
   // Super Admin inherits every Team Admin surface (same rule as RequireRole).
   if (!roleSatisfies(user.roles, 'administrator')) {
+    return {
+      status: 403,
+      body: authErrorBody('Insufficient role for this operation', 'auth.forbidden'),
+    }
+  }
+  return null
+}
+
+/** Team catalogue routes are Super Admin only (same as require_super_admin). */
+function superAdminRefusal(authorization: string | null) {
+  const user = MOCK_TOKENS.get((authorization || '').replace(/^Bearer\s+/i, ''))
+  if (!user || !user.active) {
+    return {
+      status: 401,
+      body: authErrorBody('Could not validate credentials', 'auth.not_authenticated'),
+    }
+  }
+  if (!user.roles.includes('super_admin')) {
     return {
       status: 403,
       body: authErrorBody('Insufficient role for this operation', 'auth.forbidden'),
@@ -1168,9 +1197,108 @@ export const handlers = [
   }),
 
   rest.get('/teams', (req, res, ctx) => {
-    const refused = adminRefusal(req.headers.get('authorization'))
+    const refused = superAdminRefusal(req.headers.get('authorization'))
     if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
-    return res(ctx.status(200), ctx.json({ items: MOCK_TEAMS }))
+    const items = [...MOCK_TEAMS].sort((a, b) => a.name.localeCompare(b.name))
+    return res(ctx.status(200), ctx.json({ items }))
+  }),
+
+  rest.post('/teams', async (req, res, ctx) => {
+    const refused = superAdminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const body = (await req.json()) as { name?: string; active?: boolean }
+    const name = typeof body.name === 'string' ? body.name.trim() : ''
+    if (!name) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody('validation failed', 'validation_error', [
+            { field: 'name', in: 'body', message: 'required' },
+          ])
+        )
+      )
+    }
+    if (MOCK_TEAMS.some((team) => team.name === name)) {
+      return res(
+        ctx.status(409),
+        ctx.json(
+          authErrorBody(`team already exists: ${name}`, 'team.already_exists', [
+            { field: 'name', in: 'body', message: 'already in use' },
+          ])
+        )
+      )
+    }
+
+    const now = new Date().toISOString()
+    const team: MockTeam = {
+      id: crypto.randomUUID(),
+      name,
+      active: body.active !== false,
+      created_at: now,
+      updated_at: now,
+    }
+    MOCK_TEAMS.push(team)
+    return res(ctx.status(201), ctx.json(team))
+  }),
+
+  rest.get('/teams/:team_id', (req, res, ctx) => {
+    const refused = superAdminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const team = MOCK_TEAMS.find((row) => row.id === req.params.team_id)
+    if (!team) {
+      return res(ctx.status(404), ctx.json(authErrorBody('team not found', 'team.not_found')))
+    }
+    return res(ctx.status(200), ctx.json(team))
+  }),
+
+  rest.patch('/teams/:team_id', async (req, res, ctx) => {
+    const refused = superAdminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const team = MOCK_TEAMS.find((row) => row.id === req.params.team_id)
+    if (!team) {
+      return res(ctx.status(404), ctx.json(authErrorBody('team not found', 'team.not_found')))
+    }
+
+    const body = (await req.json()) as { name?: string | null; active?: boolean | null }
+    const nextName = typeof body.name === 'string' ? body.name.trim() : null
+    const nextActive = typeof body.active === 'boolean' ? body.active : null
+    if (nextName === null && nextActive === null) {
+      return res(
+        ctx.status(422),
+        ctx.json(authErrorBody('at least one of name or active must be set', 'validation_error'))
+      )
+    }
+
+    const renaming = nextName !== null && nextName !== team.name
+    const deactivating = nextActive === false && team.active
+    if (team.name === DEFAULT_TEAM_NAME && (renaming || deactivating)) {
+      return res(
+        ctx.status(400),
+        ctx.json(
+          authErrorBody('Default Team cannot be renamed or deactivated', 'team.default_locked')
+        )
+      )
+    }
+
+    if (renaming) {
+      if (MOCK_TEAMS.some((row) => row.id !== team.id && row.name === nextName)) {
+        return res(
+          ctx.status(409),
+          ctx.json(
+            authErrorBody(`team already exists: ${nextName}`, 'team.already_exists', [
+              { field: 'name', in: 'body', message: 'already in use' },
+            ])
+          )
+        )
+      }
+      team.name = nextName
+    }
+    if (nextActive !== null) team.active = nextActive
+    team.updated_at = new Date().toISOString()
+    return res(ctx.status(200), ctx.json(team))
   }),
 
   rest.get('/auth/users', (req, res, ctx) => {
@@ -1217,6 +1345,7 @@ export const handlers = [
       name?: string
       password?: string
       roles?: Role[]
+      team_id?: string | null
     }
 
     const invalid = describeUser(body)
@@ -1243,6 +1372,22 @@ export const handlers = [
       )
     }
 
+    // Super Admin has no team pin. Everyone else: SA must name a team; TA falls
+    // back to the mock default (the API would use the actor's own team).
+    const knownTeamIds = new Set(MOCK_TEAMS.map((team) => team.id))
+    const requestedTeam =
+      typeof body.team_id === 'string' && knownTeamIds.has(body.team_id) ? body.team_id : null
+    if (actor?.roles.includes('super_admin') && !roles.includes('super_admin') && !requestedTeam) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody('team_id is required', 'validation_error', [
+            { field: 'team_id', in: 'body', message: 'required' },
+          ])
+        )
+      )
+    }
+
     const created: MockUser = {
       id: String(++userSeq),
       email,
@@ -1252,8 +1397,7 @@ export const handlers = [
       roles,
       active: true,
       created_at: new Date().toISOString(),
-      // Super Admin has no team pin; grant-ceiling / assign-team is FE-2.
-      team_id: roles.includes('super_admin') ? null : MOCK_TEAM_ID,
+      team_id: roles.includes('super_admin') ? null : (requestedTeam ?? MOCK_TEAM_ID),
     }
     MOCK_USERS.push(created)
     if (!body.password) issueMockLink(created.id, 'invite')
