@@ -398,6 +398,25 @@ state. Administrator-only, like the rest of `/admin`.
   the matching control (a duplicate address shows under Email), and anything
   unnamed falls back to the dialog's `<Alert>`.
 
+## Campaigns
+
+`/admin/campaigns` keeps the campaign catalogue through `lib/campaigns.ts` —
+`GET /campaigns` to list, `POST` to add, `PATCH /campaigns/{id}` to change one.
+Super Admin only.
+
+- **A campaign here is a name and the teams that work it** — none, one or
+  several. The API can also carry a VICIdial routing key (`match_type` +
+  `match_value`); it is optional, this screen never shows or sends it, so a
+  campaign that has one keeps it through an edit.
+- **One call saves everything.** Add and edit send `team_ids` with the rest, and
+  an unknown team fails the call with nothing saved. `PUT /campaigns/{id}/teams`
+  exists, but this screen has no use for it.
+- **There is no delete.** A campaign is retired by turning Active off.
+- **Names are unique**, compared exactly once trimmed; a clash comes back as
+  `campaign.already_exists` against `name` and shows under the field.
+- Team Admins can read their own team's campaigns through the API, but there is
+  no screen for that yet.
+
 ## Emailed links
 
 `/invite/[token]`, `/reset-password/[token]` and `/forgot-password` are how a

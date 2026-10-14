@@ -1201,15 +1201,17 @@ export interface components {
              * @default true
              */
             active: boolean;
-            /**
-             * Match Type
-             * @enum {string}
-             */
-            match_type: "campaign" | "list" | "did";
+            /** Match Type */
+            match_type?: ("campaign" | "list" | "did") | null;
             /** Match Value */
-            match_value: string;
+            match_value?: string | null;
             /** Name */
-            name?: string | null;
+            name: string;
+            /**
+             * Team Ids
+             * @description Teams that work this campaign: none, one or several.
+             */
+            team_ids?: string[];
         };
         /** CampaignListResponse */
         CampaignListResponse: {
@@ -1230,15 +1232,12 @@ export interface components {
              * Format: uuid
              */
             id: string;
-            /**
-             * Match Type
-             * @enum {string}
-             */
-            match_type: "campaign" | "list" | "did";
+            /** Match Type */
+            match_type: ("campaign" | "list" | "did") | null;
             /** Match Value */
-            match_value: string;
+            match_value: string | null;
             /** Name */
-            name: string | null;
+            name: string;
             /** Team Ids */
             team_ids: string[];
             /**
@@ -1260,6 +1259,11 @@ export interface components {
             match_value?: string | null;
             /** Name */
             name?: string | null;
+            /**
+             * Team Ids
+             * @description Replaces the campaign's whole team set; [] unlinks every team. Left out, the teams stay as they are.
+             */
+            team_ids?: string[] | null;
         };
         /**
          * ChangePasswordRequest
