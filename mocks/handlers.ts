@@ -14,7 +14,11 @@ import type {
   FunnelStage,
   HistoricalFunnel,
 } from '../lib/reporting'
-import type { TransferCreateRequest, TransferResponse } from '../lib/transfers'
+import type {
+  AvailableCloserItem,
+  TransferCreateRequest,
+  TransferResponse,
+} from '../lib/transfers'
 
 type MockUser = {
   id: string
@@ -652,6 +656,20 @@ let qualificationSeq = 0
 let transferSeq = 0
 
 const MOCK_TRANSFERS = new Map<string, TransferResponse>()
+
+/** Shared by GET /transfers/closers and the POST /transfers availability gate. */
+const MOCK_AVAILABLE_CLOSERS: AvailableCloserItem[] = [
+  {
+    user_id: '5a1f0c3e-0001-4000-8000-000000000001',
+    name: 'Carl Closer',
+    status: 'available',
+  },
+  {
+    user_id: '5a1f0c3e-0003-4000-8000-000000000003',
+    name: 'Eli Brooks',
+    status: 'on_call',
+  },
+]
 
 function seedCloserQualification(
   interactionId: string,
@@ -1840,23 +1858,7 @@ export const handlers = [
   }),
 
   rest.get('/transfers/closers', (_req, res, ctx) => {
-    return res(
-      ctx.status(200),
-      ctx.json({
-        items: [
-          {
-            user_id: '5a1f0c3e-0001-4000-8000-000000000001',
-            name: 'Carl Closer',
-            status: 'available',
-          },
-          {
-            user_id: '5a1f0c3e-0003-4000-8000-000000000003',
-            name: 'Eli Brooks',
-            status: 'on_call',
-          },
-        ],
-      })
-    )
+    return res(ctx.status(200), ctx.json({ items: MOCK_AVAILABLE_CLOSERS }))
   }),
 
   rest.post('/transfers', async (req, res, ctx) => {
@@ -1885,12 +1887,35 @@ export const handlers = [
       )
     }
 
+    // Omit → any free closer. Set → pin; busy / unknown → same 422 as the API.
+    const pinnedId = body.closer_user_id ?? null
+    if (pinnedId) {
+      const pinned = MOCK_AVAILABLE_CLOSERS.find((row) => row.user_id === pinnedId)
+      if (!pinned || pinned.status !== 'available') {
+        return res(
+          ctx.status(422),
+          ctx.json({
+            detail: 'no closer available for transfer',
+            code: 'transfer.no_closer_available',
+          })
+        )
+      }
+    } else if (!MOCK_AVAILABLE_CLOSERS.some((row) => row.status === 'available')) {
+      return res(
+        ctx.status(422),
+        ctx.json({
+          detail: 'no closer available for transfer',
+          code: 'transfer.no_closer_available',
+        })
+      )
+    }
+
     const transfer: TransferResponse = {
       id: `transfer-${++transferSeq}`,
       interaction_id: body.interaction_id,
       status: 'offered',
       fronter_user_id: body.fronter_user_id,
-      closer_user_id: null,
+      closer_user_id: pinnedId,
       created_at: now,
       updated_at: now,
     }

@@ -84,6 +84,8 @@ function ActiveCallBody({ interactionId }: { interactionId: string }) {
   const [form, setForm] = useState<ActiveCallForm>(EMPTY_ACTIVE_CALL_FORM)
   const [dispositionId, setDispositionId] = useState('')
   const [overrideReason, setOverrideReason] = useState('')
+  /** `null` = auto-assign; a user id pins the offer to that closer. */
+  const [selectedCloserUserId, setSelectedCloserUserId] = useState<string | null>(null)
   const [isTransferring, setIsTransferring] = useState(false)
   const [isEnding, setIsEnding] = useState(false)
   /** The outcome this call was closed with, once Save & End Call has run. */
@@ -199,22 +201,28 @@ function ActiveCallBody({ interactionId }: { interactionId: string }) {
 
       const missing = missingActiveCallTransferFields(form)
       const reason = overrideReason.trim()
+      // Omit closer_user_id when unset — same auto-assign as before. Sending
+      // null would also work, but omit matches the optional-field pattern used
+      // for override_reason (and invitation passwords).
       const transfer = await withSession((token) =>
         createTransfer(
           {
             interaction_id: interactionId,
             fronter_user_id: user.id,
             ...(missing.length > 0 && reason ? { override_reason: reason } : {}),
+            ...(selectedCloserUserId ? { closer_user_id: selectedCloserUserId } : {}),
           },
           token
         )
       )
-  
+
       setTransferStatus(transfer.status)
     } catch (err) {
       if (err instanceof AuthError && err.code === 'transfer.no_closer_available') {
         setTransferError(
-          'No closers available right now. Try again when someone is free, or end the call.'
+          selectedCloserUserId
+            ? 'That closer is busy or unavailable. Pick someone else, clear the selection for any free closer, or end the call.'
+            : 'No closers available right now. Try again when someone is free, or end the call.'
         )
       } else if (err instanceof AuthError && err.code === 'transfer.disposition_not_transferable') {
         setTransferError(err.message)
@@ -282,6 +290,8 @@ function ActiveCallBody({ interactionId }: { interactionId: string }) {
           />
           <TransferPanel
             closers={load.closers}
+            selectedCloserUserId={selectedCloserUserId}
+            onCloserSelect={setSelectedCloserUserId}
             canTransfer={eligible}
             needsOverride={needsOverride}
             dncFlagged={form.dnc_flagged}

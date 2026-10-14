@@ -1009,7 +1009,7 @@ export interface paths {
         };
         /**
          * List closers for the Active Call Transfer panel
-         * @description Returns active closers on the caller's team, with availability matching the transfer gate (``transfer.no_closer_available``). Transfer stays auto-assign: this list is read-only display for the Figma Available Closers table; ``POST /transfers`` does not accept a closer selection.
+         * @description Returns active closers on the caller's team, with availability matching the transfer gate (``transfer.no_closer_available``). Pass a row's ``user_id`` as optional ``closer_user_id`` on ``POST /transfers`` to pin the offer; omit it for auto-assign.
          */
         get: operations["list_closers_transfers_closers_get"];
         put?: never;
@@ -1158,7 +1158,7 @@ export interface components {
         AvailableClosersResponse: {
             /**
              * Items
-             * @description Active closers only. Empty when nobody is staffed — transfer would then return transfer.no_closer_available. Read-only: POST /transfers does not accept a closer_user_id.
+             * @description Active closers only. Empty when nobody is staffed — transfer would then return transfer.no_closer_available. Use a row's user_id as optional closer_user_id on POST /transfers to pin the offer.
              */
             items: components["schemas"]["AvailableCloserItem"][];
         };
@@ -2213,6 +2213,8 @@ export interface components {
         };
         /** TransferCreateRequest */
         TransferCreateRequest: {
+            /** Closer User Id */
+            closer_user_id?: string | null;
             /**
              * Fronter User Id
              * Format: uuid
