@@ -72,6 +72,64 @@ const MOCK_TEAMS: MockTeam[] = [
   },
 ]
 
+type MockCampaign = {
+  id: string
+  name: string
+  match_type: 'campaign' | 'list' | 'did' | null
+  match_value: string | null
+  team_ids: string[]
+  active: boolean
+  created_at: string
+  updated_at: string
+}
+
+function seededCampaign(id: string, name: string, teamIds: string[], active = true): MockCampaign {
+  return {
+    id,
+    name,
+    match_type: null,
+    match_value: null,
+    team_ids: teamIds,
+    active,
+    created_at: SEEDED_AT,
+    updated_at: SEEDED_AT,
+  }
+}
+
+/** One campaign per seeded team, one both teams work, and one retired with none. */
+const MOCK_CAMPAIGNS: MockCampaign[] = [
+  seededCampaign('33333333-3333-4333-8333-000000000001', 'East Inbound', [MOCK_TEAM_EAST]),
+  seededCampaign('33333333-3333-4333-8333-000000000002', 'West Inbound', [MOCK_TEAM_WEST]),
+  seededCampaign('33333333-3333-4333-8333-000000000003', 'Shared overflow', [
+    MOCK_TEAM_EAST,
+    MOCK_TEAM_WEST,
+  ]),
+  seededCampaign('33333333-3333-4333-8333-000000000004', 'Spring promo', [], false),
+]
+
+// A counter rather than crypto.randomUUID(), which a plain-http dev server lacks.
+let issuedCampaigns = MOCK_CAMPAIGNS.length
+
+function nextCampaignId(): string {
+  issuedCampaigns += 1
+  return `33333333-3333-4333-8333-${String(issuedCampaigns).padStart(12, '0')}`
+}
+
+/** Deduplicated and sorted, the way the API returns a campaign's teams. */
+function campaignTeamIds(ids: string[] | null | undefined): string[] {
+  return [...new Set(ids ?? [])].sort()
+}
+
+function isUnknownTeam(id: string): boolean {
+  return !MOCK_TEAMS.some((team) => team.id === id)
+}
+
+function campaignNameTaken(name: string) {
+  return authErrorBody(`campaign already exists: ${name}`, 'campaign.already_exists', [
+    { field: 'name', in: 'body', message: 'already in use' },
+  ])
+}
+
 // Demo accounts for local/dev use only, until the real /auth endpoints ship (week 2).
 // The admin console reads and writes this same list, so a user added there can
 // sign in, and one deactivated there stops being able to.
@@ -1299,6 +1357,108 @@ export const handlers = [
     if (nextActive !== null) team.active = nextActive
     team.updated_at = new Date().toISOString()
     return res(ctx.status(200), ctx.json(team))
+  }),
+
+  rest.get('/campaigns', (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = adminRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const actor = MOCK_TOKENS.get((authorization || '').replace(/^Bearer\s+/i, ''))!
+    // A Team Admin sees the campaigns their own team works, shared ones included.
+    const visible = actor.roles.includes('super_admin')
+      ? MOCK_CAMPAIGNS
+      : MOCK_CAMPAIGNS.filter(
+          (campaign) => actor.team_id !== null && campaign.team_ids.includes(actor.team_id)
+        )
+    const items = [...visible].sort((a, b) => a.name.localeCompare(b.name))
+    return res(ctx.status(200), ctx.json({ items }))
+  }),
+
+  rest.post('/campaigns', async (req, res, ctx) => {
+    const refused = superAdminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const body = (await req.json()) as { name?: string; active?: boolean; team_ids?: string[] }
+    const name = typeof body.name === 'string' ? body.name.trim() : ''
+    if (!name) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody('validation failed', 'validation_error', [
+            { field: 'name', in: 'body', message: 'required' },
+          ])
+        )
+      )
+    }
+    if (MOCK_CAMPAIGNS.some((campaign) => campaign.name === name)) {
+      return res(ctx.status(409), ctx.json(campaignNameTaken(name)))
+    }
+    const teamIds = campaignTeamIds(body.team_ids)
+    if (teamIds.some(isUnknownTeam)) {
+      return res(ctx.status(404), ctx.json(authErrorBody('team not found', 'team.not_found')))
+    }
+
+    const now = new Date().toISOString()
+    const campaign: MockCampaign = {
+      id: nextCampaignId(),
+      name,
+      match_type: null,
+      match_value: null,
+      team_ids: teamIds,
+      active: body.active !== false,
+      created_at: now,
+      updated_at: now,
+    }
+    MOCK_CAMPAIGNS.push(campaign)
+    return res(ctx.status(201), ctx.json(campaign))
+  }),
+
+  rest.patch('/campaigns/:campaign_id', async (req, res, ctx) => {
+    const refused = superAdminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const campaign = MOCK_CAMPAIGNS.find((row) => row.id === req.params.campaign_id)
+    if (!campaign) {
+      return res(
+        ctx.status(404),
+        ctx.json(authErrorBody('campaign not found', 'campaign.not_found'))
+      )
+    }
+
+    const body = (await req.json()) as {
+      name?: string | null
+      active?: boolean | null
+      team_ids?: string[] | null
+    }
+    const nextName = typeof body.name === 'string' ? body.name.trim() : null
+    if (body.name === null || nextName === '') {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody('validation failed', 'validation_error', [
+            { field: 'name', in: 'body', message: 'a campaign must keep a name' },
+          ])
+        )
+      )
+    }
+    if (
+      nextName !== null &&
+      MOCK_CAMPAIGNS.some((row) => row.id !== campaign.id && row.name === nextName)
+    ) {
+      return res(ctx.status(409), ctx.json(campaignNameTaken(nextName)))
+    }
+    const nextTeams = Array.isArray(body.team_ids) ? campaignTeamIds(body.team_ids) : null
+    if (nextTeams?.some(isUnknownTeam)) {
+      return res(ctx.status(404), ctx.json(authErrorBody('team not found', 'team.not_found')))
+    }
+
+    // Applied only once every check has passed, so a refused edit changes nothing.
+    if (nextName !== null) campaign.name = nextName
+    if (typeof body.active === 'boolean') campaign.active = body.active
+    if (nextTeams) campaign.team_ids = nextTeams
+    campaign.updated_at = new Date().toISOString()
+    return res(ctx.status(200), ctx.json(campaign))
   }),
 
   rest.get('/auth/users', (req, res, ctx) => {
