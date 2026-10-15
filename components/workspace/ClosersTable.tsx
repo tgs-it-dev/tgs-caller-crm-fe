@@ -90,8 +90,10 @@ export function ClosersTable({
                     checked={selected}
                     disabled={disabled || !free}
                     value={closer.user_id}
-                    inputProps={{
-                      'aria-label': `Pin transfer to ${closer.name}`,
+                    slotProps={{
+                      input: {
+                        'aria-label': `Pin transfer to ${closer.name}`,
+                      },
                     }}
                     onChange={() => onSelect(closer.user_id)}
                     onClick={(event) => event.stopPropagation()}
