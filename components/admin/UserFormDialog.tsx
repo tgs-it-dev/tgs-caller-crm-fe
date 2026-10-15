@@ -71,6 +71,7 @@ function bannerFor(err: AuthError): string {
     return 'You cannot remove your own elevated role or deactivate yourself.'
   }
   if (err.code === 'user.not_found') return 'That user no longer exists.'
+  if (err.code === 'team.not_found') return 'That team no longer exists. Reload and try again.'
   if (err.status === 403) {
     return 'You cannot grant that role, or you no longer have access to user administration.'
   }
@@ -96,8 +97,9 @@ export function UserFormDialog({
   /** This is the signed-in admin's own account. */
   isSelf: boolean
   /**
-   * Company team catalogue. Super Admin must pick one when creating; Team Admin
-   * leaves `team_id` out and the API pins the account to their own team.
+   * Company team catalogue. Super Admin must pick one when creating and may
+   * change it when editing; Team Admin leaves `team_id` out and the API pins the
+   * account to their own team.
    */
   teams: Team[]
   onClose: () => void
@@ -105,14 +107,16 @@ export function UserFormDialog({
 }) {
   const formId = useId()
   const offerable = grantableRoles(actorRoles)
-  const mustPickTeam = !user && isSuperAdmin(actorRoles)
+  const canPickTeam = isSuperAdmin(actorRoles)
+  const mustPickTeam = !user && canPickTeam
+  const startingTeam = user?.team_id ?? ''
   const [name, setName] = useState(user?.name ?? '')
   const [email, setEmail] = useState(user?.email ?? '')
   // Keep the full set so an edit cannot strip roles the actor is not allowed
   // to grant (those checkboxes are simply not offered).
   const [roles, setRoles] = useState<Role[]>(user?.roles ?? [])
   const [active, setActive] = useState(user?.active ?? true)
-  const [teamId, setTeamId] = useState('')
+  const [teamId, setTeamId] = useState(startingTeam)
   const [signIn, setSignIn] = useState<SignInMethod>('password')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -183,6 +187,7 @@ export function UserFormDialog({
         if (name !== user.name) patch.name = name
         if (!sameRoles(roles, user.roles)) patch.roles = roles
         if (active !== user.active) patch.active = active
+        if (canPickTeam && teamId && teamId !== startingTeam) patch.team_id = teamId
         if (Object.keys(patch).length > 0) {
           await withSession((token) => updateUser(user.id, patch, token))
         }
@@ -216,6 +221,9 @@ export function UserFormDialog({
     if (!offerable.includes(role) || roleLocked(role)) return
     setRoles((held) => (held.includes(role) ? held.filter((r) => r !== role) : [...held, role]))
   }
+
+  const movingTo =
+    user && teamId !== startingTeam ? teams.find((team) => team.id === teamId) : undefined
 
   return (
     <Dialog
@@ -262,15 +270,16 @@ export function UserFormDialog({
           helperText={problems.email ?? (user ? 'An email address cannot be changed.' : undefined)}
         />
 
-        {mustPickTeam && (
+        {canPickTeam && (
           <div>
             <Select
               label="Team"
               value={teamId}
               onChange={(event) => setTeamId(event.target.value)}
-              required
+              required={!user}
             >
-              <option value="">Select a team</option>
+              {/* Someone already on a team can be moved, not taken off it. */}
+              {!startingTeam && <option value="">Select a team</option>}
               {[...teams]
                 .sort((a, b) => a.name.localeCompare(b.name))
                 .map((team) => (
@@ -282,6 +291,15 @@ export function UserFormDialog({
             {problems.team_id && (
               <p role="alert" className="mt-2 text-xs leading-[150%] text-status-red">
                 {problems.team_id}
+              </p>
+            )}
+            {movingTo && (
+              <p className="mt-2 text-xs leading-[150%] text-slate">
+                After you save, they will only see {movingTo.name}&apos;s leads and calls.{' '}
+                <strong>
+                  If they are on a call right now, have them record its outcome first. They
+                  cannot do it after the move.
+                </strong>
               </p>
             )}
           </div>

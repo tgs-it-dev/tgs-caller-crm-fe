@@ -1593,7 +1593,12 @@ export const handlers = [
       return res(ctx.status(404), ctx.json(authErrorBody('user not found', 'user.not_found')))
     }
 
-    const body = (await req.json()) as { name?: string; roles?: Role[]; active?: boolean }
+    const body = (await req.json()) as {
+      name?: string
+      roles?: Role[]
+      active?: boolean
+      team_id?: string | null
+    }
 
     if (body.roles) {
       const unknown = body.roles.filter((role) => !KNOWN_ROLES.includes(role))
@@ -1631,9 +1636,34 @@ export const handlers = [
       )
     }
 
+    // Same rules as PUT /auth/users/{id}/team, checked before anything changes.
+    if (typeof body.team_id === 'string') {
+      if (!actor?.roles.includes('super_admin')) {
+        return res(
+          ctx.status(403),
+          ctx.json(authErrorBody("only a Super Admin can change a user's team", 'auth.forbidden'))
+        )
+      }
+      if (user.roles.includes('super_admin')) {
+        return res(
+          ctx.status(403),
+          ctx.json(
+            authErrorBody(
+              'super_admin accounts cannot be assigned to a team',
+              'team.super_admin_forbidden'
+            )
+          )
+        )
+      }
+      if (!MOCK_TEAMS.some((team) => team.id === body.team_id)) {
+        return res(ctx.status(404), ctx.json(authErrorBody('team not found', 'team.not_found')))
+      }
+    }
+
     if (body.name !== undefined) user.name = body.name
     if (body.roles !== undefined) user.roles = body.roles
     if (body.active !== undefined) user.active = body.active
+    if (typeof body.team_id === 'string') user.team_id = body.team_id
 
     return res(ctx.status(200), ctx.json(userBody(user)))
   }),
