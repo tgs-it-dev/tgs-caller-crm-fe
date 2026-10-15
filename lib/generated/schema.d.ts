@@ -226,7 +226,10 @@ export interface paths {
         head?: never;
         /**
          * Update a user (administrators only)
-         * @description Patch name, roles, and/or active.
+         * @description Patch name, roles, active and/or team.
+         *
+         *     Changing the team is Super Admin only, follows the same rules as
+         *     `PUT /auth/users/{user_id}/team`, and is saved in the same transaction.
          *
          *     Deactivating sets `active=False` and revokes refresh tokens in the same
          *     transaction. Access tokens are not blacklisted: the next authenticated
@@ -2299,6 +2302,11 @@ export interface components {
             name?: string | null;
             /** Roles */
             roles?: ("fronter" | "closer" | "administrator" | "super_admin")[] | null;
+            /**
+             * Team Id
+             * @description Super Admin only: moves the user to this team, saved with the rest of the change. Leave it out to keep their team.
+             */
+            team_id?: string | null;
         };
         /** UserListResponse */
         UserListResponse: {

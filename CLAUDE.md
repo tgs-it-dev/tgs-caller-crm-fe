@@ -368,15 +368,21 @@ Attempts.
 ## Users
 
 `/admin/users` administers accounts through `lib/users.ts` — `GET /auth/users`
-to list, `POST` to add, `PATCH /auth/users/{id}` to change a name, roles or
-state. Administrator-only, like the rest of `/admin`.
+to list, `POST` to add, `PATCH /auth/users/{id}` to change a name, roles,
+state or team. Administrator-only, like the rest of `/admin`.
 
 - **There is no delete.** Deactivating is `PATCH {active: false}`, and it
   revokes that person's refresh tokens as it commits: they are signed out on
   their next request, not at their next login. The wording on screen says so.
 - **An email address cannot be changed** — `UpdateUserRequest` carries name,
-  roles and active, and nothing else. The field is shown disabled rather than
-  hidden, so nobody goes looking for it.
+  roles, active and `team_id`, and nothing else. The field is shown disabled
+  rather than hidden, so nobody goes looking for it.
+- **Team is Super Admin only.** It is required when adding and can be changed
+  when editing; the edit sends `team_id` in the same PATCH as the rest, and only
+  when it changed. Picking a different team shows a note that the move takes
+  effect on save and that anyone on a call should record its outcome first. The
+  API does not block a move mid-call. Team Admins never see the field: the API
+  puts their users on their own team and refuses `team_id` from them.
 - **Creating a user asks how they will sign in.** "Set a password now" is the
   default and sends `password`; "Email an invitation link" leaves the key out
   and the API issues an invitation instead. That branch is the backend's:
