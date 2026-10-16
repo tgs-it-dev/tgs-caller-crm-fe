@@ -18,11 +18,8 @@ export function Reveal({ children, className = '', delay = 0 }: RevealProps) {
     const node = ref.current
     if (!node) return
 
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (reduce) {
-      setVisible(true)
-      return
-    }
+    // globals.css already shows `.reveal` content when motion is reduced.
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
 
     const observer = new IntersectionObserver(
       ([entry]) => {
