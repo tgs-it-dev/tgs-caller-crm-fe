@@ -7,7 +7,16 @@ export function formatPhone(phone: string) {
 }
 
 export function formatDateTime(iso: string) {
-  return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+  // Always 12-hour: `timeStyle: 'short'` alone follows the locale and can
+  // print 24-hour on some browsers, which disagrees with the funnel rows.
+  return new Date(iso).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
 }
 
 /**
@@ -36,6 +45,7 @@ export function formatInstant(iso: string) {
     year: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
+    hour12: true,
     timeZoneName: 'short',
   })
 }
@@ -64,6 +74,7 @@ export function formatTime(iso: string, timeZone: string) {
   return new Date(iso).toLocaleTimeString(undefined, {
     hour: 'numeric',
     minute: '2-digit',
+    hour12: true,
     timeZone,
     timeZoneName: 'short',
   })

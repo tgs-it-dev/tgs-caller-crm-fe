@@ -62,8 +62,8 @@ const columnsIn = (timeZone: string, stage: FunnelStage): DataColumn<FunnelInter
         },
       ]),
   {
-    id: 'started',
-    header: 'Started at',
+    id: 'created',
+    header: 'Created at',
     render: (row) => (
       <span className="whitespace-nowrap">{formatDateTimeIn(row.created_at, timeZone)}</span>
     ),
@@ -72,12 +72,12 @@ const columnsIn = (timeZone: string, stage: FunnelStage): DataColumn<FunnelInter
     id: 'interaction',
     header: 'Interaction',
     render: (row) => (
-      <span className="whitespace-nowrap font-mono text-xs">{row.id.slice(0, 8)}…</span>
+      <span className="whitespace-nowrap font-mono text-xs">{row.id}</span>
     ),
   },
   {
     id: 'actions',
-    header: <span className="sr-only">Actions</span>,
+    header: 'Action',
     align: 'right',
     // MUI directly rather than our Button: that renders a <button> where this
     // navigates, and is `fullWidth`, which in a cell stretches to the column.
