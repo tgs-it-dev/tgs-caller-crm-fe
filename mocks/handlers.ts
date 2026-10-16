@@ -9,6 +9,7 @@ import type { LeadBulkRow, LeadResponse } from '../lib/leads'
 import { PUSH_INTERVAL_MS, type AgentStatus, type LiveStatus } from '../lib/liveStatus'
 import type { CloserQueueEntry, FronterQueueEntry } from '../lib/queue'
 import type { QualificationCreateRequest, QualificationResponse } from '../lib/qualification'
+import { BUSINESS_TIMEZONE } from '../lib/format'
 import type {
   FunnelInteractionList,
   FunnelStage,
@@ -346,7 +347,7 @@ function mockLiveStatus(): LiveStatus {
 
   return {
     generated_at: new Date().toISOString(),
-    timezone: 'America/New_York',
+    timezone: BUSINESS_TIMEZONE,
     agents,
     active_calls: agents.filter((agent) => isBusy(agent.status)).length,
     pending_transfers: tick % 3,
@@ -423,7 +424,7 @@ function grantCeilingRefusal(actor: MockUser, roles: Role[]) {
 }
 
 /** Default business day when the client leaves `timezone` off, matching the API. */
-const MOCK_BUSINESS_TIMEZONE = 'America/New_York'
+const MOCK_BUSINESS_TIMEZONE = BUSINESS_TIMEZONE
 
 /**
  * Funnel counts for a window, worked out from the window itself so the same
