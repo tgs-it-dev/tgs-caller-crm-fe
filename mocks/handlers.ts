@@ -5,7 +5,7 @@ import { CLOSER_DESK_SEEDS } from '../lib/closer'
 import type { ReconciliationException } from '../lib/exceptions'
 import type { CallLeg, InteractionEvent, InteractionTransfer } from '../lib/interactionDetail'
 import type { InteractionDetailResponse } from '../lib/interactions'
-import type { LeadResponse } from '../lib/leads'
+import type { LeadBulkRow, LeadResponse } from '../lib/leads'
 import { PUSH_INTERVAL_MS, type AgentStatus, type LiveStatus } from '../lib/liveStatus'
 import type { CloserQueueEntry, FronterQueueEntry } from '../lib/queue'
 import type { QualificationCreateRequest, QualificationResponse } from '../lib/qualification'
@@ -650,6 +650,127 @@ const MOCK_CLOSER_QUEUE: CloserQueueEntry[] = Array.from({ length: 12 }, (_, ind
   // Mix pending offers with this closer's open accepted call (index 1).
   status: index === 1 ? 'accepted' : index % 4 === 0 ? 'offered' : 'initiated',
 }))
+
+// The Leads tab's view: leads by team. MOCK_LEADS stands in for the workspace's
+// per-call lookups and carries no team, so it can't answer GET /leads alone.
+type MockTeamLead = LeadResponse & { team_id: string }
+
+function seededTeamLead(
+  id: string,
+  phone: string,
+  source: LeadResponse['source'],
+  teamId: string,
+  daysAgo: number
+): MockTeamLead {
+  const at = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString()
+  return { id, phone_normalized: phone, source, team_id: teamId, created_at: at, updated_at: at }
+}
+
+/** Newest first, as the API lists them. */
+const MOCK_TEAM_LEADS: MockTeamLead[] = [
+  seededTeamLead('lead-team-1', '+12125550134', 'manual', MOCK_TEAM_EAST, 1),
+  seededTeamLead('lead-team-2', '+14155550110', 'manual', MOCK_TEAM_WEST, 2),
+  seededTeamLead('lead-team-3', '+13235550155', 'vicidial', MOCK_TEAM_EAST, 4),
+]
+
+/** Stands in for the company do-not-call list. */
+const MOCK_SUPPRESSED_PHONES = new Set(['+12125550000'])
+
+let issuedLeads = 0
+
+function leadBody(lead: MockTeamLead): LeadResponse {
+  return {
+    id: lead.id,
+    phone_normalized: lead.phone_normalized,
+    source: lead.source,
+    created_at: lead.created_at,
+    updated_at: lead.updated_at,
+  }
+}
+
+/** A US-only stand-in for the API's normalizer: E.164, or null when unusable. */
+function mockNormalizePhone(raw: string): string | null {
+  const digits = raw.replace(/\D/g, '')
+  if (digits.length === 10) return `+1${digits}`
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`
+  return null
+}
+
+function teamLeadFor(teamId: string, phone: string): MockTeamLead | undefined {
+  return MOCK_TEAM_LEADS.find((lead) => lead.team_id === teamId && lead.phone_normalized === phone)
+}
+
+/** The queue label for a team's new leads, by the API's rule, or why it refuses. */
+function mockCampaignFor(
+  teamId: string,
+  campaignId: string | null | undefined
+): { name: string | null } | { status: number; body: ReturnType<typeof authErrorBody> } {
+  const refusal = (status: number, detail: string, code: string) => ({
+    status,
+    body: authErrorBody(detail, code, [{ field: 'campaign_id', in: 'body', message: detail }]),
+  })
+  if (campaignId) {
+    const campaign = MOCK_CAMPAIGNS.find((row) => row.id === campaignId)
+    if (!campaign) return refusal(404, 'campaign not found', 'campaign.not_found')
+    if (!campaign.active) return refusal(422, 'campaign is inactive', 'lead.campaign_inactive')
+    if (!campaign.team_ids.includes(teamId)) {
+      return refusal(422, 'campaign is not linked to this team', 'lead.campaign_not_on_team')
+    }
+    return { name: campaign.name }
+  }
+  const active = MOCK_CAMPAIGNS.filter((row) => row.active && row.team_ids.includes(teamId))
+  if (active.length > 1) {
+    return refusal(
+      422,
+      'this team has more than one active campaign; name one',
+      'lead.campaign_required'
+    )
+  }
+  return { name: active[0]?.name ?? null }
+}
+
+/** A new lead on the team, and on the fronter queue the way the API enqueues it. */
+function addMockLead(
+  teamId: string,
+  phone: string,
+  name: string | null,
+  campaignName: string | null
+): MockTeamLead {
+  issuedLeads += 1
+  const now = new Date().toISOString()
+  const lead: MockTeamLead = {
+    id: `lead-manual-${issuedLeads}`,
+    phone_normalized: phone,
+    source: 'manual',
+    team_id: teamId,
+    created_at: now,
+    updated_at: now,
+  }
+  MOCK_TEAM_LEADS.unshift(lead)
+  MOCK_LEADS[lead.id] = leadBody(lead)
+  const interactionId = `int-manual-${issuedLeads}`
+  MOCK_INTERACTIONS[interactionId] = {
+    id: interactionId,
+    lead_id: lead.id,
+    created_at: now,
+    updated_at: now,
+    qualification: null,
+  }
+  MOCK_FRONTER_QUEUE.push({
+    id: interactionId,
+    lead_name: name ?? phone,
+    lead_phone: phone,
+    campaign_name: campaignName ?? 'Manual upload',
+    queued_at: now,
+    status: 'waiting',
+  })
+  return lead
+}
+
+/** Good enough for mock mode: no quoted commas. */
+function splitCsvLine(line: string): string[] {
+  return line.split(',').map((cell) => cell.trim().replace(/^"(.*)"$/, '$1'))
+}
 
 const MOCK_QUALIFICATIONS = new Map<string, QualificationResponse>()
 let qualificationSeq = 0
@@ -1715,6 +1836,212 @@ export const handlers = [
 
   rest.get('/interactions', (_req, res, ctx) => {
     return res(ctx.status(200), ctx.json(Object.values(MOCK_INTERACTIONS)))
+  }),
+
+  // Open to anyone signed in, as the API's is; Team Admins see their own team.
+  rest.get('/leads', (req, res, ctx) => {
+    const actor = MOCK_TOKENS.get(
+      (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '')
+    )
+    if (!actor || !actor.active) {
+      return res(
+        ctx.status(401),
+        ctx.json(authErrorBody('Could not validate credentials', 'auth.not_authenticated'))
+      )
+    }
+
+    const params = req.url.searchParams
+    const limit = Number(params.get('limit') ?? 50)
+    const offset = Number(params.get('offset') ?? 0)
+    const raw = params.get('phone_normalized')
+    const phone = raw === null ? null : mockNormalizePhone(raw)
+    if (raw !== null && phone === null) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody(`not a usable phone number: '${raw}'`, 'lead.invalid_phone', [
+            { field: 'phone_normalized', in: 'query', message: 'not a usable phone number' },
+          ])
+        )
+      )
+    }
+
+    const everyTeam = actor.roles.includes('super_admin')
+    const rows = MOCK_TEAM_LEADS.filter(
+      (lead) =>
+        (everyTeam || lead.team_id === actor.team_id) &&
+        (phone === null || lead.phone_normalized === phone)
+    )
+    return res(
+      ctx.status(200),
+      ctx.json({
+        items: rows.slice(offset, offset + limit).map(leadBody),
+        total: rows.length,
+        limit,
+        offset,
+      })
+    )
+  }),
+
+  rest.post('/leads', async (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = adminRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const actor = MOCK_TOKENS.get((authorization || '').replace(/^Bearer\s+/i, ''))!
+    if (!actor.team_id) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody('a team is required', 'lead.team_required', [
+            { field: 'team_id', in: 'body', message: 'a team is required' },
+          ])
+        )
+      )
+    }
+
+    const body = (await req.json()) as {
+      phone?: string
+      name?: string | null
+      campaign_id?: string | null
+    }
+    const phone = mockNormalizePhone(String(body.phone ?? ''))
+    if (!phone) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody(`not a usable phone number: '${body.phone}'`, 'lead.invalid_phone', [
+            { field: 'phone', in: 'body', message: 'not a usable phone number' },
+          ])
+        )
+      )
+    }
+
+    // A number the team already has comes back as it is, nothing queued.
+    const existing = teamLeadFor(actor.team_id, phone)
+    if (existing) return res(ctx.status(201), ctx.json(leadBody(existing)))
+
+    const campaign = mockCampaignFor(actor.team_id, body.campaign_id)
+    if ('status' in campaign) return res(ctx.status(campaign.status), ctx.json(campaign.body))
+
+    if (MOCK_SUPPRESSED_PHONES.has(phone)) {
+      const detail = 'this phone number is on the company do-not-call list'
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody(detail, 'lead.phone_suppressed', [
+            { field: 'phone', in: 'body', message: detail },
+          ])
+        )
+      )
+    }
+
+    const lead = addMockLead(actor.team_id, phone, body.name?.trim() || null, campaign.name)
+    return res(ctx.status(201), ctx.json(leadBody(lead)))
+  }),
+
+  rest.post('/leads/bulk', async (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = adminRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const actor = MOCK_TOKENS.get((authorization || '').replace(/^Bearer\s+/i, ''))!
+    const teamId = actor.team_id
+    if (!teamId) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody('a team is required', 'lead.team_required', [
+            { field: 'team_id', in: 'body', message: 'a team is required' },
+          ])
+        )
+      )
+    }
+
+    const fileRefusal = (detail: string, code: string) =>
+      res(
+        ctx.status(422),
+        ctx.json(authErrorBody(detail, code, [{ field: 'file', in: 'body', message: detail }]))
+      )
+
+    // Deprecated, but req.body is MSW 1.x's only multipart reader: fields, and the upload as a File.
+    const form = req.body as { file?: File; campaign_id?: string }
+    if (!(form.file instanceof File)) return fileRefusal('the file is empty', 'lead.bulk_empty')
+    if (form.file.size > 1_048_576) {
+      return fileRefusal('the file is too large', 'lead.bulk_too_large')
+    }
+
+    const lines = (await form.file.text()).replace(/^﻿/, '').split(/\r?\n/)
+    const header = splitCsvLine(lines[0] ?? '').map((cell) => cell.toLowerCase())
+    const phoneAt = header.indexOf('phone')
+    const nameAt = header.indexOf('name')
+    if (phoneAt < 0) return fileRefusal('no phone column', 'lead.bulk_bad_header')
+
+    // Line numbers as the file has them: the header is line 1.
+    const candidates = lines
+      .map((line, index) => ({ line, row: index + 1 }))
+      .slice(1)
+      .filter(({ line }) => line.trim() !== '')
+      .map(({ line, row }) => {
+        const cells = splitCsvLine(line)
+        const raw = cells[phoneAt] ?? ''
+        return {
+          row,
+          raw,
+          phone: raw ? mockNormalizePhone(raw) : null,
+          name: nameAt >= 0 ? (cells[nameAt] ?? '') : '',
+        }
+      })
+    if (candidates.length === 0) return fileRefusal('the file has no rows', 'lead.bulk_empty')
+    if (candidates.length > 1000) return fileRefusal('too many rows', 'lead.bulk_too_large')
+
+    // Like the API, a campaign is needed only when some row would be new.
+    let campaignName: string | null = null
+    if (candidates.some(({ phone }) => phone && !teamLeadFor(teamId, phone))) {
+      const campaign = mockCampaignFor(teamId, form.campaign_id)
+      if ('status' in campaign) return res(ctx.status(campaign.status), ctx.json(campaign.body))
+      campaignName = campaign.name
+    }
+
+    const seen = new Set<string>()
+    const rows: LeadBulkRow[] = candidates.map(({ row, raw, phone, name }) => {
+      if (!phone) {
+        return {
+          row,
+          phone: raw || null,
+          status: 'invalid',
+          lead_id: null,
+          error: 'not a usable phone number',
+        }
+      }
+      if (seen.has(phone)) {
+        return {
+          row,
+          phone,
+          status: 'duplicate_in_file',
+          lead_id: null,
+          error: 'repeats an earlier row',
+        }
+      }
+      seen.add(phone)
+      const existing = teamLeadFor(teamId, phone)
+      if (existing) return { row, phone, status: 'existing', lead_id: existing.id, error: null }
+      if (MOCK_SUPPRESSED_PHONES.has(phone)) {
+        return { row, phone, status: 'suppressed', lead_id: null, error: 'on the do-not-call list' }
+      }
+      const lead = addMockLead(teamId, phone, name || null, campaignName)
+      return { row, phone, status: 'created', lead_id: lead.id, error: null }
+    })
+
+    const created = rows.filter((row) => row.status === 'created').length
+    const existing = rows.filter((row) => row.status === 'existing').length
+    return res(
+      ctx.status(200),
+      ctx.json({
+        summary: { created, existing, failed: rows.length - created - existing },
+        rows,
+      })
+    )
   }),
 
   rest.get('/leads/:leadId', (req, res, ctx) => {

@@ -638,8 +638,49 @@ export interface paths {
          *     The phone may be sent in any format; it is matched and stored in E.164.
          *     Responds 201 in both cases — compare `created_at` to tell a new lead from a
          *     returning caller.
+         *
+         *     A newly created lead also opens a fronter-queue opportunity (Interaction +
+         *     DialerQueueEntry) so that team's fronters can see it without a dialer event.
+         *     The queue row's campaign name comes from the team's campaign catalogue.
+         *     Re-posting an existing number does not enqueue again.
+         *
+         *     Team Admins create on their own team; Super Admins must pass ``team_id``.
          */
         post: operations["create_lead_leads_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/leads/bulk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bulk upload leads from CSV
+         * @description Import leads from a CSV onto a team (Phase 3).
+         *
+         *     ``multipart/form-data`` with ``file`` plus optional ``team_id`` /
+         *     ``campaign_id`` (same scoping as single create). Source is always
+         *     ``manual``.
+         *
+         *     **File-level** refusals (before any row is written): empty file
+         *     (``lead.bulk_empty``), missing/wrong header (``lead.bulk_bad_header``),
+         *     non-UTF-8 body (``lead.bulk_invalid_encoding``), too many data rows or
+         *     bytes (``lead.bulk_too_large``), and the usual team / campaign codes from
+         *     Phase 2.
+         *
+         *     **Row-level** outcomes are always returned in the 200 body
+         *     (``created`` | ``existing`` | ``suppressed`` | ``invalid`` |
+         *     ``duplicate_in_file``) so valid rows can succeed when others fail.
+         */
+        post: operations["bulk_upload_leads_leads_bulk_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1165,6 +1206,24 @@ export interface components {
              */
             items: components["schemas"]["AvailableCloserItem"][];
         };
+        /** Body_bulk_upload_leads_leads_bulk_post */
+        Body_bulk_upload_leads_leads_bulk_post: {
+            /**
+             * Campaign Id
+             * @description Campaign whose name labels fronter queue rows for newly created leads. Same resolution rules as POST /leads.
+             */
+            campaign_id?: string | null;
+            /**
+             * File
+             * @description CSV file. Required header column: phone. Optional: name (queue label only). At most 1000 data rows and 1048576 bytes.
+             */
+            file: string;
+            /**
+             * Team Id
+             * @description Team the leads join. Same rules as POST /leads: Super Admin must name one; Team Admin may omit (own membership) and cannot name another.
+             */
+            team_id?: string | null;
+        };
         /**
          * CallLegItem
          * @description One leg. started_at/ended_at are null until the dialer mapping lands.
@@ -1560,7 +1619,7 @@ export interface components {
              * Lead Source
              * @enum {string}
              */
-            lead_source: "vicidial" | "ghl";
+            lead_source: "vicidial" | "ghl" | "manual";
         };
         /** FunnelInteractionListResponse */
         FunnelInteractionListResponse: {
@@ -1854,8 +1913,87 @@ export interface components {
             /** Name */
             name: string;
         };
+        /**
+         * LeadBulkRowResult
+         * @description One CSV data row after processing (partial success is normal).
+         */
+        LeadBulkRowResult: {
+            /**
+             * Error
+             * @description Human-readable reason when status is a failure outcome.
+             */
+            error?: string | null;
+            /**
+             * Lead Id
+             * @description Set when status is created or existing; otherwise null.
+             */
+            lead_id?: string | null;
+            /**
+             * Phone
+             * @description Normalized E.164 when the cell parsed; otherwise the raw cell value, or null when blank.
+             */
+            phone?: string | null;
+            /**
+             * Row
+             * @description 1-based line number in the uploaded file. The header is line 1; the first data row is 2.
+             */
+            row: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "created" | "existing" | "suppressed" | "invalid" | "duplicate_in_file";
+        };
+        /**
+         * LeadBulkUploadResponse
+         * @description Result of ``POST /leads/bulk``.
+         *
+         *     File-level failures (empty, bad header, too large, team/campaign gates) are
+         *     HTTP errors with ``code`` — not rows in this payload. Row-level outcomes
+         *     always land here so valid rows can succeed when others fail.
+         */
+        LeadBulkUploadResponse: {
+            /** Rows */
+            rows: components["schemas"]["LeadBulkRowResult"][];
+            summary: components["schemas"]["LeadBulkUploadSummary"];
+        };
+        /**
+         * LeadBulkUploadSummary
+         * @description Counts for one bulk CSV upload.
+         *
+         *     ``failed`` is ``invalid`` + ``suppressed`` + ``duplicate_in_file``.
+         *     In-file duplicates (same phone after normalize; first row wins) are failures,
+         *     not ``existing``.
+         */
+        LeadBulkUploadSummary: {
+            /**
+             * Created
+             * @description Rows that inserted a new lead.
+             */
+            created: number;
+            /**
+             * Existing
+             * @description Rows whose phone already existed on the team.
+             */
+            existing: number;
+            /**
+             * Failed
+             * @description Rows that did not create or match a lead: invalid + suppressed + duplicate_in_file (later in-file repeats of a normalized phone).
+             */
+            failed: number;
+        };
         /** LeadCreateRequest */
         LeadCreateRequest: {
+            /**
+             * Campaign Id
+             * @description Campaign whose name labels the fronter queue row. Must be active and linked to the lead's team. When omitted, the team's sole active campaign is used; if the team has none, a source-based label is used.
+             */
+            campaign_id?: string | null;
+            /**
+             * Name
+             * @description Optional display name for the fronter queue. When omitted, the normalized phone is used. Not stored on the lead row yet.
+             */
+            name?: string | null;
             /**
              * Phone
              * @description Raw phone as received; the server normalizes it to E.164.
@@ -1865,7 +2003,12 @@ export interface components {
              * Source
              * @enum {string}
              */
-            source: "vicidial" | "ghl";
+            source: "vicidial" | "ghl" | "manual";
+            /**
+             * Team Id
+             * @description Team the lead joins. A Super Admin must name one; a Team Admin may leave it out (their membership is used) and cannot name another.
+             */
+            team_id?: string | null;
         };
         /** LeadListResponse */
         LeadListResponse: {
@@ -1896,7 +2039,7 @@ export interface components {
              * Source
              * @enum {string}
              */
-            source: "vicidial" | "ghl";
+            source: "vicidial" | "ghl" | "manual";
             /**
              * Updated At
              * Format: date-time
@@ -3756,6 +3899,48 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeadResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    bulk_upload_leads_leads_bulk_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_bulk_upload_leads_leads_bulk_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadBulkUploadResponse"];
                 };
             };
             /** @description Client Error */

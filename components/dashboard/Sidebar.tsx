@@ -10,6 +10,7 @@ import {
   ChartLine,
   Check,
   ChevronDown,
+  Contact,
   Headset,
   ListOrdered,
   LogOut,
@@ -144,6 +145,10 @@ function CampaignsIcon() {
   )
 }
 
+function LeadsIcon() {
+  return <Contact {...NAV_ICON} />
+}
+
 type NavItem = {
   href: string
   label: string
@@ -166,7 +171,7 @@ const DESK_ICON: Record<Role, ComponentType> = {
   super_admin: AdminDeskIcon,
 }
 
-/** Team Admin desk — Dashboard / Reports / Exceptions / Users. */
+/** Team Admin desk: Dashboard / Reports / Exceptions / Users / Leads. */
 const TEAM_ADMIN_NAV: NavItem[] = [
   { href: '/admin', label: 'Dashboard', icon: DashboardIcon, isActive: (p) => p === '/admin' },
   {
@@ -189,6 +194,12 @@ const TEAM_ADMIN_NAV: NavItem[] = [
     label: 'Users',
     icon: UsersIcon,
     isActive: (p) => p.startsWith('/admin/users'),
+  },
+  {
+    href: '/admin/leads',
+    label: 'Leads',
+    icon: LeadsIcon,
+    isActive: (p) => p.startsWith('/admin/leads'),
   },
 ]
 
