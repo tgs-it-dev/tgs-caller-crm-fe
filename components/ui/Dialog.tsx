@@ -18,6 +18,7 @@ export function Dialog({
   title,
   onClose,
   busy = false,
+  maxWidth = 'xs',
   actions,
   children,
 }: {
@@ -27,6 +28,8 @@ export function Dialog({
   onClose: () => void
   /** Something is in flight: closing now would lose the answer to it. */
   busy?: boolean
+  /** `sm` for content that needs the room, such as a table of results. */
+  maxWidth?: 'xs' | 'sm'
   actions?: ReactNode
   children: ReactNode
 }) {
@@ -40,7 +43,7 @@ export function Dialog({
       }}
       aria-labelledby={titleId}
       fullWidth
-      maxWidth="xs"
+      maxWidth={maxWidth}
       slotProps={{ paper: { sx: { borderRadius: '12px', padding: '4px' } } }}
     >
       <DialogTitle

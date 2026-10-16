@@ -423,6 +423,38 @@ Super Admin only.
 - Team Admins can read their own team's campaigns through the API, but there is
   no screen for that yet.
 
+## Leads
+
+`/admin/leads` lets a Team Admin put leads on their team through `lib/leads.ts`:
+`GET /leads` to list, `POST /leads` to add one, `POST /leads/bulk` to upload a
+CSV. Team Admin only: the page is guarded with `exact`, so a Super Admin does not
+inherit it, and their desk has no Leads item.
+
+- **A new lead goes straight onto the team's fronter queue.** No fronter-side
+  work is needed; the queue's own refresh picks it up.
+- **Add Lead checks for the number first.** `POST /leads` answers 201 whether it
+  created the lead or found one the team already has, so the form asks
+  `GET /leads?phone_normalized=` before saving, and says so when it is a repeat.
+- **The name only labels the queue row.** It is not stored on the lead, so the
+  list and the Active Call screens show the phone. A blank name is left out of
+  the request, because the API refuses an empty one.
+- **The campaign picker follows the API's rule:** no field when the team has no
+  active campaign (the queue says "Manual upload"), the one campaign already
+  picked, or a required choice when there are several.
+- **Upload CSV is multipart.** `uploadLeads` builds the form data on every call
+  and sets no `Content-Type`, so the browser writes the boundary. Only a file
+  named `.csv` is taken: the picker's filter can be switched off, and Excel on
+  Windows labels a CSV as a spreadsheet type, so the name is what is checked.
+  The API takes up to 1,000 rows and 1 MB and answers per row. The results are
+  three counts (added, already on your team, could not be added) and a table of
+  every number that was not added, by line number, with the reason: already on
+  your team, invalid, do-not-call, or repeated in the file. Uploading the same
+  file again is safe: rows already added come back as already on the team and
+  are not queued twice.
+- **The template is `public/leads-template.csv`:** the header and one example
+  row on a reserved 555-01xx number, saved as UTF-8 with a byte-order mark so
+  Excel opens it cleanly. The API accepts the mark.
+
 ## Emailed links
 
 `/invite/[token]`, `/reset-password/[token]` and `/forgot-password` are how a
