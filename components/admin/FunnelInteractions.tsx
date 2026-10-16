@@ -8,11 +8,10 @@ import { Alert } from '@/components/ui/Alert'
 import { DataTable, type DataColumn } from '@/components/ui/DataTable'
 import { Select } from '@/components/ui/Select'
 import { AuthError } from '@/lib/auth'
-import { formatDateTimeIn, formatPhone, formatZone } from '@/lib/format'
+import { BUSINESS_TIMEZONE, formatDateTimeIn, formatPhone, formatZone } from '@/lib/format'
 import { waitForMocking } from '@/lib/mockReady'
 import {
   fetchFunnelStage,
-  reportTimezoneOptions,
   type FunnelInteraction,
   type FunnelInteractionList,
   type FunnelStage,
@@ -62,8 +61,8 @@ const columnsIn = (timeZone: string, stage: FunnelStage): DataColumn<FunnelInter
         },
       ]),
   {
-    id: 'started',
-    header: 'Started at',
+    id: 'created',
+    header: 'Created at',
     render: (row) => (
       <span className="whitespace-nowrap">{formatDateTimeIn(row.created_at, timeZone)}</span>
     ),
@@ -72,12 +71,12 @@ const columnsIn = (timeZone: string, stage: FunnelStage): DataColumn<FunnelInter
     id: 'interaction',
     header: 'Interaction',
     render: (row) => (
-      <span className="whitespace-nowrap font-mono text-xs">{row.id.slice(0, 8)}…</span>
+      <span className="whitespace-nowrap font-mono text-xs">{row.id}</span>
     ),
   },
   {
     id: 'actions',
-    header: <span className="sr-only">Actions</span>,
+    header: 'Action',
     align: 'right',
     // MUI directly rather than our Button: that renders a <button> where this
     // navigates, and is `fullWidth`, which in a cell stretches to the column.
@@ -161,7 +160,8 @@ export function FunnelInteractions({
   }
 
   const heading = `Interactions behind ${STAGE_LABEL[stage]}`
-  const zones = reportTimezoneOptions(funnel.timezone)
+  // Business Eastern only — the CRM does not offer other zones on this list.
+  const zones = [BUSINESS_TIMEZONE] as const
 
   return (
     <DataTable
@@ -195,7 +195,7 @@ export function FunnelInteractions({
             <Select
               label="Timezone"
               size="small"
-              value={funnel.timezone}
+              value={BUSINESS_TIMEZONE}
               onChange={(event) => onTimezoneChange(event.target.value)}
             >
               {zones.map((zone) => (
