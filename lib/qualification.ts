@@ -155,15 +155,26 @@ export function parseVehicleLine(vehicle: string): {
   }
 }
 
+/**
+ * What to persist on the qualification. Free-text `vehicle` is the source of
+ * truth for the checklist; year/make/model are only stored when the line
+ * actually parsed into them — never placeholders like "not provided" or a
+ * duplicated make written as model (those polluted the admin snapshot).
+ */
 export function snapshotJsonFromActiveCall(form: ActiveCallForm): Record<string, unknown> {
   const resolved = resolvedTransferFields(form)
-  return {
+  const snapshot: Record<string, unknown> = {
     vehicle: form.vehicle.trim(),
-    ...resolved,
+    mileage: resolved.mileage,
     state: sanitizeState(form.state).trim(),
     warranty_status: form.warranty_status,
     notes: form.notes,
   }
+  for (const key of ['vehicle_year', 'vehicle_make', 'vehicle_model'] as const) {
+    const value = resolved[key].trim()
+    if (value) snapshot[key] = value
+  }
+  return snapshot
 }
 
 export function consentFromActiveCall(form: ActiveCallForm): ConsentDnc {
@@ -221,9 +232,10 @@ export function activeCallFormFromQualification(
 
 /**
  * Map the Active Call form onto the BE transfer-required keys.
- * When the fronter filled the vehicle line, never leave year/make/model blank
- * just because the free-text didn't split cleanly — that was forcing an override
- * even when the checklist looked complete.
+ *
+ * Honest parse only: a free-text line that does not split into year / make /
+ * model leaves those keys blank, and the transfer gate then asks for an
+ * override rather than inventing values into the saved qualification.
  */
 export function resolvedTransferFields(form: ActiveCallForm): {
   vehicle_year: string
@@ -235,22 +247,10 @@ export function resolvedTransferFields(form: ActiveCallForm): {
   const mileage = sanitizeMileage(form.mileage)
   const parsed = parseVehicleLine(vehicle)
 
-  if (!vehicle) {
-    return {
-      vehicle_year: '',
-      vehicle_make: '',
-      vehicle_model: '',
-      mileage,
-    }
-  }
-
-  const make = parsed.vehicle_make || vehicle
-  const model = parsed.vehicle_model || make
-
   return {
-    vehicle_year: parsed.vehicle_year || 'not provided',
-    vehicle_make: make,
-    vehicle_model: model,
+    vehicle_year: parsed.vehicle_year,
+    vehicle_make: parsed.vehicle_make,
+    vehicle_model: parsed.vehicle_model,
     mileage,
   }
 }
@@ -307,6 +307,16 @@ export function dispositionAllowsTransfer(
 }
 
 /**
+ * Whether Transfer needs an override reason: incomplete checklist, or a
+ * vehicle line that did not parse into the BE-required year / make / model.
+ */
+export function needsActiveCallOverride(form: ActiveCallForm): boolean {
+  if (form.dnc_flagged) return false
+  if (!isActiveCallChecklistComplete(form)) return true
+  return missingActiveCallTransferFields(form).length > 0
+}
+
+/**
  * Client gate for the Transfer button. The server enforces the same rule, so
  * this only decides whether to offer the control.
  *
@@ -321,10 +331,12 @@ export function canTransferActiveCall(
   if (form.dnc_flagged) return false
   if (!dispositionAllowsTransfer(opts.disposition)) return false
 
-  // Checklist complete + a transferable outcome → no override needed.
-  if (isActiveCallChecklistComplete(form)) return true
+  // Checklist complete and year/make/model actually present → no override.
+  if (isActiveCallChecklistComplete(form) && missingActiveCallTransferFields(form).length === 0) {
+    return true
+  }
 
-  // Incomplete checklist: override reason is required (consent still required).
+  // Incomplete checklist or unparsed vehicle line: override reason required.
   if (form.consent !== 'yes') return false
   return opts.overrideReason.trim().length > 0
 }

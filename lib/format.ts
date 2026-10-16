@@ -44,12 +44,17 @@ export function formatInstant(iso: string) {
  * An instant drawn in a named zone, the zone left to a caption.
  *
  * `formatDateTime` reads it in the browser's, where a row can fall on a
- * different date from the day the answer counted it in.
+ * different date from the day the answer counted it in. Always 12-hour so a
+ * locale that prefers 24-hour does not change how funnel rows read.
  */
 export function formatDateTimeIn(iso: string, timeZone: string) {
   return new Date(iso).toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
     timeZone,
   })
 }

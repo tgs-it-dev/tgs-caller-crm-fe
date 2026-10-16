@@ -56,6 +56,11 @@ type DataTableProps<T> = {
    * until their contents overlap.
    */
   minWidth?: number | string
+  /**
+   * Skip the titled card chrome — for nesting inside an accordion (or similar)
+   * that already owns the heading.
+   */
+  embedded?: boolean
 }
 
 /**
@@ -77,6 +82,7 @@ export function DataTable<T>({
   expandedRowId = null,
   renderExpanded,
   minWidth,
+  embedded = false,
 }: DataTableProps<T>) {
   const [page, setPage] = useState(1)
 
@@ -103,23 +109,18 @@ export function DataTable<T>({
 
   const titleRule = variant === 'live' ? 'border-slate' : 'border-light-grey'
 
-  return (
-    <div id={id} className={shell}>
-      <div
-        className={`mb-5 flex items-center justify-between gap-4 border-b-hairline ${titleRule} pb-4`}
-      >
-        <h2 className="text-lg font-medium leading-[120%] text-ink">{title}</h2>
-        {actions}
-      </div>
-
-      {rows.length === 0 ? (
-        <p className="py-10 text-center text-sm text-slate">{emptyMessage}</p>
-      ) : (
-        <>
-          {/* Cells a column won't wrap (an id, a timestamp) scroll here rather
-              than pushing the page sideways — a card sat in a half-width
-              column has less room than the table wants. */}
-          <div className="overflow-x-auto">
+  const body =
+    rows.length === 0 ? (
+      <p className="flex flex-1 items-center justify-center py-10 text-center text-sm text-slate">
+        {emptyMessage}
+      </p>
+    ) : (
+      <>
+        {/* Natural height only — do not flex-1 this. overflow-x:auto makes
+            overflow-y compute to auto; a bounded height here nested a second
+            vertical scroller inside the desk pane ("scroll, then scroll again"
+            into empty space). Leftover card height sits above pagination. */}
+        <div className="overflow-x-auto">
           <Table
             aria-label={ariaLabel}
             sx={{
@@ -174,21 +175,41 @@ export function DataTable<T>({
               })}
             </TableBody>
           </Table>
-          </div>
+        </div>
 
-          <div className="flex h-[37px] items-center rounded-md bg-table-strip px-6">
-            <Pagination
-              className="w-full"
-              page={currentPage}
-              totalPages={totalPages}
-              rangeStart={offset + 1}
-              rangeEnd={offset + visible.length}
-              onPrevious={() => goTo(Math.max(0, offset - (paging?.limit ?? pageSize)))}
-              onNext={() => goTo(offset + (paging?.limit ?? pageSize))}
-            />
-          </div>
-        </>
-      )}
+        <div className="mt-auto flex h-[37px] shrink-0 items-center rounded-md bg-table-strip px-6">
+          <Pagination
+            className="w-full"
+            page={currentPage}
+            totalPages={totalPages}
+            rangeStart={offset + 1}
+            rangeEnd={offset + visible.length}
+            onPrevious={() => goTo(Math.max(0, offset - (paging?.limit ?? pageSize)))}
+            onNext={() => goTo(offset + (paging?.limit ?? pageSize))}
+          />
+        </div>
+      </>
+    )
+
+  if (embedded) {
+    return (
+      <div id={id} className="flex min-w-0 flex-1 flex-col">
+        {body}
+      </div>
+    )
+  }
+
+  // flex-1 fills spare desk height; no min-h-0 so row content can still grow
+  // the page and scroll in the desk pane alone.
+  return (
+    <div id={id} className={`${shell} flex flex-1 flex-col`}>
+      <div
+        className={`mb-5 flex shrink-0 items-center justify-between gap-4 border-b-hairline ${titleRule} pb-4`}
+      >
+        <h2 className="text-lg font-medium leading-[120%] text-ink">{title}</h2>
+        {actions}
+      </div>
+      {body}
     </div>
   )
 }

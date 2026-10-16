@@ -29,6 +29,8 @@ const ROLE_LANDING: Record<Role, string> = {
   // Closer desk opens on Queue (pick/accept a transfer); Active Call is `/closer`.
   closer: '/closer/queue',
   administrator: '/admin',
+  // Super Admin modules are Users / Teams / Campaigns — not the Team Admin dashboard.
+  super_admin: '/admin/users',
 }
 
 export async function authError(res: Response): Promise<AuthError> {
@@ -72,18 +74,51 @@ export async function getCurrentUser(token: string): Promise<CurrentUser> {
 
 // The backend may grant more than one role; the primary role decides
 // where the user lands, in order of seniority.
-const ROLE_PRIORITY: Role[] = ['administrator', 'closer', 'fronter']
+const ROLE_PRIORITY: Role[] = ['super_admin', 'administrator', 'closer', 'fronter']
+
+/**
+ * Whether any held role meets a gate. Super Admin inherits every Team Admin
+ * surface; every other requirement is an exact match.
+ */
+export function roleSatisfies(held: readonly Role[], required: Role): boolean {
+  if (required === 'administrator' && held.includes('super_admin')) return true
+  return held.includes(required)
+}
+
+/**
+ * Which admin desk identity to show for `/admin`. Both roles share that
+ * surface; prefer Super Admin when either (or somehow both) are held.
+ */
+export function adminDeskRole(
+  roles: readonly Role[],
+): 'super_admin' | 'administrator' | null {
+  if (roles.includes('super_admin')) return 'super_admin'
+  if (roles.includes('administrator')) return 'administrator'
+  return null
+}
+
+/** Super Admin has no team pin — never invent a fake membership in the UI. */
+export function isSuperAdmin(roles: readonly Role[]): boolean {
+  return roles.includes('super_admin')
+}
+
+/** True when `/auth/me` (or a user row) carries a real team pin. */
+export function hasTeamPin(user: { team_id?: string | null }): boolean {
+  return user.team_id != null && user.team_id !== ''
+}
 
 const DESK_LABEL: Record<Role, string> = {
   fronter: 'CRM — Fronter',
   closer: 'CRM — Closer',
-  administrator: 'CRM — Admin',
+  administrator: 'CRM — Team Admin',
+  super_admin: 'CRM — Super Admin',
 }
 
 const ROLE_NAME: Record<Role, string> = {
   fronter: 'Fronter',
   closer: 'Closer',
-  administrator: 'Administrator',
+  administrator: 'Team Admin',
+  super_admin: 'Super Admin',
 }
 
 export function primaryRole(roles: Role[]): Role | null {
@@ -93,12 +128,17 @@ export function primaryRole(roles: Role[]): Role | null {
 /**
  * Every desk this user holds, most senior first.
  *
+ * Super Admin and Team Admin share `/admin`, so only one admin desk entry is
+ * emitted — two switcher rows that both land on `/admin` would be wrong.
  * `primaryRole` answers where they land; this answers where else they may go.
- * Both read the same order, so the desk they start on is always the first one
- * the switcher would have offered.
  */
 export function heldDesks(roles: Role[]): Role[] {
-  return ROLE_PRIORITY.filter((role) => roles.includes(role))
+  const desks: Role[] = []
+  const admin = adminDeskRole(roles)
+  if (admin) desks.push(admin)
+  if (roles.includes('closer')) desks.push('closer')
+  if (roles.includes('fronter')) desks.push('fronter')
+  return desks
 }
 
 export function landingRouteForRoles(roles: Role[]): string {
@@ -106,9 +146,16 @@ export function landingRouteForRoles(roles: Role[]): string {
   return primary ? ROLE_LANDING[primary] : '/login'
 }
 
-/** Which desk the current URL belongs to — drives sidebar nav without a hardcoded prop. */
-export function deskRoleFromPath(pathname: string): Role | null {
-  if (pathname === '/admin' || pathname.startsWith('/admin/')) return 'administrator'
+/**
+ * Which desk the current URL belongs to — drives sidebar nav without a
+ * hardcoded prop. Pass `roles` on `/admin/*` so Super Admin vs Team Admin
+ * matches `heldDesks` (path alone cannot tell them apart).
+ */
+export function deskRoleFromPath(pathname: string, roles?: readonly Role[]): Role | null {
+  if (pathname === '/admin' || pathname.startsWith('/admin/')) {
+    if (roles) return adminDeskRole(roles) ?? 'administrator'
+    return 'administrator'
+  }
   if (pathname === '/closer' || pathname.startsWith('/closer/')) return 'closer'
   if (pathname === '/fronter' || pathname.startsWith('/fronter/')) return 'fronter'
   return null
@@ -119,7 +166,7 @@ export function deskLabelForRole(role: Role): string {
   return DESK_LABEL[role]
 }
 
-/** Human-readable roles from `/auth/me` (e.g. "Administrator", "Fronter · Closer"). */
+/** Human-readable roles from `/auth/me` (e.g. "Team Admin", "Fronter · Closer"). */
 export function formatRolesLabel(roles: Role[]): string {
   const ordered = ROLE_PRIORITY.filter((role) => roles.includes(role))
   return ordered.map((role) => ROLE_NAME[role]).join(' · ')

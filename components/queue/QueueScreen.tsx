@@ -143,7 +143,7 @@ function QueueBody({ role }: { role: QueueRole }) {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
       {notice && (
         <MuiAlert severity="warning" role="status" onClose={() => setNotice(null)} sx={{ mb: 0 }}>
           {notice}

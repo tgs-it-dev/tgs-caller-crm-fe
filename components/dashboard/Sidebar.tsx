@@ -10,6 +10,7 @@ import {
   ChartLine,
   Check,
   ChevronDown,
+  Contact,
   Headset,
   ListOrdered,
   LogOut,
@@ -127,6 +128,27 @@ function UsersIcon() {
   )
 }
 
+function TeamsIcon() {
+  return (
+    <OutlineIcon>
+      <path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6" />
+    </OutlineIcon>
+  )
+}
+
+function CampaignsIcon() {
+  return (
+    <OutlineIcon>
+      <path d="M3 11l18-5v12L3 13v-2z" />
+      <path d="M11.6 16.8a3 3 0 11-5.2-3" />
+    </OutlineIcon>
+  )
+}
+
+function LeadsIcon() {
+  return <Contact {...NAV_ICON} />
+}
+
 type NavItem = {
   href: string
   label: string
@@ -138,6 +160,7 @@ const BASE_PATH: Record<Role, string> = {
   fronter: '/fronter',
   closer: '/closer',
   administrator: '/admin',
+  super_admin: '/admin',
 }
 
 /** One icon per desk, for the menu's rows. */
@@ -145,9 +168,11 @@ const DESK_ICON: Record<Role, ComponentType> = {
   fronter: FronterDeskIcon,
   closer: CloserDeskIcon,
   administrator: AdminDeskIcon,
+  super_admin: AdminDeskIcon,
 }
 
-const ADMIN_NAV: NavItem[] = [
+/** Team Admin desk: Dashboard / Reports / Exceptions / Users / Leads. */
+const TEAM_ADMIN_NAV: NavItem[] = [
   { href: '/admin', label: 'Dashboard', icon: DashboardIcon, isActive: (p) => p === '/admin' },
   {
     href: '/admin/reports',
@@ -170,7 +195,39 @@ const ADMIN_NAV: NavItem[] = [
     icon: UsersIcon,
     isActive: (p) => p.startsWith('/admin/users'),
   },
+  {
+    href: '/admin/leads',
+    label: 'Leads',
+    icon: LeadsIcon,
+    isActive: (p) => p.startsWith('/admin/leads'),
+  },
 ]
+
+/** Super Admin modules — Users / Teams / Campaigns only. */
+const SUPER_ADMIN_NAV: NavItem[] = [
+  {
+    href: '/admin/users',
+    label: 'Users',
+    icon: UsersIcon,
+    isActive: (p) => p.startsWith('/admin/users'),
+  },
+  {
+    href: '/admin/teams',
+    label: 'Teams',
+    icon: TeamsIcon,
+    isActive: (p) => p.startsWith('/admin/teams'),
+  },
+  {
+    href: '/admin/campaigns',
+    label: 'Campaigns',
+    icon: CampaignsIcon,
+    isActive: (p) => p.startsWith('/admin/campaigns'),
+  },
+]
+
+function adminNavFor(role: Role): NavItem[] {
+  return role === 'super_admin' ? SUPER_ADMIN_NAV : TEAM_ADMIN_NAV
+}
 
 /** `trailingSlash: true` makes usePathname() return `/fronter/`; nav hrefs stay `/fronter`. */
 function normalizePath(pathname: string): string {
@@ -240,8 +297,11 @@ function SidebarInner() {
   }
 
   // Desk from the URL when under a role segment; otherwise primary role from `/auth/me`.
+  // On `/admin/*`, roles resolve Super Admin vs Team Admin (path alone cannot).
   const role: Role =
-    deskRoleFromPath(pathname) ?? (userReady ? primaryRole(user.roles) : null) ?? 'fronter'
+    deskRoleFromPath(pathname, userReady ? user.roles : undefined) ??
+    (userReady ? primaryRole(user.roles) : null) ??
+    'fronter'
 
   const basePath = BASE_PATH[role]
   const workspacePathPrefix = `${basePath}/workspace`
@@ -270,7 +330,11 @@ function SidebarInner() {
       : `${workspacePathPrefix}/?id=${encodeURIComponent(workspaceIdFromUrl)}`
     : basePath
 
-  const navItems = role === 'administrator' ? ADMIN_NAV : deskNav(role, activeCallHref)
+  // Team Admin vs Super Admin get different /admin modules.
+  const navItems =
+    role === 'administrator' || role === 'super_admin'
+      ? adminNavFor(role)
+      : deskNav(role, activeCallHref)
 
   // Somebody may hold more than one role, and the nav only ever shows the desk
   // they are on — so without a way across, the others are unreachable. One role
@@ -298,12 +362,12 @@ function SidebarInner() {
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex h-full flex-shrink-0 flex-col border-r border-slate/15 bg-white transition-transform duration-200 ease-in-out lg:static lg:z-auto lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex h-full min-h-0 flex-shrink-0 flex-col overflow-hidden overscroll-none border-r border-slate/15 bg-white transition-transform duration-200 ease-in-out lg:static lg:z-auto lg:translate-x-0 ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         } ${collapsed ? 'lg:w-16' : 'w-72 lg:w-72'}`}
       >
         <div
-          className={`flex py-4 ${
+          className={`flex shrink-0 py-4 ${
             collapsed ? 'lg:flex-col lg:items-center lg:gap-2 lg:py-3 lg:px-2 px-4' : 'items-center gap-3 px-4'
           }`}
         >
@@ -418,7 +482,13 @@ function SidebarInner() {
           })}
         </MuiMenu>
 
-        <nav className={`flex-1 space-y-1 py-4 ${collapsed ? 'lg:py-3 lg:px-2 px-3' : 'px-3'}`}>
+        {/* min-h-0 + overscroll-none: wheel over the sidebar must not chain into
+            the document (white band under the desk shell). */}
+        <nav
+          className={`min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-none py-4 ${
+            collapsed ? 'lg:py-3 lg:px-2 px-3' : 'px-3'
+          }`}
+        >
           {navItems.map(({ href, label, icon: Icon, isActive }) => {
             const active = isActive(normalizePath(pathname))
             return (
@@ -439,7 +509,11 @@ function SidebarInner() {
           })}
         </nav>
 
-        <div className={`border-t border-slate/15 py-4 ${collapsed ? 'lg:py-3 lg:px-2 px-3' : 'px-3'}`}>
+        <div
+          className={`shrink-0 border-t border-slate/15 py-4 ${
+            collapsed ? 'lg:py-3 lg:px-2 px-3' : 'px-3'
+          }`}
+        >
           <div
             className={`flex items-center gap-3 rounded-lg py-2.5 text-sm font-medium text-ink ${
               collapsed ? 'lg:justify-center lg:px-2 px-3' : 'justify-between px-3'

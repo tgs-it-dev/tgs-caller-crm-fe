@@ -1,11 +1,11 @@
 import { rest } from 'msw'
 import type { FieldError } from '../lib/apiError'
-import type { Role } from '../lib/auth'
+import { roleSatisfies, type Role } from '../lib/auth'
 import { CLOSER_DESK_SEEDS } from '../lib/closer'
 import type { ReconciliationException } from '../lib/exceptions'
 import type { CallLeg, InteractionEvent, InteractionTransfer } from '../lib/interactionDetail'
 import type { InteractionDetailResponse } from '../lib/interactions'
-import type { LeadResponse } from '../lib/leads'
+import type { LeadBulkRow, LeadResponse } from '../lib/leads'
 import { PUSH_INTERVAL_MS, type AgentStatus, type LiveStatus } from '../lib/liveStatus'
 import type { CloserQueueEntry, FronterQueueEntry } from '../lib/queue'
 import type { QualificationCreateRequest, QualificationResponse } from '../lib/qualification'
@@ -14,7 +14,11 @@ import type {
   FunnelStage,
   HistoricalFunnel,
 } from '../lib/reporting'
-import type { TransferCreateRequest, TransferResponse } from '../lib/transfers'
+import type {
+  AvailableCloserItem,
+  TransferCreateRequest,
+  TransferResponse,
+} from '../lib/transfers'
 
 type MockUser = {
   id: string
@@ -24,29 +28,133 @@ type MockUser = {
   roles: Role[]
   active: boolean
   created_at: string
+  /** Super Admin has no team pin; everyone else belongs to the mock team. */
+  team_id: string | null
 }
 
 const SEEDED_AT = new Date(Date.now() - 1000 * 60 * 60 * 24 * 30).toISOString()
+
+/** Seeded teams so Super Admin can group the Users tab by team_id. */
+const MOCK_TEAM_EAST = '11111111-1111-1111-1111-111111111111'
+const MOCK_TEAM_WEST = '22222222-2222-2222-2222-222222222222'
+const MOCK_TEAM_DEFAULT = '00000000-0000-0000-0000-000000000001'
+/** Default pin for newly created non–Super Admin accounts. */
+const MOCK_TEAM_ID = MOCK_TEAM_EAST
+
+/** Locked name — rename / deactivate refused with `team.default_locked`. */
+const DEFAULT_TEAM_NAME = 'Default Team'
+
+type MockTeam = {
+  id: string
+  name: string
+  active: boolean
+  created_at: string
+  updated_at: string
+}
+
+const MOCK_TEAMS: MockTeam[] = [
+  {
+    id: MOCK_TEAM_DEFAULT,
+    name: DEFAULT_TEAM_NAME,
+    active: true,
+    created_at: SEEDED_AT,
+    updated_at: SEEDED_AT,
+  },
+  {
+    id: MOCK_TEAM_EAST,
+    name: 'East Coast',
+    active: true,
+    created_at: SEEDED_AT,
+    updated_at: SEEDED_AT,
+  },
+  {
+    id: MOCK_TEAM_WEST,
+    name: 'West Coast',
+    active: true,
+    created_at: SEEDED_AT,
+    updated_at: SEEDED_AT,
+  },
+]
+
+type MockCampaign = {
+  id: string
+  name: string
+  match_type: 'campaign' | 'list' | 'did' | null
+  match_value: string | null
+  team_ids: string[]
+  active: boolean
+  created_at: string
+  updated_at: string
+}
+
+function seededCampaign(id: string, name: string, teamIds: string[], active = true): MockCampaign {
+  return {
+    id,
+    name,
+    match_type: null,
+    match_value: null,
+    team_ids: teamIds,
+    active,
+    created_at: SEEDED_AT,
+    updated_at: SEEDED_AT,
+  }
+}
+
+/** One campaign per seeded team, one both teams work, and one retired with none. */
+const MOCK_CAMPAIGNS: MockCampaign[] = [
+  seededCampaign('33333333-3333-4333-8333-000000000001', 'East Inbound', [MOCK_TEAM_EAST]),
+  seededCampaign('33333333-3333-4333-8333-000000000002', 'West Inbound', [MOCK_TEAM_WEST]),
+  seededCampaign('33333333-3333-4333-8333-000000000003', 'Shared overflow', [
+    MOCK_TEAM_EAST,
+    MOCK_TEAM_WEST,
+  ]),
+  seededCampaign('33333333-3333-4333-8333-000000000004', 'Spring promo', [], false),
+]
+
+// A counter rather than crypto.randomUUID(), which a plain-http dev server lacks.
+let issuedCampaigns = MOCK_CAMPAIGNS.length
+
+function nextCampaignId(): string {
+  issuedCampaigns += 1
+  return `33333333-3333-4333-8333-${String(issuedCampaigns).padStart(12, '0')}`
+}
+
+/** Deduplicated and sorted, the way the API returns a campaign's teams. */
+function campaignTeamIds(ids: string[] | null | undefined): string[] {
+  return [...new Set(ids ?? [])].sort()
+}
+
+function isUnknownTeam(id: string): boolean {
+  return !MOCK_TEAMS.some((team) => team.id === id)
+}
+
+function campaignNameTaken(name: string) {
+  return authErrorBody(`campaign already exists: ${name}`, 'campaign.already_exists', [
+    { field: 'name', in: 'body', message: 'already in use' },
+  ])
+}
 
 // Demo accounts for local/dev use only, until the real /auth endpoints ship (week 2).
 // The admin console reads and writes this same list, so a user added there can
 // sign in, and one deactivated there stops being able to.
 const MOCK_USERS: MockUser[] = [
-  { id: '1', email: 'fronter@tgs.com', password: 'password1', name: 'Fiona Fronter', roles: ['fronter'], active: true, created_at: SEEDED_AT },
+  { id: '1', email: 'fronter@tgs.com', password: 'password1', name: 'Fiona Fronter', roles: ['fronter'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_EAST },
   // Second fronter — proves /me/stats/today is scoped per logged-in user (FE-08 AC).
-  { id: '4', email: 'fronter2@tgs.com', password: 'password1', name: 'Frank Fronter', roles: ['fronter'], active: true, created_at: SEEDED_AT },
-  { id: '2', email: 'closer@tgs.com', password: 'password1', name: 'Carl Closer', roles: ['closer'], active: true, created_at: SEEDED_AT },
-  { id: '3', email: 'admin@tgs.com', password: 'password1', name: 'Ana Admin', roles: ['administrator'], active: true, created_at: SEEDED_AT },
+  { id: '4', email: 'fronter2@tgs.com', password: 'password1', name: 'Frank Fronter', roles: ['fronter'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_WEST },
+  { id: '2', email: 'closer@tgs.com', password: 'password1', name: 'Carl Closer', roles: ['closer'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_WEST },
+  { id: '3', email: 'admin@tgs.com', password: 'password1', name: 'Ana Admin', roles: ['administrator'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_EAST },
   // Deactivated, so the list has something to show in that state from the start.
-  { id: '5', email: 'former@tgs.com', password: 'password1', name: 'Nadia Former', roles: ['closer'], active: false, created_at: SEEDED_AT },
+  { id: '5', email: 'former@tgs.com', password: 'password1', name: 'Nadia Former', roles: ['closer'], active: false, created_at: SEEDED_AT, team_id: MOCK_TEAM_EAST },
   // Multi-role, so the sidebar's desk switcher is reachable locally: every other
   // account here holds exactly one role, which is the case that hides it.
-  { id: '6', email: 'everything@tgs.com', password: 'password1', name: 'Mo Everything', roles: ['administrator', 'closer', 'fronter'], active: true, created_at: SEEDED_AT },
-  // Two desks and no admin — the switcher without an Administrator entry.
-  { id: '7', email: 'both@tgs.com', password: 'password1', name: 'Bea Both', roles: ['fronter', 'closer'], active: true, created_at: SEEDED_AT },
+  { id: '6', email: 'everything@tgs.com', password: 'password1', name: 'Mo Everything', roles: ['administrator', 'closer', 'fronter'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_EAST },
+  // Two desks and no admin — the switcher without a Team Admin entry.
+  { id: '7', email: 'both@tgs.com', password: 'password1', name: 'Bea Both', roles: ['fronter', 'closer'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_WEST },
+  // Company-wide admin — no team pin; inherits every Team Admin surface.
+  { id: '8', email: 'super@tgs.com', password: 'password1', name: 'Sam Super', roles: ['super_admin'], active: true, created_at: SEEDED_AT, team_id: null },
 ]
 
-const KNOWN_ROLES: Role[] = ['fronter', 'closer', 'administrator']
+const KNOWN_ROLES: Role[] = ['fronter', 'closer', 'administrator', 'super_admin']
 
 type MockLink = { token: string; userId: string; purpose: 'invite' | 'reset'; state: 'live' | 'used' | 'superseded' | 'expired' }
 
@@ -167,6 +275,7 @@ function userBody(user: MockUser) {
     active: user.active,
     roles: user.roles,
     created_at: user.created_at,
+    team_id: user.team_id,
   }
 }
 
@@ -245,7 +354,7 @@ function mockLiveStatus(): LiveStatus {
       leads: 26 + (tick % 20),
       interactions: 30 + (tick % 20),
       qualifications: 12 + (tick % 7),
-      transfers_initiated: 8 + (tick % 5),
+      transfers_offered: 8 + (tick % 5),
       transfers_accepted: 5 + (tick % 3),
       transfers_rejected: 1 + (tick % 2),
       sales: 2 + (tick % 2),
@@ -253,7 +362,7 @@ function mockLiveStatus(): LiveStatus {
   }
 }
 
-/** Why an administrator-only route would turn this request away, or null. */
+/** Why an admin-only route would turn this request away, or null. */
 function adminRefusal(authorization: string | null) {
   const user = MOCK_TOKENS.get((authorization || '').replace(/^Bearer\s+/i, ''))
   if (!user || !user.active) {
@@ -262,7 +371,26 @@ function adminRefusal(authorization: string | null) {
       body: authErrorBody('Could not validate credentials', 'auth.not_authenticated'),
     }
   }
-  if (!user.roles.includes('administrator')) {
+  // Super Admin inherits every Team Admin surface (same rule as RequireRole).
+  if (!roleSatisfies(user.roles, 'administrator')) {
+    return {
+      status: 403,
+      body: authErrorBody('Insufficient role for this operation', 'auth.forbidden'),
+    }
+  }
+  return null
+}
+
+/** Team catalogue routes are Super Admin only (same as require_super_admin). */
+function superAdminRefusal(authorization: string | null) {
+  const user = MOCK_TOKENS.get((authorization || '').replace(/^Bearer\s+/i, ''))
+  if (!user || !user.active) {
+    return {
+      status: 401,
+      body: authErrorBody('Could not validate credentials', 'auth.not_authenticated'),
+    }
+  }
+  if (!user.roles.includes('super_admin')) {
     return {
       status: 403,
       body: authErrorBody('Insufficient role for this operation', 'auth.forbidden'),
@@ -272,23 +400,57 @@ function adminRefusal(authorization: string | null) {
 }
 
 /**
+ * Roles this actor may assign. Super Admin ≠ Team Admin: the latter may only
+ * staff Fronter / Closer. Neither may promote someone to Super Admin here.
+ */
+function grantableBy(actor: MockUser): Role[] {
+  if (actor.roles.includes('super_admin')) {
+    return KNOWN_ROLES.filter((role) => role !== 'super_admin')
+  }
+  if (actor.roles.includes('administrator')) return ['fronter', 'closer']
+  return []
+}
+
+/** 403 when the actor tries to grant above their ceiling. */
+function grantCeilingRefusal(actor: MockUser, roles: Role[]) {
+  const allowed = grantableBy(actor)
+  const forbidden = roles.filter((role) => !allowed.includes(role))
+  if (forbidden.length === 0) return null
+  return {
+    status: 403,
+    body: authErrorBody('cannot grant roles above your ceiling', 'auth.forbidden'),
+  }
+}
+
+/** Default business day when the client leaves `timezone` off, matching the API. */
+const MOCK_BUSINESS_TIMEZONE = 'America/New_York'
+
+/**
  * Funnel counts for a window, worked out from the window itself so the same
  * dates always answer the same figures and a different range visibly moves them.
+ *
+ * `timezone` is echoed so a deliberate region pick shows on the chart and list;
+ * a different zone also nudges the figures so mock mode can't hide a client
+ * that forgot to pass the choice through.
  */
-function mockFunnel(start: string, end: string): HistoricalFunnel {
+function mockFunnel(start: string, end: string, timezone?: string | null): HistoricalFunnel {
+  const zone = timezone || MOCK_BUSINESS_TIMEZONE
   const days = Math.max(1, Math.round((Date.parse(end) - Date.parse(start)) / 86_400_000) + 1)
-  const attempts = days * 40 + (Number(start.replace(/-/g, '')) % 97)
+  const zoneBias = zone.split('').reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % 11
+  const attempts = days * 40 + (Number(start.replace(/-/g, '')) % 97) + zoneBias
   const connects = Math.round(attempts * 0.67)
   const qualified = Math.round(connects * 0.62)
 
   return {
     start,
     end,
-    timezone: 'America/New_York',
+    timezone: zone,
     attempts,
     connects,
     qualified,
-    transfer_attempts: Math.round(qualified * 0.48),
+    // Well under Qualified: roughly half of all offers go unanswered, which is
+    // the gap this bar exists to show.
+    transferred: Math.round(qualified * 0.25),
   }
 }
 
@@ -306,9 +468,11 @@ function mockFunnelStage(
   start: string,
   end: string,
   limit: number,
-  offset: number
+  offset: number,
+  timezone?: string | null
 ): FunnelInteractionList {
-  const total = mockFunnel(start, end)[stage]
+  const funnel = mockFunnel(start, end, timezone)
+  const total = funnel[stage]
   // Mid-afternoon on the window's last day, walked backwards, so rows read
   // newest first and stay inside the range in any plausible business zone.
   const latest = Date.parse(`${end}T17:00:00.000Z`)
@@ -337,7 +501,7 @@ function mockFunnelStage(
       }
     }),
     total,
-    timezone: 'America/New_York',
+    timezone: funnel.timezone,
     limit,
     offset,
   }
@@ -487,11 +651,146 @@ const MOCK_CLOSER_QUEUE: CloserQueueEntry[] = Array.from({ length: 12 }, (_, ind
   status: index === 1 ? 'accepted' : index % 4 === 0 ? 'offered' : 'initiated',
 }))
 
+// The Leads tab's view: leads by team. MOCK_LEADS stands in for the workspace's
+// per-call lookups and carries no team, so it can't answer GET /leads alone.
+type MockTeamLead = LeadResponse & { team_id: string }
+
+function seededTeamLead(
+  id: string,
+  phone: string,
+  source: LeadResponse['source'],
+  teamId: string,
+  daysAgo: number
+): MockTeamLead {
+  const at = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString()
+  return { id, phone_normalized: phone, source, team_id: teamId, created_at: at, updated_at: at }
+}
+
+/** Newest first, as the API lists them. */
+const MOCK_TEAM_LEADS: MockTeamLead[] = [
+  seededTeamLead('lead-team-1', '+12125550134', 'manual', MOCK_TEAM_EAST, 1),
+  seededTeamLead('lead-team-2', '+14155550110', 'manual', MOCK_TEAM_WEST, 2),
+  seededTeamLead('lead-team-3', '+13235550155', 'vicidial', MOCK_TEAM_EAST, 4),
+]
+
+/** Stands in for the company do-not-call list. */
+const MOCK_SUPPRESSED_PHONES = new Set(['+12125550000'])
+
+let issuedLeads = 0
+
+function leadBody(lead: MockTeamLead): LeadResponse {
+  return {
+    id: lead.id,
+    phone_normalized: lead.phone_normalized,
+    source: lead.source,
+    created_at: lead.created_at,
+    updated_at: lead.updated_at,
+  }
+}
+
+/** A US-only stand-in for the API's normalizer: E.164, or null when unusable. */
+function mockNormalizePhone(raw: string): string | null {
+  const digits = raw.replace(/\D/g, '')
+  if (digits.length === 10) return `+1${digits}`
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`
+  return null
+}
+
+function teamLeadFor(teamId: string, phone: string): MockTeamLead | undefined {
+  return MOCK_TEAM_LEADS.find((lead) => lead.team_id === teamId && lead.phone_normalized === phone)
+}
+
+/** The queue label for a team's new leads, by the API's rule, or why it refuses. */
+function mockCampaignFor(
+  teamId: string,
+  campaignId: string | null | undefined
+): { name: string | null } | { status: number; body: ReturnType<typeof authErrorBody> } {
+  const refusal = (status: number, detail: string, code: string) => ({
+    status,
+    body: authErrorBody(detail, code, [{ field: 'campaign_id', in: 'body', message: detail }]),
+  })
+  if (campaignId) {
+    const campaign = MOCK_CAMPAIGNS.find((row) => row.id === campaignId)
+    if (!campaign) return refusal(404, 'campaign not found', 'campaign.not_found')
+    if (!campaign.active) return refusal(422, 'campaign is inactive', 'lead.campaign_inactive')
+    if (!campaign.team_ids.includes(teamId)) {
+      return refusal(422, 'campaign is not linked to this team', 'lead.campaign_not_on_team')
+    }
+    return { name: campaign.name }
+  }
+  const active = MOCK_CAMPAIGNS.filter((row) => row.active && row.team_ids.includes(teamId))
+  if (active.length > 1) {
+    return refusal(
+      422,
+      'this team has more than one active campaign; name one',
+      'lead.campaign_required'
+    )
+  }
+  return { name: active[0]?.name ?? null }
+}
+
+/** A new lead on the team, and on the fronter queue the way the API enqueues it. */
+function addMockLead(
+  teamId: string,
+  phone: string,
+  name: string | null,
+  campaignName: string | null
+): MockTeamLead {
+  issuedLeads += 1
+  const now = new Date().toISOString()
+  const lead: MockTeamLead = {
+    id: `lead-manual-${issuedLeads}`,
+    phone_normalized: phone,
+    source: 'manual',
+    team_id: teamId,
+    created_at: now,
+    updated_at: now,
+  }
+  MOCK_TEAM_LEADS.unshift(lead)
+  MOCK_LEADS[lead.id] = leadBody(lead)
+  const interactionId = `int-manual-${issuedLeads}`
+  MOCK_INTERACTIONS[interactionId] = {
+    id: interactionId,
+    lead_id: lead.id,
+    created_at: now,
+    updated_at: now,
+    qualification: null,
+  }
+  MOCK_FRONTER_QUEUE.push({
+    id: interactionId,
+    lead_name: name ?? phone,
+    lead_phone: phone,
+    campaign_name: campaignName ?? 'Manual upload',
+    queued_at: now,
+    status: 'waiting',
+  })
+  return lead
+}
+
+/** Good enough for mock mode: no quoted commas. */
+function splitCsvLine(line: string): string[] {
+  return line.split(',').map((cell) => cell.trim().replace(/^"(.*)"$/, '$1'))
+}
+
 const MOCK_QUALIFICATIONS = new Map<string, QualificationResponse>()
 let qualificationSeq = 0
 let transferSeq = 0
 
 const MOCK_TRANSFERS = new Map<string, TransferResponse>()
+
+/** Shared by GET /transfers/closers and the POST /transfers availability gate. */
+const MOCK_AVAILABLE_CLOSERS: AvailableCloserItem[] = [
+  {
+    user_id: '5a1f0c3e-0001-4000-8000-000000000001',
+    name: 'Carl Closer',
+    status: 'available',
+  },
+  {
+    user_id: '5a1f0c3e-0003-4000-8000-000000000003',
+    name: 'Eli Brooks',
+    status: 'on_call',
+  },
+]
 
 function seedCloserQualification(
   interactionId: string,
@@ -1094,6 +1393,213 @@ export const handlers = [
     return res(ctx.status(200), ctx.json(issueMockTokens(user)))
   }),
 
+  rest.get('/teams', (req, res, ctx) => {
+    const refused = superAdminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const items = [...MOCK_TEAMS].sort((a, b) => a.name.localeCompare(b.name))
+    return res(ctx.status(200), ctx.json({ items }))
+  }),
+
+  rest.post('/teams', async (req, res, ctx) => {
+    const refused = superAdminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const body = (await req.json()) as { name?: string; active?: boolean }
+    const name = typeof body.name === 'string' ? body.name.trim() : ''
+    if (!name) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody('validation failed', 'validation_error', [
+            { field: 'name', in: 'body', message: 'required' },
+          ])
+        )
+      )
+    }
+    if (MOCK_TEAMS.some((team) => team.name === name)) {
+      return res(
+        ctx.status(409),
+        ctx.json(
+          authErrorBody(`team already exists: ${name}`, 'team.already_exists', [
+            { field: 'name', in: 'body', message: 'already in use' },
+          ])
+        )
+      )
+    }
+
+    const now = new Date().toISOString()
+    const team: MockTeam = {
+      id: crypto.randomUUID(),
+      name,
+      active: body.active !== false,
+      created_at: now,
+      updated_at: now,
+    }
+    MOCK_TEAMS.push(team)
+    return res(ctx.status(201), ctx.json(team))
+  }),
+
+  rest.get('/teams/:team_id', (req, res, ctx) => {
+    const refused = superAdminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const team = MOCK_TEAMS.find((row) => row.id === req.params.team_id)
+    if (!team) {
+      return res(ctx.status(404), ctx.json(authErrorBody('team not found', 'team.not_found')))
+    }
+    return res(ctx.status(200), ctx.json(team))
+  }),
+
+  rest.patch('/teams/:team_id', async (req, res, ctx) => {
+    const refused = superAdminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const team = MOCK_TEAMS.find((row) => row.id === req.params.team_id)
+    if (!team) {
+      return res(ctx.status(404), ctx.json(authErrorBody('team not found', 'team.not_found')))
+    }
+
+    const body = (await req.json()) as { name?: string | null; active?: boolean | null }
+    const nextName = typeof body.name === 'string' ? body.name.trim() : null
+    const nextActive = typeof body.active === 'boolean' ? body.active : null
+    if (nextName === null && nextActive === null) {
+      return res(
+        ctx.status(422),
+        ctx.json(authErrorBody('at least one of name or active must be set', 'validation_error'))
+      )
+    }
+
+    const renaming = nextName !== null && nextName !== team.name
+    const deactivating = nextActive === false && team.active
+    if (team.name === DEFAULT_TEAM_NAME && (renaming || deactivating)) {
+      return res(
+        ctx.status(400),
+        ctx.json(
+          authErrorBody('Default Team cannot be renamed or deactivated', 'team.default_locked')
+        )
+      )
+    }
+
+    if (renaming) {
+      if (MOCK_TEAMS.some((row) => row.id !== team.id && row.name === nextName)) {
+        return res(
+          ctx.status(409),
+          ctx.json(
+            authErrorBody(`team already exists: ${nextName}`, 'team.already_exists', [
+              { field: 'name', in: 'body', message: 'already in use' },
+            ])
+          )
+        )
+      }
+      team.name = nextName
+    }
+    if (nextActive !== null) team.active = nextActive
+    team.updated_at = new Date().toISOString()
+    return res(ctx.status(200), ctx.json(team))
+  }),
+
+  rest.get('/campaigns', (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = adminRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const actor = MOCK_TOKENS.get((authorization || '').replace(/^Bearer\s+/i, ''))!
+    // A Team Admin sees the campaigns their own team works, shared ones included.
+    const visible = actor.roles.includes('super_admin')
+      ? MOCK_CAMPAIGNS
+      : MOCK_CAMPAIGNS.filter(
+          (campaign) => actor.team_id !== null && campaign.team_ids.includes(actor.team_id)
+        )
+    const items = [...visible].sort((a, b) => a.name.localeCompare(b.name))
+    return res(ctx.status(200), ctx.json({ items }))
+  }),
+
+  rest.post('/campaigns', async (req, res, ctx) => {
+    const refused = superAdminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const body = (await req.json()) as { name?: string; active?: boolean; team_ids?: string[] }
+    const name = typeof body.name === 'string' ? body.name.trim() : ''
+    if (!name) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody('validation failed', 'validation_error', [
+            { field: 'name', in: 'body', message: 'required' },
+          ])
+        )
+      )
+    }
+    if (MOCK_CAMPAIGNS.some((campaign) => campaign.name === name)) {
+      return res(ctx.status(409), ctx.json(campaignNameTaken(name)))
+    }
+    const teamIds = campaignTeamIds(body.team_ids)
+    if (teamIds.some(isUnknownTeam)) {
+      return res(ctx.status(404), ctx.json(authErrorBody('team not found', 'team.not_found')))
+    }
+
+    const now = new Date().toISOString()
+    const campaign: MockCampaign = {
+      id: nextCampaignId(),
+      name,
+      match_type: null,
+      match_value: null,
+      team_ids: teamIds,
+      active: body.active !== false,
+      created_at: now,
+      updated_at: now,
+    }
+    MOCK_CAMPAIGNS.push(campaign)
+    return res(ctx.status(201), ctx.json(campaign))
+  }),
+
+  rest.patch('/campaigns/:campaign_id', async (req, res, ctx) => {
+    const refused = superAdminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const campaign = MOCK_CAMPAIGNS.find((row) => row.id === req.params.campaign_id)
+    if (!campaign) {
+      return res(
+        ctx.status(404),
+        ctx.json(authErrorBody('campaign not found', 'campaign.not_found'))
+      )
+    }
+
+    const body = (await req.json()) as {
+      name?: string | null
+      active?: boolean | null
+      team_ids?: string[] | null
+    }
+    const nextName = typeof body.name === 'string' ? body.name.trim() : null
+    if (body.name === null || nextName === '') {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody('validation failed', 'validation_error', [
+            { field: 'name', in: 'body', message: 'a campaign must keep a name' },
+          ])
+        )
+      )
+    }
+    if (
+      nextName !== null &&
+      MOCK_CAMPAIGNS.some((row) => row.id !== campaign.id && row.name === nextName)
+    ) {
+      return res(ctx.status(409), ctx.json(campaignNameTaken(nextName)))
+    }
+    const nextTeams = Array.isArray(body.team_ids) ? campaignTeamIds(body.team_ids) : null
+    if (nextTeams?.some(isUnknownTeam)) {
+      return res(ctx.status(404), ctx.json(authErrorBody('team not found', 'team.not_found')))
+    }
+
+    // Applied only once every check has passed, so a refused edit changes nothing.
+    if (nextName !== null) campaign.name = nextName
+    if (typeof body.active === 'boolean') campaign.active = body.active
+    if (nextTeams) campaign.team_ids = nextTeams
+    campaign.updated_at = new Date().toISOString()
+    return res(ctx.status(200), ctx.json(campaign))
+  }),
+
   rest.get('/auth/users', (req, res, ctx) => {
     const refused = adminRefusal(req.headers.get('authorization'))
     if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
@@ -1104,8 +1610,12 @@ export const handlers = [
     const active = params.get('active')
     const role = params.get('role')
     const search = (params.get('search') ?? '').toLowerCase()
+    const teamId = params.get('team_id')
 
     const matching = MOCK_USERS.filter((user) => {
+      // Super Admin accounts stay off the Users tab (and any team-scoped list).
+      if (user.roles.includes('super_admin')) return false
+      if (teamId && user.team_id !== teamId) return false
       if (active !== null && user.active !== (active === 'true')) return false
       if (role && !user.roles.includes(role as Role)) return false
       if (search && !`${user.name} ${user.email}`.toLowerCase().includes(search)) return false
@@ -1134,10 +1644,20 @@ export const handlers = [
       name?: string
       password?: string
       roles?: Role[]
+      team_id?: string | null
     }
 
     const invalid = describeUser(body)
     if (invalid) return res(ctx.status(invalid.status), ctx.json(invalid.body))
+
+    const actor = MOCK_TOKENS.get(
+      (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '')
+    )
+    const roles = body.roles as Role[]
+    if (actor) {
+      const ceiling = grantCeilingRefusal(actor, roles)
+      if (ceiling) return res(ctx.status(ceiling.status), ctx.json(ceiling.body))
+    }
 
     const email = normalizeEmail(body.email)
     if (MOCK_USERS.some((user) => user.email === email)) {
@@ -1151,15 +1671,32 @@ export const handlers = [
       )
     }
 
+    // Super Admin has no team pin. Everyone else: SA must name a team; TA falls
+    // back to the mock default (the API would use the actor's own team).
+    const knownTeamIds = new Set(MOCK_TEAMS.map((team) => team.id))
+    const requestedTeam =
+      typeof body.team_id === 'string' && knownTeamIds.has(body.team_id) ? body.team_id : null
+    if (actor?.roles.includes('super_admin') && !roles.includes('super_admin') && !requestedTeam) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody('team_id is required', 'validation_error', [
+            { field: 'team_id', in: 'body', message: 'required' },
+          ])
+        )
+      )
+    }
+
     const created: MockUser = {
       id: String(++userSeq),
       email,
       // null until they follow their invitation and choose one.
       password: body.password ? String(body.password) : null,
       name: String(body.name),
-      roles: body.roles as Role[],
+      roles,
       active: true,
       created_at: new Date().toISOString(),
+      team_id: roles.includes('super_admin') ? null : (requestedTeam ?? MOCK_TEAM_ID),
     }
     MOCK_USERS.push(created)
     if (!body.password) issueMockLink(created.id, 'invite')
@@ -1177,7 +1714,12 @@ export const handlers = [
       return res(ctx.status(404), ctx.json(authErrorBody('user not found', 'user.not_found')))
     }
 
-    const body = (await req.json()) as { name?: string; roles?: Role[]; active?: boolean }
+    const body = (await req.json()) as {
+      name?: string
+      roles?: Role[]
+      active?: boolean
+      team_id?: string | null
+    }
 
     if (body.roles) {
       const unknown = body.roles.filter((role) => !KNOWN_ROLES.includes(role))
@@ -1191,25 +1733,58 @@ export const handlers = [
           )
         )
       }
+      if (actor) {
+        const ceiling = grantCeilingRefusal(actor, body.roles)
+        if (ceiling) return res(ctx.status(ceiling.status), ctx.json(ceiling.body))
+      }
     }
 
-    // The API refuses to let an administrator lock themselves out.
-    const losingOwnAdmin = body.roles && !body.roles.includes('administrator')
+    // The API refuses to let an admin lock themselves out of their elevated role.
+    // Super Admin and Team Admin are separate locks — each only protects its own.
+    const losingOwnAdmin =
+      body.roles &&
+      ((user.roles.includes('administrator') && !body.roles.includes('administrator')) ||
+        (user.roles.includes('super_admin') && !body.roles.includes('super_admin')))
     if (actor?.id === user.id && (body.active === false || losingOwnAdmin)) {
       return res(
         ctx.status(400),
         ctx.json(
           authErrorBody(
-            'cannot deactivate yourself or drop your own administrator role',
+            'cannot deactivate yourself or drop your own admin role',
             'user.cannot_demote_self'
           )
         )
       )
     }
 
+    // Same rules as PUT /auth/users/{id}/team, checked before anything changes.
+    if (typeof body.team_id === 'string') {
+      if (!actor?.roles.includes('super_admin')) {
+        return res(
+          ctx.status(403),
+          ctx.json(authErrorBody("only a Super Admin can change a user's team", 'auth.forbidden'))
+        )
+      }
+      if (user.roles.includes('super_admin')) {
+        return res(
+          ctx.status(403),
+          ctx.json(
+            authErrorBody(
+              'super_admin accounts cannot be assigned to a team',
+              'team.super_admin_forbidden'
+            )
+          )
+        )
+      }
+      if (!MOCK_TEAMS.some((team) => team.id === body.team_id)) {
+        return res(ctx.status(404), ctx.json(authErrorBody('team not found', 'team.not_found')))
+      }
+    }
+
     if (body.name !== undefined) user.name = body.name
     if (body.roles !== undefined) user.roles = body.roles
     if (body.active !== undefined) user.active = body.active
+    if (typeof body.team_id === 'string') user.team_id = body.team_id
 
     return res(ctx.status(200), ctx.json(userBody(user)))
   }),
@@ -1231,7 +1806,10 @@ export const handlers = [
       return res(ctx.status(422), ctx.json(authErrorBody('Field required', 'validation_error')))
     }
 
-    return res(ctx.status(200), ctx.json(mockFunnel(start, end)))
+    return res(
+      ctx.status(200),
+      ctx.json(mockFunnel(start, end, req.url.searchParams.get('timezone')))
+    )
   }),
 
   rest.get('/reporting/funnel/:stage', (req, res, ctx) => {
@@ -1248,11 +1826,222 @@ export const handlers = [
     const limit = Number(req.url.searchParams.get('limit') ?? 50)
     const offset = Number(req.url.searchParams.get('offset') ?? 0)
 
-    return res(ctx.status(200), ctx.json(mockFunnelStage(stage, start, end, limit, offset)))
+    return res(
+      ctx.status(200),
+      ctx.json(
+        mockFunnelStage(stage, start, end, limit, offset, req.url.searchParams.get('timezone'))
+      )
+    )
   }),
 
   rest.get('/interactions', (_req, res, ctx) => {
     return res(ctx.status(200), ctx.json(Object.values(MOCK_INTERACTIONS)))
+  }),
+
+  // Open to anyone signed in, as the API's is; Team Admins see their own team.
+  rest.get('/leads', (req, res, ctx) => {
+    const actor = MOCK_TOKENS.get(
+      (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '')
+    )
+    if (!actor || !actor.active) {
+      return res(
+        ctx.status(401),
+        ctx.json(authErrorBody('Could not validate credentials', 'auth.not_authenticated'))
+      )
+    }
+
+    const params = req.url.searchParams
+    const limit = Number(params.get('limit') ?? 50)
+    const offset = Number(params.get('offset') ?? 0)
+    const raw = params.get('phone_normalized')
+    const phone = raw === null ? null : mockNormalizePhone(raw)
+    if (raw !== null && phone === null) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody(`not a usable phone number: '${raw}'`, 'lead.invalid_phone', [
+            { field: 'phone_normalized', in: 'query', message: 'not a usable phone number' },
+          ])
+        )
+      )
+    }
+
+    const everyTeam = actor.roles.includes('super_admin')
+    const rows = MOCK_TEAM_LEADS.filter(
+      (lead) =>
+        (everyTeam || lead.team_id === actor.team_id) &&
+        (phone === null || lead.phone_normalized === phone)
+    )
+    return res(
+      ctx.status(200),
+      ctx.json({
+        items: rows.slice(offset, offset + limit).map(leadBody),
+        total: rows.length,
+        limit,
+        offset,
+      })
+    )
+  }),
+
+  rest.post('/leads', async (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = adminRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const actor = MOCK_TOKENS.get((authorization || '').replace(/^Bearer\s+/i, ''))!
+    if (!actor.team_id) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody('a team is required', 'lead.team_required', [
+            { field: 'team_id', in: 'body', message: 'a team is required' },
+          ])
+        )
+      )
+    }
+
+    const body = (await req.json()) as {
+      phone?: string
+      name?: string | null
+      campaign_id?: string | null
+    }
+    const phone = mockNormalizePhone(String(body.phone ?? ''))
+    if (!phone) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody(`not a usable phone number: '${body.phone}'`, 'lead.invalid_phone', [
+            { field: 'phone', in: 'body', message: 'not a usable phone number' },
+          ])
+        )
+      )
+    }
+
+    // A number the team already has comes back as it is, nothing queued.
+    const existing = teamLeadFor(actor.team_id, phone)
+    if (existing) return res(ctx.status(201), ctx.json(leadBody(existing)))
+
+    const campaign = mockCampaignFor(actor.team_id, body.campaign_id)
+    if ('status' in campaign) return res(ctx.status(campaign.status), ctx.json(campaign.body))
+
+    if (MOCK_SUPPRESSED_PHONES.has(phone)) {
+      const detail = 'this phone number is on the company do-not-call list'
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody(detail, 'lead.phone_suppressed', [
+            { field: 'phone', in: 'body', message: detail },
+          ])
+        )
+      )
+    }
+
+    const lead = addMockLead(actor.team_id, phone, body.name?.trim() || null, campaign.name)
+    return res(ctx.status(201), ctx.json(leadBody(lead)))
+  }),
+
+  rest.post('/leads/bulk', async (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = adminRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const actor = MOCK_TOKENS.get((authorization || '').replace(/^Bearer\s+/i, ''))!
+    const teamId = actor.team_id
+    if (!teamId) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody('a team is required', 'lead.team_required', [
+            { field: 'team_id', in: 'body', message: 'a team is required' },
+          ])
+        )
+      )
+    }
+
+    const fileRefusal = (detail: string, code: string) =>
+      res(
+        ctx.status(422),
+        ctx.json(authErrorBody(detail, code, [{ field: 'file', in: 'body', message: detail }]))
+      )
+
+    // Deprecated, but req.body is MSW 1.x's only multipart reader: fields, and the upload as a File.
+    const form = req.body as { file?: File; campaign_id?: string }
+    if (!(form.file instanceof File)) return fileRefusal('the file is empty', 'lead.bulk_empty')
+    if (form.file.size > 1_048_576) {
+      return fileRefusal('the file is too large', 'lead.bulk_too_large')
+    }
+
+    const lines = (await form.file.text()).replace(/^﻿/, '').split(/\r?\n/)
+    const header = splitCsvLine(lines[0] ?? '').map((cell) => cell.toLowerCase())
+    const phoneAt = header.indexOf('phone')
+    const nameAt = header.indexOf('name')
+    if (phoneAt < 0) return fileRefusal('no phone column', 'lead.bulk_bad_header')
+
+    // Line numbers as the file has them: the header is line 1.
+    const candidates = lines
+      .map((line, index) => ({ line, row: index + 1 }))
+      .slice(1)
+      .filter(({ line }) => line.trim() !== '')
+      .map(({ line, row }) => {
+        const cells = splitCsvLine(line)
+        const raw = cells[phoneAt] ?? ''
+        return {
+          row,
+          raw,
+          phone: raw ? mockNormalizePhone(raw) : null,
+          name: nameAt >= 0 ? (cells[nameAt] ?? '') : '',
+        }
+      })
+    if (candidates.length === 0) return fileRefusal('the file has no rows', 'lead.bulk_empty')
+    if (candidates.length > 1000) return fileRefusal('too many rows', 'lead.bulk_too_large')
+
+    // Like the API, a campaign is needed only when some row would be new.
+    let campaignName: string | null = null
+    if (candidates.some(({ phone }) => phone && !teamLeadFor(teamId, phone))) {
+      const campaign = mockCampaignFor(teamId, form.campaign_id)
+      if ('status' in campaign) return res(ctx.status(campaign.status), ctx.json(campaign.body))
+      campaignName = campaign.name
+    }
+
+    const seen = new Set<string>()
+    const rows: LeadBulkRow[] = candidates.map(({ row, raw, phone, name }) => {
+      if (!phone) {
+        return {
+          row,
+          phone: raw || null,
+          status: 'invalid',
+          lead_id: null,
+          error: 'not a usable phone number',
+        }
+      }
+      if (seen.has(phone)) {
+        return {
+          row,
+          phone,
+          status: 'duplicate_in_file',
+          lead_id: null,
+          error: 'repeats an earlier row',
+        }
+      }
+      seen.add(phone)
+      const existing = teamLeadFor(teamId, phone)
+      if (existing) return { row, phone, status: 'existing', lead_id: existing.id, error: null }
+      if (MOCK_SUPPRESSED_PHONES.has(phone)) {
+        return { row, phone, status: 'suppressed', lead_id: null, error: 'on the do-not-call list' }
+      }
+      const lead = addMockLead(teamId, phone, name || null, campaignName)
+      return { row, phone, status: 'created', lead_id: lead.id, error: null }
+    })
+
+    const created = rows.filter((row) => row.status === 'created').length
+    const existing = rows.filter((row) => row.status === 'existing').length
+    return res(
+      ctx.status(200),
+      ctx.json({
+        summary: { created, existing, failed: rows.length - created - existing },
+        rows,
+      })
+    )
   }),
 
   rest.get('/leads/:leadId', (req, res, ctx) => {
@@ -1426,23 +2215,7 @@ export const handlers = [
   }),
 
   rest.get('/transfers/closers', (_req, res, ctx) => {
-    return res(
-      ctx.status(200),
-      ctx.json({
-        items: [
-          {
-            user_id: '5a1f0c3e-0001-4000-8000-000000000001',
-            name: 'Carl Closer',
-            status: 'available',
-          },
-          {
-            user_id: '5a1f0c3e-0003-4000-8000-000000000003',
-            name: 'Eli Brooks',
-            status: 'on_call',
-          },
-        ],
-      })
-    )
+    return res(ctx.status(200), ctx.json({ items: MOCK_AVAILABLE_CLOSERS }))
   }),
 
   rest.post('/transfers', async (req, res, ctx) => {
@@ -1471,12 +2244,35 @@ export const handlers = [
       )
     }
 
+    // Omit → any free closer. Set → pin; busy / unknown → same 422 as the API.
+    const pinnedId = body.closer_user_id ?? null
+    if (pinnedId) {
+      const pinned = MOCK_AVAILABLE_CLOSERS.find((row) => row.user_id === pinnedId)
+      if (!pinned || pinned.status !== 'available') {
+        return res(
+          ctx.status(422),
+          ctx.json({
+            detail: 'no closer available for transfer',
+            code: 'transfer.no_closer_available',
+          })
+        )
+      }
+    } else if (!MOCK_AVAILABLE_CLOSERS.some((row) => row.status === 'available')) {
+      return res(
+        ctx.status(422),
+        ctx.json({
+          detail: 'no closer available for transfer',
+          code: 'transfer.no_closer_available',
+        })
+      )
+    }
+
     const transfer: TransferResponse = {
       id: `transfer-${++transferSeq}`,
       interaction_id: body.interaction_id,
       status: 'offered',
       fronter_user_id: body.fronter_user_id,
-      closer_user_id: null,
+      closer_user_id: pinnedId,
       created_at: now,
       updated_at: now,
     }

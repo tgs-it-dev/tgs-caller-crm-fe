@@ -6,11 +6,15 @@ import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import { Alert } from '@/components/ui/Alert'
 import { Button } from '@/components/ui/Button'
 import { FullPageLoader } from '@/components/ui/FullPageLoader'
-import { readToken, type Role } from '@/lib/auth'
+import { readToken, roleSatisfies, type Role } from '@/lib/auth'
 
 type GateStatus = 'checking' | 'authorized' | 'error'
 
-function useAuthorization(role?: Role): { status: GateStatus; retry: () => void } {
+function opens(roles: readonly Role[], role: Role, exact: boolean): boolean {
+  return exact ? roles.includes(role) : roleSatisfies(roles, role)
+}
+
+function useAuthorization(role?: Role, exact = false): { status: GateStatus; retry: () => void } {
   const router = useRouter()
   const { status: userStatus, user, refresh } = useCurrentUser()
 
@@ -28,17 +32,18 @@ function useAuthorization(role?: Role): { status: GateStatus; retry: () => void 
       return
     }
 
-    if (userStatus === 'ready' && role && !user.roles.includes(role)) {
+    // Super Admin inherits Team Admin gates unless the page is exact; fronter/closer stay exact.
+    if (userStatus === 'ready' && role && !opens(user.roles, role, exact)) {
       router.replace('/login')
     }
-  }, [router, role, user, userStatus])
+  }, [router, role, exact, user, userStatus])
 
   // No token (never signed in, or wiped after 401): redirect is in flight.
   if (!readToken()) return { status: 'checking', retry: refresh }
   if (userStatus === 'loading') return { status: 'checking', retry: refresh }
   // Token still present → transient failure; Retry reuses the provider fetch.
   if (userStatus === 'error') return { status: 'error', retry: refresh }
-  if (role && !user.roles.includes(role)) return { status: 'checking', retry: refresh }
+  if (role && !opens(user.roles, role, exact)) return { status: 'checking', retry: refresh }
 
   return { status: 'authorized', retry: refresh }
 }
@@ -68,8 +73,17 @@ function AuthGate({
   return <FullPageLoader label="Checking session…" />
 }
 
-export function RequireRole({ role, children }: { role: Role; children: ReactNode }) {
-  const { status, retry } = useAuthorization(role)
+export function RequireRole({
+  role,
+  exact = false,
+  children,
+}: {
+  role: Role
+  /** The role must be held as such: Super Admin does not inherit this page. */
+  exact?: boolean
+  children: ReactNode
+}) {
+  const { status, retry } = useAuthorization(role, exact)
   return (
     <AuthGate status={status} onRetry={retry}>
       {children}

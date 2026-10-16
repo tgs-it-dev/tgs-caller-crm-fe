@@ -16,7 +16,7 @@ import { ReactNode } from 'react'
  * - Split 20/20 either side of the rule, which keeps the card's top edge at the
  *   measured 102px.
  */
-export function PageShell({
+export function PageShell({ 
   title,
   actions,
   children,
@@ -32,15 +32,18 @@ export function PageShell({
   children: ReactNode
 }) {
   return (
-    <main className="min-h-screen bg-shop-floor">
-      <div className="border-b-hairline border-slate px-6 pb-5 pt-8">
+    // min-h-full fills the desk's scroll pane (already h-screen beside the
+    // sidebar). min-h-screen here was a second viewport and left a dead band
+    // under short cards. flex-col lets a lone DataTable grow into the rest.
+    <main className="flex min-h-full flex-col bg-shop-floor">
+      <div className="shrink-0 border-b-hairline border-slate px-6 pb-5 pt-8">
         <div className="flex items-center justify-between gap-4">
           {/* Figma text style "Page Heading" — 24px / 120%, no letter-spacing. */}
           <h1 className="text-2xl font-semibold leading-[120%] text-ink">{title}</h1>
           {actions}
         </div>
       </div>
-      <div className="px-6 pb-8 pt-5">{children}</div>
+      <div className="flex flex-1 flex-col px-6 pb-8 pt-5">{children}</div>
     </main>
   )
 }

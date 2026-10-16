@@ -66,10 +66,11 @@ Contract (typed in `lib/generated/schema.d.ts`):
   presenting a spent refresh token is treated as theft and ends every session of
   that user, so a refresh token must never be sent twice.
 - `POST /auth/logout` `{refresh_token}` → 204, whether or not the token was live.
-- `GET /auth/me` (Bearer token) → `{id, email, name, active, roles, created_at}`
-- `RoleName = "fronter" | "closer" | "administrator"` — a user can hold
-  multiple roles; frontend picks the landing route by priority
-  (`administrator` > `closer` > `fronter`), see `lib/auth.ts`.
+- `GET /auth/me` (Bearer token) → `{id, email, name, active, roles, team_id, created_at}`
+- `RoleName = "fronter" | "closer" | "administrator" | "super_admin"` — a user can
+  hold multiple roles; frontend picks the landing route by priority
+  (`super_admin` > `administrator` > `closer` > `fronter`), see `lib/auth.ts`.
+  Super Admin inherits every Team Admin `/admin` surface (`roleSatisfies`).
 - Every error response is `{detail, code, fields?}`, read with `readApiError()`.
   Branch on `code`, never on `detail`: `auth.not_authenticated` (token missing,
   invalid or expired), `auth.invalid_credentials`, `auth.invalid_refresh_token`,
@@ -210,11 +211,27 @@ Attempts.
   events unmapped, Connects sits at 0 under a non-zero Qualified. Bars measure
   against the largest count and the page prints what the server sent; never
   reshape a figure to keep a funnel silhouette.
-- **The last bar is Transfer Attempts, not the design's "Transferred".** Whether
-  a closer reached the lead isn't recorded anywhere, so the number counts
-  attempts, rejections and timeouts included. Connects is a stand-in too, and
-  the page says so in a line under the chart rather than in hover text, which a
-  screen reader never reads.
+- **Transferred is the last bar — one word from the API key to the column
+  heading.** The stage key, the bar label and the drill-down header are all
+  "transferred"; only the database underneath speaks of the transfer being
+  *accepted*, because `status` has six values and `accepted` is one of them.
+  The bar does **not** claim the closer *reached* the lead — the dialer bridge
+  isn't recorded, and that is the PRD's separate "closer connected" stage. Its
+  `event_at` is `Transfer.answered_at`, deliberately not an `accepted_at`: the
+  column is stamped on a rejection too, and the stage's status filter is what
+  narrows it. Connects is a stand-in too, and the page says all of this in a
+  line under the chart rather than in hover text, which a screen reader never
+  reads.
+- **There is no Transfer Attempts bar, and re-adding one needs a reason.** It
+  counted every offer including the ones nobody took, and over all seeded
+  history it never once diverged from Qualified — the only outcome the transfer
+  gate accepts is the only one that counts as qualified, so the two measured the
+  same set. What it hid was the gap that matters: roughly half of all offers are
+  rejected or time out, which is what Transferred now exposes. The offered count
+  still exists — `transfer_attempts()` in the backend feeds the dashboard's
+  "Transfers Offered/Rejected" counter, read from `transfers_offered` — it is
+  just not a funnel stage. That field used to be `transfers_initiated`, which
+  named one of the six transfer statuses while counting offers of every status.
 - **Qualified is the fronter's verdict, not the presence of a form.** It counts
   interactions whose latest *fronter* disposition carries `counts_as_qualified`
   on the catalogue row. It used to count `exists(Qualification)`, which answered
@@ -243,10 +260,10 @@ Attempts.
   empty window renders no list card at all, because the chart already says the
   range is empty.
 - **The list is ordered by the stage's own event, not by the interaction's
-  creation** — rows behind Transfer Attempts sorted by when the *call* started
-  answer a question that bar didn't ask. `event_at` carries that instant:
-  creation for Attempts, the earliest call leg for Connects, the qualifying
-  disposition for Qualified, the first transfer for Transfer Attempts. A second
+  creation** — rows behind Transferred sorted by when the *call* started answer
+  a question that bar didn't ask. `event_at` carries that instant: creation for
+  Attempts, the earliest call leg for Connects, the qualifying disposition for
+  Qualified, the accepted transfer's `answered_at` for Transferred. A second
   column headed from `STAGE_TIME_LABEL` shows it, except on Attempts where
   creation *is* the event. `created_at` stays beside it as the cohort key, so
   the two columns disagreeing is correct rather than a bug: a handoff can
@@ -351,15 +368,21 @@ Attempts.
 ## Users
 
 `/admin/users` administers accounts through `lib/users.ts` — `GET /auth/users`
-to list, `POST` to add, `PATCH /auth/users/{id}` to change a name, roles or
-state. Administrator-only, like the rest of `/admin`.
+to list, `POST` to add, `PATCH /auth/users/{id}` to change a name, roles,
+state or team. Administrator-only, like the rest of `/admin`.
 
 - **There is no delete.** Deactivating is `PATCH {active: false}`, and it
   revokes that person's refresh tokens as it commits: they are signed out on
   their next request, not at their next login. The wording on screen says so.
 - **An email address cannot be changed** — `UpdateUserRequest` carries name,
-  roles and active, and nothing else. The field is shown disabled rather than
-  hidden, so nobody goes looking for it.
+  roles, active and `team_id`, and nothing else. The field is shown disabled
+  rather than hidden, so nobody goes looking for it.
+- **Team is Super Admin only.** It is required when adding and can be changed
+  when editing; the edit sends `team_id` in the same PATCH as the rest, and only
+  when it changed. Picking a different team shows a note that the move takes
+  effect on save and that anyone on a call should record its outcome first. The
+  API does not block a move mid-call. Team Admins never see the field: the API
+  puts their users on their own team and refuses `team_id` from them.
 - **Creating a user asks how they will sign in.** "Set a password now" is the
   default and sends `password`; "Email an invitation link" leaves the key out
   and the API issues an invitation instead. That branch is the backend's:
@@ -380,6 +403,57 @@ state. Administrator-only, like the rest of `/admin`.
 - Failures land on the input they name: the API's `fields` array is mapped onto
   the matching control (a duplicate address shows under Email), and anything
   unnamed falls back to the dialog's `<Alert>`.
+
+## Campaigns
+
+`/admin/campaigns` keeps the campaign catalogue through `lib/campaigns.ts` —
+`GET /campaigns` to list, `POST` to add, `PATCH /campaigns/{id}` to change one.
+Super Admin only.
+
+- **A campaign here is a name and the teams that work it** — none, one or
+  several. The API can also carry a VICIdial routing key (`match_type` +
+  `match_value`); it is optional, this screen never shows or sends it, so a
+  campaign that has one keeps it through an edit.
+- **One call saves everything.** Add and edit send `team_ids` with the rest, and
+  an unknown team fails the call with nothing saved. `PUT /campaigns/{id}/teams`
+  exists, but this screen has no use for it.
+- **There is no delete.** A campaign is retired by turning Active off.
+- **Names are unique**, compared exactly once trimmed; a clash comes back as
+  `campaign.already_exists` against `name` and shows under the field.
+- Team Admins can read their own team's campaigns through the API, but there is
+  no screen for that yet.
+
+## Leads
+
+`/admin/leads` lets a Team Admin put leads on their team through `lib/leads.ts`:
+`GET /leads` to list, `POST /leads` to add one, `POST /leads/bulk` to upload a
+CSV. Team Admin only: the page is guarded with `exact`, so a Super Admin does not
+inherit it, and their desk has no Leads item.
+
+- **A new lead goes straight onto the team's fronter queue.** No fronter-side
+  work is needed; the queue's own refresh picks it up.
+- **Add Lead checks for the number first.** `POST /leads` answers 201 whether it
+  created the lead or found one the team already has, so the form asks
+  `GET /leads?phone_normalized=` before saving, and says so when it is a repeat.
+- **The name only labels the queue row.** It is not stored on the lead, so the
+  list and the Active Call screens show the phone. A blank name is left out of
+  the request, because the API refuses an empty one.
+- **The campaign picker follows the API's rule:** no field when the team has no
+  active campaign (the queue says "Manual upload"), the one campaign already
+  picked, or a required choice when there are several.
+- **Upload CSV is multipart.** `uploadLeads` builds the form data on every call
+  and sets no `Content-Type`, so the browser writes the boundary. Only a file
+  named `.csv` is taken: the picker's filter can be switched off, and Excel on
+  Windows labels a CSV as a spreadsheet type, so the name is what is checked.
+  The API takes up to 1,000 rows and 1 MB and answers per row. The results are
+  three counts (added, already on your team, could not be added) and a table of
+  every number that was not added, by line number, with the reason: already on
+  your team, invalid, do-not-call, or repeated in the file. Uploading the same
+  file again is safe: rows already added come back as already on the team and
+  are not queued twice.
+- **The template is `public/leads-template.csv`:** the header and one example
+  row on a reserved 555-01xx number, saved as UTF-8 with a byte-order mark so
+  Excel opens it cleanly. The API accepts the mark.
 
 ## Emailed links
 

@@ -8,21 +8,36 @@ export type NewUser = components['schemas']['CreateUserRequest']
 export type UserPatch = components['schemas']['UpdateUserRequest']
 
 /**
- * Every role this console assigns, in the order the form lists them.
+ * Every role this console can name, in seniority order.
  *
  * A full Record, so a role added to the contract fails the build here instead
  * of quietly missing from the form.
  */
 const ROLE_LABELS: Record<Role, string> = {
-  fronter: 'Fronter',
+  super_admin: 'Super Admin',
+  administrator: 'Team Admin',
   closer: 'Closer',
-  administrator: 'Administrator',
+  fronter: 'Fronter',
 }
 
+/** Full catalogue order — Super Admin may offer every entry. */
 export const ASSIGNABLE_ROLES = Object.keys(ROLE_LABELS) as Role[]
 
 export function roleLabel(role: Role): string {
   return ROLE_LABELS[role]
+}
+
+/**
+ * Roles the signed-in actor may grant. Super Admin and Team Admin are not the
+ * same ceiling: Team Admin may only staff Fronter / Closer into their team.
+ * Nobody may promote someone to Super Admin from this console (including SA).
+ */
+export function grantableRoles(actorRoles: readonly Role[]): Role[] {
+  if (actorRoles.includes('super_admin')) {
+    return ASSIGNABLE_ROLES.filter((role) => role !== 'super_admin')
+  }
+  if (actorRoles.includes('administrator')) return ['closer', 'fronter']
+  return []
 }
 
 /** What someone holds, as one line — a user may hold more than one role. */
@@ -55,8 +70,15 @@ async function json<T>(path: string, token: string, init: RequestInit = {}): Pro
   return res.json() as Promise<T>
 }
 
-export function listUsers(token: string): Promise<UserList> {
-  return json<UserList>(`/auth/users?limit=${PAGE_LIMIT}`, token)
+export type ListUsersQuery = {
+  /** Super Admin only — members of this team; omit for the full roster. */
+  teamId?: string | null
+}
+
+export function listUsers(token: string, query: ListUsersQuery = {}): Promise<UserList> {
+  const params = new URLSearchParams({ limit: String(PAGE_LIMIT) })
+  if (query.teamId) params.set('team_id', query.teamId)
+  return json<UserList>(`/auth/users?${params}`, token)
 }
 
 export function createUser(payload: NewUser, token: string): Promise<User> {
