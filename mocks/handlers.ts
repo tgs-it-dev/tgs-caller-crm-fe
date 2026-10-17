@@ -462,6 +462,8 @@ function mockFunnel(start: string, end: string, timezone?: string | null): Histo
  * look normal. Rows follow the offset, so paging never repeats a row.
  *
  * Rows are newest-first by `event_at`, the way the real drill-down orders them.
+ * Disposition scalars come from `mockFunnelDispositions` (defined with the
+ * catalogue below).
  */
 function mockFunnelStage(
   stage: FunnelStage,
@@ -498,6 +500,7 @@ function mockFunnelStage(
         lead_source: nth % 5 === 0 ? ('ghl' as const) : ('vicidial' as const),
         created_at: createdAt.toISOString(),
         event_at: new Date(createdAt.getTime() + eventDelayMs).toISOString(),
+        ...mockFunnelDispositions(stage, nth),
       }
     }),
     total,
@@ -930,6 +933,58 @@ const MOCK_DISPOSITION_CATALOG: MockDisposition[] = [
   { id: 'disp-fronter-dnc', label: 'Do Not Call', stage: 'fronter', ...ENDS_THE_CALL },
   { id: 'disp-fronter-invalid', label: 'Wrong Number', stage: 'fronter', ...ENDS_THE_CALL },
 ]
+
+/**
+ * Latest fronter/closer disposition scalars for one funnel drill-down row.
+ *
+ * Null when that stage has no disposition yet. Attempts and connects are
+ * mostly bare; qualified always has a fronter verdict (the only catalogue row
+ * that counts); transferred keeps that fronter handoff and usually a closer
+ * outcome too.
+ */
+function mockFunnelDispositions(stage: FunnelStage, nth: number): {
+  fronter_disposition_id: string | null
+  fronter_disposition_label: string | null
+  closer_disposition_id: string | null
+  closer_disposition_label: string | null
+} {
+  const fronter = MOCK_DISPOSITION_CATALOG.filter((row) => row.stage === 'fronter')
+  const closer = MOCK_DISPOSITION_CATALOG.filter((row) => row.stage === 'closer')
+  const qualified = MOCK_DISPOSITION_CATALOG.find((row) => row.counts_as_qualified)!
+
+  const pair = (row: MockDisposition | undefined) =>
+    row
+      ? { id: row.id, label: row.label }
+      : { id: null as string | null, label: null as string | null }
+
+  let fronterRow: MockDisposition | undefined
+  let closerRow: MockDisposition | undefined
+
+  if (stage === 'attempts') {
+    // Mostly untouched; every fifth row has some fronter outcome.
+    fronterRow = nth % 5 === 0 ? fronter[nth % fronter.length] : undefined
+  } else if (stage === 'connects') {
+    // A little further along: roughly every other call dispositioned, closer rare.
+    fronterRow = nth % 2 === 0 ? fronter[nth % fronter.length] : undefined
+    closerRow = nth % 7 === 0 ? closer[nth % closer.length] : undefined
+  } else if (stage === 'qualified') {
+    // The bar only counts `counts_as_qualified`, so every row carries that label.
+    fronterRow = qualified
+  } else {
+    // Transferred: fronter handoff on every row; closer set more often than not.
+    fronterRow = qualified
+    closerRow = nth % 4 !== 3 ? closer[nth % closer.length] : undefined
+  }
+
+  const fronterPair = pair(fronterRow)
+  const closerPair = pair(closerRow)
+  return {
+    fronter_disposition_id: fronterPair.id,
+    fronter_disposition_label: fronterPair.label,
+    closer_disposition_id: closerPair.id,
+    closer_disposition_label: closerPair.label,
+  }
+}
 
 const MOCK_INTERACTION_DISPOSITIONS = new Map<string, MockInteractionDisposition[]>()
 let interactionDispositionSeq = 0

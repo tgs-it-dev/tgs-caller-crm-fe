@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { ArrowLeft, Check, Copy } from 'lucide-react'
 import {
   CallLegsPanel,
+  DispositionsPanel,
   QualificationPanel,
   RawEventLogPanel,
   TransfersPanel,
@@ -12,6 +13,10 @@ import {
 import { Alert } from '@/components/ui/Alert'
 import { PageShell } from '@/components/ui/PageShell'
 import { AuthError } from '@/lib/auth'
+import {
+  listInteractionDispositions,
+  type InteractionDispositionResponse,
+} from '@/lib/dispositions'
 import {
   getQualificationRecord,
   listCallLegs,
@@ -53,6 +58,7 @@ type Loaded = {
   detail: InteractionDetailResponse
   legs: CallLeg[]
   transfers: InteractionTransfer[]
+  dispositions: InteractionDispositionResponse[]
   qualification: QualificationRecord | null
 }
 
@@ -104,12 +110,13 @@ export function InteractionDetailScreen({
           // there is no sense asking four panels about an interaction that
           // does not exist.
           const detail = await getInteractionDetailResponse(interactionId, token)
-          const [legs, transfers, qualification] = await Promise.all([
+          const [legs, transfers, dispositions, qualification] = await Promise.all([
             listCallLegs(interactionId, token),
             listInteractionTransfers(interactionId, token),
+            listInteractionDispositions(interactionId, token),
             getQualificationRecord(interactionId, token),
           ])
-          return { detail, legs, transfers, qualification }
+          return { detail, legs, transfers, dispositions, qualification }
         })
       )
       .then((data) => {
@@ -182,6 +189,10 @@ export function InteractionDetailScreen({
             <TransfersPanel transfers={load.data.transfers} />
           </div>
 
+          <DispositionsPanel
+            items={load.data.dispositions}
+            transfers={load.data.transfers}
+          />
           <QualificationPanel record={load.data.qualification} />
 
           {eventsFailed && <Alert>Could not load the raw event log.</Alert>}
