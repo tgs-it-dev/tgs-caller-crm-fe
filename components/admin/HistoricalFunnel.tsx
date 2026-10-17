@@ -52,8 +52,8 @@ export function HistoricalFunnel() {
   // Bumped only when the page moves the window itself, to start the date fields
   // again from it. A window the user picked leaves their fields alone.
   const [pageMoved, setPageMoved] = useState(0)
-  // The business zone, once a reply has named it. Until then the browser's days
-  // are the only ones on hand.
+  // The business zone, once a reply has named it. Until then Eastern days are
+  // used for the picker max (same default as `defaultRange`).
   const [zone, setZone] = useState<string | undefined>(undefined)
   // Which bar the list below is showing. A new window doesn't reset it: someone
   // reading Qualified who moves the dates still wants Qualified.
@@ -74,11 +74,10 @@ export function HistoricalFunnel() {
         if (cancelled) return
         setZone(funnel.timezone)
 
-        // The page opens on yesterday–today, and before the first reply there
-        // was no business zone to say which days those are — so it used the
-        // browser's. Where the two disagree these figures cover a window
-        // nobody asked for: they're dropped and the right one read instead,
-        // leaving the page loading rather than showing them.
+        // The page opens on yesterday–today in Eastern. Where the reply names
+        // another business zone and those days disagree, these figures cover a
+        // window nobody asked for: they're dropped and the right one read
+        // instead, leaving the page loading rather than showing them.
         if (selected.auto) {
           const corrected = defaultRange(funnel.timezone)
           if (corrected.start !== selected.range.start || corrected.end !== selected.range.end) {
