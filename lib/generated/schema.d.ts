@@ -510,7 +510,19 @@ export interface paths {
         get: operations["get_detail_interactions__interaction_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Hard-delete an interaction and related CRM rows (Super Admin, demo only)
+         * @description Wipe one interaction's CRM footprint.
+         *
+         *     Demo phase only — Super Admin cleanup for demo data, not a production
+         *     operation.
+         *
+         *     Removes dialer queue entry, reconciliation exceptions, call legs, transfers,
+         *     qualifications, dispositions, and the interaction itself. Inbound events are
+         *     unlinked (not deleted). The lead is deleted only when this was its last
+         *     interaction. Company-wide audit history is left intact.
+         */
+        delete: operations["purge_interactions__interaction_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -832,9 +844,30 @@ export interface paths {
          * @description UI/demo control before VICIdial drives status and leave.
          *
          *     ``left: true`` sets ``left_at`` so the row drops off GET /queue?role=fronter.
-         *     Empty body is rejected by the request schema (422).
+         *     Empty body is rejected by the request schema (422). Accept uses
+         *     ``POST /queue/fronter/{interaction_id}/accept``.
          */
         patch: operations["patch_fronter_queue_entry_queue_fronter__interaction_id__patch"];
+        trace?: never;
+    };
+    "/queue/fronter/{interaction_id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fronter accepts a dialer-queue lead
+         * @description Claim the open row so other fronters no longer see it on their queue.
+         */
+        post: operations["accept_fronter_queue_entry_queue_fronter__interaction_id__accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/realtime/ticket": {
@@ -1024,6 +1057,34 @@ export interface paths {
         patch: operations["update_team_teams__team_id__patch"];
         trace?: never;
     };
+    "/teams/{team_id}/crm-data": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Hard-delete team CRM data (Super Admin, demo only)
+         * @description Wipe a team's CRM footprint. The team row and memberships stay.
+         *
+         *     Demo phase only — Super Admin cleanup for demo data, not a production
+         *     operation.
+         *
+         *     Removes every lead on the team and each interaction tree under those leads
+         *     (queue entries, reconciliation exceptions, call legs, transfers,
+         *     qualifications, dispositions). Inbound events are unlinked. Audit history,
+         *     users, campaigns, and company-wide phone suppressions are left intact.
+         */
+        delete: operations["purge_crm_data_teams__team_id__crm_data_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/transfers": {
         parameters: {
             query?: never;
@@ -1122,6 +1183,17 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AcceptFronterQueueRequest
+         * @description Body for POST /queue/fronter/{interaction_id}/accept.
+         */
+        AcceptFronterQueueRequest: {
+            /**
+             * Fronter User Id
+             * Format: uuid
+             */
+            fronter_user_id: string;
+        };
         /** AcceptInvitationRequest */
         AcceptInvitationRequest: {
             /** Password */
@@ -1520,14 +1592,18 @@ export interface components {
          * FronterQueueItem
          * @description Wire shape for an open fronter-queue row.
          *
-         *     Also the PATCH /queue/fronter/{interaction_id} response: the post-update
-         *     snapshot (name, phone, status, queued_at). Leaving the queue does not add
-         *     a left_at field here — the client sent ``left: true``, and a later GET
-         *     omits the row because ``left_at IS NULL`` filters it out.
+         *     Also the PATCH / accept response: the post-update snapshot. Leaving the
+         *     queue does not add a left_at field here — the client sent ``left: true``,
+         *     and a later GET omits the row because ``left_at IS NULL`` filters it out.
          */
         FronterQueueItem: {
             /** Campaign Name */
             campaign_name: string;
+            /**
+             * Fronter User Id
+             * @description Null until accepted; then the fronter who claimed the row
+             */
+            fronter_user_id?: string | null;
             /** Id */
             id: string;
             /** Lead Name */
@@ -1541,10 +1617,10 @@ export interface components {
             queued_at: string;
             /**
              * Status
-             * @description ringing | waiting
+             * @description ringing | waiting | accepted
              * @enum {string}
              */
-            status: "ringing" | "waiting";
+            status: "ringing" | "waiting" | "accepted";
         };
         /** FunnelCounts */
         FunnelCounts: {
@@ -1839,6 +1915,26 @@ export interface components {
             offset: number;
             /** Total */
             total: number;
+        };
+        /**
+         * InteractionPurgeResponse
+         * @description Confirmation after a Super Admin hard-delete of an interaction tree.
+         *
+         *     Demo phase only — not for production.
+         */
+        InteractionPurgeResponse: {
+            /**
+             * Interaction Id
+             * Format: uuid
+             */
+            interaction_id: string;
+            /** Lead Deleted */
+            lead_deleted: boolean;
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
         };
         /**
          * InteractionQualificationSummary
@@ -2229,6 +2325,25 @@ export interface components {
             /** Name */
             name: string;
         };
+        /**
+         * TeamCrmPurgeResponse
+         * @description Counts after a Super Admin wipe of a team's CRM data.
+         *
+         *     Demo phase only — not for production.
+         */
+        TeamCrmPurgeResponse: {
+            /** Interactions Deleted */
+            interactions_deleted: number;
+            /** Leads Deleted */
+            leads_deleted: number;
+            /** Reconciliation Exceptions Deleted */
+            reconciliation_exceptions_deleted: number;
+            /**
+             * Team Id
+             * Format: uuid
+             */
+            team_id: string;
+        };
         /** TeamListResponse */
         TeamListResponse: {
             /** Items */
@@ -2435,7 +2550,8 @@ export interface components {
          *
          *     At least one of ``status`` or ``left`` must be set. ``left`` is only
          *     ``true`` (or omitted): ``false`` is rejected so "stay queued" is never
-         *     spelled as a no-op boolean.
+         *     spelled as a no-op boolean. Accept uses its own route — status here stays
+         *     ``ringing`` | ``waiting``.
          */
         UpdateFronterQueueEntryRequest: {
             /**
@@ -3640,6 +3756,46 @@ export interface operations {
             };
         };
     };
+    purge_interactions__interaction_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InteractionPurgeResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     list_call_legs_interactions__interaction_id__call_legs_get: {
         parameters: {
             query?: never;
@@ -4266,6 +4422,50 @@ export interface operations {
             };
         };
     };
+    accept_fronter_queue_entry_queue_fronter__interaction_id__accept_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcceptFronterQueueRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FronterQueueItem"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     create_ticket_realtime_ticket_post: {
         parameters: {
             query?: never;
@@ -4671,6 +4871,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TeamResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    purge_crm_data_teams__team_id__crm_data_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                team_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamCrmPurgeResponse"];
                 };
             };
             /** @description Client Error */

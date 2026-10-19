@@ -38,7 +38,7 @@ import {
   type ActiveCallForm,
 } from '@/lib/qualification'
 import { AuthError } from '@/lib/auth'
-import { leaveFronterQueue } from '@/lib/queue'
+import { acceptFronterQueue, leaveFronterQueue } from '@/lib/queue'
 import { withSession } from '@/lib/session'
 import { createTransfer, type AvailableCloserItem } from '@/lib/transfers'
 
@@ -95,9 +95,31 @@ function ActiveCallBody({ interactionId }: { interactionId: string }) {
 
   useEffect(() => {
     let cancelled = false
+    if (!user) return
 
     waitForMocking()
-      .then(() => withSession((token) => loadActiveCallWorkspace(interactionId, token)))
+      .then(() =>
+        withSession(async (token) => {
+          // Claim the dialer-queue row when opening Active Call (deep link /
+          // Open call). Already claimed — including by us — or no open row is
+          // fine; exclusivity is enforced on accept, not on GET interaction.
+          try {
+            await acceptFronterQueue(
+              interactionId,
+              { fronter_user_id: user.id },
+              token
+            )
+          } catch (err) {
+            if (
+              !(err instanceof AuthError) ||
+              (err.code !== 'queue.not_answerable' && err.status !== 404)
+            ) {
+              throw err
+            }
+          }
+          return loadActiveCallWorkspace(interactionId, token)
+        })
+      )
       .then(({ interaction, qualification, dispositions, capturedDispositions, closers }) => {
         if (cancelled) return
 
@@ -133,7 +155,7 @@ function ActiveCallBody({ interactionId }: { interactionId: string }) {
     return () => {
       cancelled = true
     }
-  }, [interactionId])
+  }, [interactionId, user])
 
   function patchForm(patch: Partial<ActiveCallForm>) {
     setForm((prev) => ({ ...prev, ...patch }))
