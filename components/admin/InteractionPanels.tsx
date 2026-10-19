@@ -3,6 +3,11 @@
 import type { ReactNode } from 'react'
 import { Badge } from '@/components/ui/Badge'
 import { DataTable, type DataColumn } from '@/components/ui/DataTable'
+import {
+  latestCloserDisposition,
+  latestFronterDisposition,
+  type InteractionDispositionResponse,
+} from '@/lib/dispositions'
 import { formatDateTime, localZoneName } from '@/lib/format'
 import type {
   CallLeg,
@@ -242,6 +247,116 @@ function PanelShell({ title, children }: { title: string; children: ReactNode })
       </h2>
       {children}
     </div>
+  )
+}
+
+type AgentDispositionRow = {
+  id: 'fronter' | 'closer'
+  role: string
+  name: string | null
+  userId: string | null
+  disposition: string | null
+  /** When the latest disposition for this stage was written; null if none. */
+  recordedAt: string | null
+}
+
+/**
+ * Name for a stage's latest disposition actor.
+ *
+ * Disposition rows only carry `actor_user_id`; transfer items already resolve
+ * names for the same people, so join on that id. When there is no disposition
+ * yet, fall back to the most recent transfer party for the stage.
+ */
+function partyForStage(
+  stage: 'fronter' | 'closer',
+  actorUserId: string | null,
+  transfers: InteractionTransfer[]
+): { name: string | null; userId: string | null } {
+  const idKey = stage === 'fronter' ? 'fronter_user_id' : 'closer_user_id'
+  const nameKey = stage === 'fronter' ? 'fronter_name' : 'closer_name'
+
+  if (actorUserId) {
+    const match = transfers.find((row) => row[idKey] === actorUserId)
+    return { name: match?.[nameKey] ?? null, userId: actorUserId }
+  }
+
+  for (let index = transfers.length - 1; index >= 0; index -= 1) {
+    const row = transfers[index]
+    if (row[idKey]) return { name: row[nameKey], userId: row[idKey] }
+  }
+  return { name: null, userId: null }
+}
+
+/**
+ * Fronter and closer — name plus latest disposition — above Qualification
+ * Snapshot. Same DataTable chrome as Call Legs / Transfer.
+ */
+export function DispositionsPanel({
+  items,
+  transfers,
+}: {
+  items: InteractionDispositionResponse[]
+  transfers: InteractionTransfer[]
+}) {
+  const fronter = latestFronterDisposition(items)
+  const closer = latestCloserDisposition(items)
+
+  const rows: AgentDispositionRow[] = [
+    {
+      id: 'fronter',
+      role: 'Fronter',
+      ...partyForStage('fronter', fronter?.actor_user_id ?? null, transfers),
+      disposition: fronter?.label ?? null,
+      recordedAt: fronter?.created_at ?? null,
+    },
+    {
+      id: 'closer',
+      role: 'Closer',
+      ...partyForStage('closer', closer?.actor_user_id ?? null, transfers),
+      disposition: closer?.label ?? null,
+      recordedAt: closer?.created_at ?? null,
+    },
+  ]
+
+  const columns: DataColumn<AgentDispositionRow>[] = [
+    { id: 'role', header: 'Role', render: (row) => row.role },
+    {
+      id: 'name',
+      header: 'Name',
+      // Names come from the transfer join; without one, dash — never invent
+      // "Deleted account" the way Transfer does, because a disposition actor
+      // may simply never have been on a transfer row.
+      render: (row) => row.name ?? <span className="text-slate">—</span>,
+    },
+    {
+      id: 'disposition',
+      header: 'Disposition',
+      render: (row) => row.disposition ?? <span className="text-slate">—</span>,
+    },
+    {
+      id: 'recorded',
+      header: 'Recorded at',
+      render: (row) => (
+        <OneLine>
+          {row.recordedAt ? formatDateTime(row.recordedAt) : <span className="text-slate">—</span>}
+        </OneLine>
+      ),
+    },
+  ]
+
+  const anyRecorded = rows.some((row) => row.recordedAt)
+
+  return (
+    <DataTable
+      title="Dispositions"
+      ariaLabel="Fronter and closer dispositions"
+      rows={rows}
+      columns={columns}
+      getRowId={(row) => row.id}
+      emptyMessage="No dispositions recorded for this interaction."
+      actions={anyRecorded ? <ZoneCaption /> : undefined}
+      minWidth="max-content"
+    />
   )
 }
 

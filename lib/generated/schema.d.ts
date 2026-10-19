@@ -1589,8 +1589,16 @@ export interface components {
          *     Qualified, the closer's acceptance for Transferred — so the drill-down
          *     list can order and label by what the bar counted, not only by when the
          *     call started.
+         *
+         *     Disposition id/label pairs are the latest per stage (highest version);
+         *     null when that stage has no disposition yet. Scalars only — same reason
+         *     lead fields are not nested.
          */
         FunnelInteraction: {
+            /** Closer Disposition Id */
+            closer_disposition_id: string | null;
+            /** Closer Disposition Label */
+            closer_disposition_label: string | null;
             /**
              * Created At
              * Format: date-time
@@ -1601,6 +1609,10 @@ export interface components {
              * Format: date-time
              */
             event_at: string;
+            /** Fronter Disposition Id */
+            fronter_disposition_id: string | null;
+            /** Fronter Disposition Label */
+            fronter_disposition_label: string | null;
             /**
              * Id
              * Format: uuid

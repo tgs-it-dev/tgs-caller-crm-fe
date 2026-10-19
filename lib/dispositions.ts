@@ -49,11 +49,26 @@ export async function captureDisposition(
   return res.json() as Promise<InteractionDispositionResponse>
 }
 
+/** Latest capture for one stage, if any. Highest version wins. */
+function latestDispositionForStage(
+  items: InteractionDispositionResponse[],
+  stage: DispositionStage
+): InteractionDispositionResponse | null {
+  const matched = items.filter((item) => item.stage === stage)
+  if (matched.length === 0) return null
+  return matched.reduce((best, item) => (item.version > best.version ? item : best))
+}
+
 /** Latest fronter-stage capture for an interaction, if any. */
 export function latestFronterDisposition(
   items: InteractionDispositionResponse[]
 ): InteractionDispositionResponse | null {
-  const fronter = items.filter((item) => item.stage === 'fronter')
-  if (fronter.length === 0) return null
-  return fronter.reduce((best, item) => (item.version > best.version ? item : best))
+  return latestDispositionForStage(items, 'fronter')
+}
+
+/** Latest closer-stage capture for an interaction, if any. */
+export function latestCloserDisposition(
+  items: InteractionDispositionResponse[]
+): InteractionDispositionResponse | null {
+  return latestDispositionForStage(items, 'closer')
 }

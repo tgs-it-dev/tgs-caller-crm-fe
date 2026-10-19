@@ -1,6 +1,7 @@
 import type { components, paths } from '@/lib/generated/schema'
 import { apiUrl } from '@/lib/apiUrl'
 import { authError } from '@/lib/auth'
+import { BUSINESS_TIMEZONE } from '@/lib/format'
 
 export type HistoricalFunnel = components['schemas']['HistoricalFunnel']
 
@@ -22,7 +23,7 @@ export type DateRange = { start: string; end: string }
  * still appears as the current choice.
  */
 export const REPORT_TIMEZONES = [
-  'America/New_York',
+  BUSINESS_TIMEZONE,
   'America/Chicago',
   'America/Denver',
   'America/Los_Angeles',
@@ -88,8 +89,8 @@ export async function fetchFunnelStage(
   return res.json() as Promise<FunnelInteractionList>
 }
 
-/** The calendar day `date` falls on in `timeZone`, or in the browser's without one. */
-export function businessDay(date: Date, timeZone?: string): string {
+/** The calendar day `date` falls on in `timeZone` (Eastern when omitted). */
+export function businessDay(date: Date, timeZone: string = BUSINESS_TIMEZONE): string {
   // en-CA writes YYYY-MM-DD, which is what the API takes.
   return new Intl.DateTimeFormat('en-CA', { timeZone }).format(date)
 }
@@ -103,7 +104,7 @@ function dayBefore(isoDay: string): string {
 }
 
 /** Yesterday through today — the window the reports page opens on. */
-export function defaultRange(timeZone?: string): DateRange {
+export function defaultRange(timeZone: string = BUSINESS_TIMEZONE): DateRange {
   const today = businessDay(new Date(), timeZone)
   return { start: dayBefore(today), end: today }
 }
