@@ -307,12 +307,38 @@ export function dispositionAllowsTransfer(
 }
 
 /**
- * Whether Transfer needs an override reason: incomplete checklist, or a
- * vehicle line that did not parse into the BE-required year / make / model.
+ * Sent when the checklist is complete but year/make/model/mileage still blank
+ * after parse — so Transfer does not force the fronter to type a reason, while
+ * the audit trail still gets a non-blank justification the BE requires.
+ */
+export const DEFAULT_CHECKLIST_OVERRIDE_REASON =
+  'Checklist completed — transfer with incomplete parsed vehicle fields'
+
+/**
+ * Reason to send on createTransfer when required snapshot keys are missing.
+ * Prefer the fronter's typed text; otherwise the default when the checklist
+ * is complete. Null when nothing should be sent (fields present, or incomplete
+ * checklist with no typed reason).
+ */
+export function resolveTransferOverrideReason(
+  form: ActiveCallForm,
+  overrideReason: string
+): string | null {
+  if (missingActiveCallTransferFields(form).length === 0) return null
+  const typed = overrideReason.trim()
+  if (typed) return typed
+  if (isActiveCallChecklistComplete(form)) return DEFAULT_CHECKLIST_OVERRIDE_REASON
+  return null
+}
+
+/**
+ * Whether to show the Override reason field: required snapshot keys are blank
+ * and the checklist is not complete (a complete checklist uses the default
+ * reason instead of asking the fronter to type one).
  */
 export function needsActiveCallOverride(form: ActiveCallForm): boolean {
   if (form.dnc_flagged) return false
-  if (!isActiveCallChecklistComplete(form)) return true
+  if (isActiveCallChecklistComplete(form)) return false
   return missingActiveCallTransferFields(form).length > 0
 }
 
@@ -323,6 +349,9 @@ export function needsActiveCallOverride(form: ActiveCallForm): boolean {
  * Takes the disposition, not its id — "some disposition is selected" was the
  * whole check, which let "No Answer" through. `allows_transfer`, never
  * `counts_as_qualified`: the client may yet split the two flags.
+ *
+ * Missing transfer fields need a reason (typed or the checklist default). A
+ * complete checklist supplies that default, so Transfer stays enabled.
  */
 export function canTransferActiveCall(
   form: ActiveCallForm,
@@ -330,15 +359,10 @@ export function canTransferActiveCall(
 ): boolean {
   if (form.dnc_flagged) return false
   if (!dispositionAllowsTransfer(opts.disposition)) return false
-
-  // Checklist complete and year/make/model actually present → no override.
-  if (isActiveCallChecklistComplete(form) && missingActiveCallTransferFields(form).length === 0) {
-    return true
-  }
-
-  // Incomplete checklist or unparsed vehicle line: override reason required.
   if (form.consent !== 'yes') return false
-  return opts.overrideReason.trim().length > 0
+
+  if (missingActiveCallTransferFields(form).length === 0) return true
+  return resolveTransferOverrideReason(form, opts.overrideReason) !== null
 }
 
 /**

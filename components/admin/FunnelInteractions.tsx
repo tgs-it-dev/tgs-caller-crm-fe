@@ -68,6 +68,17 @@ const columnsIn = (timeZone: string, stage: FunnelStage): DataColumn<FunnelInter
     ),
   },
   {
+    // Latest fronter outcome (highest version); null until one is recorded.
+    // Attempts/Connects often have none — show a dash rather than inventing.
+    id: 'fronter_disposition',
+    header: 'Fronter disposition',
+    render: (row) => (
+      <span className="whitespace-nowrap">
+        {row.fronter_disposition_label ?? '—'}
+      </span>
+    ),
+  },
+  {
     id: 'interaction',
     header: 'Interaction',
     render: (row) => (

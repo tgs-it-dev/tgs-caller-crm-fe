@@ -10,9 +10,9 @@ import { OverrideReason } from './OverrideReason'
  * What to say under the buttons, most-blocking first.
  *
  * Telling somebody to complete the checklist while the lead is flagged
- * do-not-call sends them down a road that ends nowhere. The old copy had this
- * inverted: it advised an override when fields were missing, and asked for
- * fields when nothing was.
+ * do-not-call sends them down a road that ends nowhere. Override copy only
+ * when transfer-required snapshot fields are blank — not for every unfinished
+ * checklist box.
  */
 function whyTransferIsUnavailable({
   dncFlagged,
@@ -34,17 +34,17 @@ function whyTransferIsUnavailable({
     return 'Do Not Call is flagged — transfer is blocked, but you can still end the call.'
   }
   if (!dispositionLabel) return 'Choose a disposition to continue.'
-  // Before the override line, not after: an incomplete checklist is also true
-  // of a terminal outcome, and offering an override for a call that can never
-  // be transferred sends the fronter to fill in fields for nothing.
+  // Before the override line, not after: a terminal outcome can also leave
+  // fields blank, and offering an override for a call that can never be
+  // transferred sends the fronter to fill in a reason for nothing.
   if (!transferable) {
     return `“${dispositionLabel}” ends the call here. Use Save & End Call, or pick another outcome.`
   }
   if (canTransfer) return 'Ready to transfer, or save and end the call here.'
   if (needsOverride && !hasReason) {
-    return 'Complete the checklist, or add an override reason to transfer anyway.'
+    return 'Fill the checklist, or add an override reason to transfer anyway.'
   }
-  return 'Complete consent and the checklist to transfer.'
+  return 'Consent must be yes to transfer.'
 }
 
 export function TransferPanel({
@@ -160,8 +160,8 @@ export function TransferPanel({
         </p>
       </div>
 
-      {/* Only when an override would actually be sent. Offered on a complete
-          checklist it invites a justification the transfer never carries. */}
+      {/* Only when transfer-required snapshot fields are blank — the reason
+          the BE would refuse without an override. */}
       {!dncFlagged && needsOverride && (
         <OverrideReason reason={overrideReason} onReasonChange={onOverrideReasonChange} />
       )}
