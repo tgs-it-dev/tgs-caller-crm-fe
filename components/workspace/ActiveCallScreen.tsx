@@ -31,8 +31,8 @@ import {
   consentFromActiveCall,
   dispositionAllowsTransfer,
   hasCapturedSomething,
-  missingActiveCallTransferFields,
   needsActiveCallOverride,
+  resolveTransferOverrideReason,
   snapshotJsonFromActiveCall,
   submitQualification,
   type ActiveCallForm,
@@ -221,8 +221,9 @@ function ActiveCallBody({ interactionId }: { interactionId: string }) {
       // disposition to decide whether a handoff is allowed, so it lands first.
       await recordOutcome(disposition.id)
 
-      const missing = missingActiveCallTransferFields(form)
-      const reason = overrideReason.trim()
+      // Typed reason, or the checklist default when required snapshot keys are
+      // still blank after parse — omit when the gate needs nothing.
+      const reason = resolveTransferOverrideReason(form, overrideReason)
       // Omit closer_user_id when unset — same auto-assign as before. Sending
       // null would also work, but omit matches the optional-field pattern used
       // for override_reason (and invitation passwords).
@@ -231,7 +232,7 @@ function ActiveCallBody({ interactionId }: { interactionId: string }) {
           {
             interaction_id: interactionId,
             fronter_user_id: user.id,
-            ...(missing.length > 0 && reason ? { override_reason: reason } : {}),
+            ...(reason ? { override_reason: reason } : {}),
             ...(selectedCloserUserId ? { closer_user_id: selectedCloserUserId } : {}),
           },
           token
