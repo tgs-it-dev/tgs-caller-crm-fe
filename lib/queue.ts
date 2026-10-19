@@ -1,26 +1,22 @@
+import type { components } from '@/lib/generated/schema'
 import { apiUrl } from '@/lib/apiUrl'
 import { authError } from '@/lib/auth'
 
 /** Desk roles that have a queue projection on `GET /queue?role=`. */
 export type QueueRole = 'fronter' | 'closer'
 
-export type FronterQueueStatus = 'ringing' | 'waiting'
+/**
+ * ringing | waiting = unclaimed (or demo status); accepted = this fronter claimed it.
+ * Other fronters no longer see accepted rows on GET /queue?role=fronter.
+ */
+export type FronterQueueStatus = components['schemas']['FronterQueueItem']['status']
 /** Pending offers, plus this closer's open accepted call (not yet dispositioned). */
 export type CloserQueueStatus = 'initiated' | 'offered' | 'accepted'
 
 /** @deprecated Prefer `FronterQueueStatus` — kept for existing fronter imports. */
 export type QueueStatus = FronterQueueStatus
 
-export type FronterQueueEntry = {
-  /** Interaction id — the row's link target once a call is picked up. */
-  id: string
-  lead_name: string
-  lead_phone: string
-  campaign_name: string
-  /** Wait time is derived from this client-side rather than sent pre-rendered. */
-  queued_at: string
-  status: FronterQueueStatus
-}
+export type FronterQueueEntry = components['schemas']['FronterQueueItem']
 
 /** @deprecated Prefer `FronterQueueEntry`. */
 export type QueueEntry = FronterQueueEntry
@@ -35,6 +31,13 @@ export type CloserQueueEntry = {
   fronter_user_id: string | null
   queued_at: string
   status: CloserQueueStatus
+}
+
+export type AcceptFronterQueueRequest = components['schemas']['AcceptFronterQueueRequest']
+
+/** Active Call URL — query param so static export / S3 can serve the shell. */
+export function fronterWorkspaceHref(interactionId: string): string {
+  return `/fronter/workspace/?id=${encodeURIComponent(interactionId)}`
 }
 
 /**
@@ -77,6 +80,24 @@ export function listQueue(
     inflightByRole.set(role, inflight)
   }
   return inflight
+}
+
+/** Fronter claims an unclaimed dialer-queue row. Body `fronter_user_id` must match the token. */
+export async function acceptFronterQueue(
+  interactionId: string,
+  payload: AcceptFronterQueueRequest,
+  token: string
+): Promise<FronterQueueEntry> {
+  const res = await fetch(
+    apiUrl(`/queue/fronter/${encodeURIComponent(interactionId)}/accept`),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    }
+  )
+  if (!res.ok) throw await authError(res)
+  return res.json() as Promise<FronterQueueEntry>
 }
 
 /**

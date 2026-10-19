@@ -634,15 +634,20 @@ const QUEUE_SEEDED_AT = Date.now()
 // 48 rows so the 5-per-page table paginates across 10 pages like the design.
 const LEFT_QUEUE = new Set<string>()
 
-const MOCK_FRONTER_QUEUE: FronterQueueEntry[] = Array.from({ length: 48 }, (_, index) => ({
-  id: `int-${2000 + index}`,
-  lead_name: QUEUE_LEAD_NAMES[index % QUEUE_LEAD_NAMES.length],
-  lead_phone: `+1323555${(1000 + index).toString().slice(-4)}`,
-  campaign_name: QUEUE_CAMPAIGNS[index % QUEUE_CAMPAIGNS.length],
-  // Staggered so the top of the queue has waited longest (first row = 03:12).
-  queued_at: new Date(QUEUE_SEEDED_AT - (192 - index * 4) * 1000).toISOString(),
-  status: index % 7 === 0 ? 'ringing' : 'waiting',
-}))
+const MOCK_FRONTER_QUEUE: FronterQueueEntry[] = Array.from({ length: 48 }, (_, index) => {
+  // Index 1 stands in for this fronter's open accepted call (user id "1").
+  const claimed = index === 1
+  return {
+    id: `int-${2000 + index}`,
+    lead_name: QUEUE_LEAD_NAMES[index % QUEUE_LEAD_NAMES.length],
+    lead_phone: `+1323555${(1000 + index).toString().slice(-4)}`,
+    campaign_name: QUEUE_CAMPAIGNS[index % QUEUE_CAMPAIGNS.length],
+    // Staggered so the top of the queue has waited longest (first row = 03:12).
+    queued_at: new Date(QUEUE_SEEDED_AT - (192 - index * 4) * 1000).toISOString(),
+    status: claimed ? 'accepted' : index % 7 === 0 ? 'ringing' : 'waiting',
+    fronter_user_id: claimed ? '1' : null,
+  }
+})
 
 const MOCK_CLOSER_QUEUE: CloserQueueEntry[] = Array.from({ length: 12 }, (_, index) => ({
   id: `transfer-${3000 + index}`,
@@ -767,6 +772,7 @@ function addMockLead(
     campaign_name: campaignName ?? 'Manual upload',
     queued_at: now,
     status: 'waiting',
+    fronter_user_id: null,
   })
   return lead
 }
@@ -2134,13 +2140,62 @@ export const handlers = [
     return res(ctx.status(200), ctx.json(entry))
   }),
 
+  // Fronter queue Accept — same exclusivity as closer transfer accept.
+  rest.post('/queue/fronter/:interactionId/accept', async (req, res, ctx) => {
+    const interactionId = req.params.interactionId as string
+    const body = (await req.json()) as { fronter_user_id: string }
+    const actor = MOCK_TOKENS.get(
+      (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '')
+    )
+    if (!actor) {
+      return res(
+        ctx.status(401),
+        ctx.json(authErrorBody('Could not validate credentials', 'auth.not_authenticated'))
+      )
+    }
+    if (body.fronter_user_id !== actor.id) {
+      return res(
+        ctx.status(403),
+        ctx.json(authErrorBody('cannot act on behalf of another user', 'auth.forbidden'))
+      )
+    }
+    const entry = MOCK_FRONTER_QUEUE.find((row) => row.id === interactionId)
+    if (!entry || LEFT_QUEUE.has(interactionId)) {
+      return res(
+        ctx.status(404),
+        ctx.json({
+          detail: 'no open queue entry for this interaction',
+          code: 'queue.entry_not_found',
+        })
+      )
+    }
+    if (entry.fronter_user_id != null) {
+      return res(
+        ctx.status(409),
+        ctx.json({
+          detail: `this queue entry is already ${entry.status}`,
+          code: 'queue.not_answerable',
+        })
+      )
+    }
+    entry.status = 'accepted'
+    entry.fronter_user_id = body.fronter_user_id
+    return res(ctx.status(200), ctx.json(entry))
+  }),
+
   rest.get('/queue', (req, res, ctx) => {
     const role = req.url.searchParams.get('role')
     if (role === 'fronter') {
-      return res(
-        ctx.status(200),
-        ctx.json(MOCK_FRONTER_QUEUE.filter((row) => !LEFT_QUEUE.has(row.id)))
+      const actor = MOCK_TOKENS.get(
+        (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '')
       )
+      // Unclaimed rows, or rows this fronter already claimed — others disappear.
+      const visible = MOCK_FRONTER_QUEUE.filter((row) => {
+        if (LEFT_QUEUE.has(row.id)) return false
+        if (row.fronter_user_id == null) return true
+        return actor != null && row.fronter_user_id === actor.id
+      })
+      return res(ctx.status(200), ctx.json(visible))
     }
     if (role === 'closer') {
       return res(ctx.status(200), ctx.json(MOCK_CLOSER_QUEUE))
