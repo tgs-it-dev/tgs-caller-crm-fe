@@ -17,6 +17,15 @@ import {
 } from '@/lib/qualification'
 import { tokens } from '@/lib/theme'
 
+/** Figma Signal red — required marker on Active Call checklist labels. */
+function RequiredMark() {
+  return (
+    <span aria-hidden className="text-signal-red">
+      {' *'}
+    </span>
+  )
+}
+
 export function QualificationChecklist({
   form,
   onChange,
@@ -39,7 +48,12 @@ export function QualificationChecklist({
 
       <div className="mt-5 space-y-5">
         <Input
-          label="Vehicle Year / Make / Model *"
+          label={
+            <>
+              Vehicle Year / Make / Model
+              <RequiredMark />
+            </>
+          }
           placeholder="e.g. 2019 Toyota Camry"
           value={form.vehicle}
           onChange={(e) => onChange({ vehicle: e.target.value })}
@@ -47,7 +61,12 @@ export function QualificationChecklist({
 
         <div className="grid grid-cols-2 gap-4">
           <Input
-            label="Mileage *"
+            label={
+              <>
+                Mileage
+                <RequiredMark />
+              </>
+            }
             placeholder="e.g. 62400"
             inputMode="numeric"
             autoComplete="off"
@@ -55,7 +74,12 @@ export function QualificationChecklist({
             onChange={(e) => onChange({ mileage: sanitizeMileage(e.target.value) })}
           />
           <Input
-            label="State *"
+            label={
+              <>
+                State
+                <RequiredMark />
+              </>
+            }
             placeholder="TX"
             autoComplete="address-level1"
             value={form.state}
@@ -65,7 +89,12 @@ export function QualificationChecklist({
 
         <Select
           id="warranty-status"
-          label="Warranty Status *"
+          label={
+            <>
+              Warranty Status
+              <RequiredMark />
+            </>
+          }
           value={form.warranty_status}
           onChange={(e) => onChange({ warranty_status: e.target.value })}
         >
@@ -92,7 +121,8 @@ export function QualificationChecklist({
               '&.Mui-focused': { color: tokens.ink },
             }}
           >
-            Consent / DNC confirmation *
+            Consent / DNC confirmation
+            <RequiredMark />
           </FormLabel>
           <RadioGroup
             row
