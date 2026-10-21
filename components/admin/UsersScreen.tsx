@@ -146,8 +146,13 @@ export function UsersScreen() {
 
   const isSelf = (user: User) => user.id === signedIn?.id
 
-  const teamNameById =
-    load.status === 'ready' ? new Map(load.teams.map((team) => [team.id, team.name])) : new Map()
+  const teamNameById = useMemo(
+    () =>
+      load.status === 'ready'
+        ? new Map(load.teams.map((team) => [team.id, team.name]))
+        : new Map<string, string>(),
+    [load],
+  )
 
   const sortedUsers = useMemo(() => {
     if (load.status !== 'ready') return []

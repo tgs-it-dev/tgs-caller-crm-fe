@@ -1,6 +1,7 @@
 'use client'
 
 import { FormEvent, useEffect, useState } from 'react'
+import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
@@ -168,13 +169,17 @@ export default function LoginPage() {
 
   return (
     <main className="relative flex h-screen items-center justify-end overflow-hidden bg-ink px-6 py-6 lg:px-16">
-      <img
-        src="/hero-section-login.jpg"
-        alt=""
-        aria-hidden
-        className="fixed inset-0 h-screen w-screen object-cover"
-        style={{ objectPosition: '50% 78%' }}
-      />
+      <div aria-hidden className="fixed inset-0">
+        <Image
+          src="/hero-section-login.jpg"
+          alt=""
+          fill
+          priority
+          sizes="100vw"
+          className="object-cover"
+          style={{ objectPosition: '50% 78%' }}
+        />
+      </div>
       <div aria-hidden className="fixed inset-0 bg-ink/30" />
 
       <div className="relative z-10 max-h-full w-full max-w-lg overflow-y-auto rounded-2xl bg-paper p-8 shadow-2xl sm:p-10">
