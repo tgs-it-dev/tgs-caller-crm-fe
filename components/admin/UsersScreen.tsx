@@ -1,13 +1,14 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import { Plus } from 'lucide-react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Plus, Search, UserCheck, UserCog, UserMinus, Users, X } from 'lucide-react'
 import { UserFormDialog } from '@/components/admin/UserFormDialog'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import { Alert } from '@/components/ui/Alert'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type DataColumn } from '@/components/ui/DataTable'
+import { Input } from '@/components/ui/Input'
 import { PageShell } from '@/components/ui/PageShell'
 import { Select } from '@/components/ui/Select'
 import { AuthError, isSuperAdmin, type Role } from '@/lib/auth'
@@ -30,10 +31,16 @@ type LoadState =
 /** The dialog's subject: a user to edit, null to add one, or closed. */
 type Editing = { user: User | null } | null
 
-/** Empty string = every team (no filter). */
-type TeamFilter = string
-
 type StaffRole = Exclude<Role, 'super_admin'>
+
+/** Empty string = every team / role / status (no filter). */
+type TeamFilter = string
+type RoleFilter = '' | StaffRole
+type StatusFilter = '' | 'active' | 'inactive'
+
+const STAFF_ROLES = ASSIGNABLE_ROLES.filter(
+  (role): role is StaffRole => role !== 'super_admin',
+)
 
 const ROLE_BADGE_TONE: Record<StaffRole, 'teal' | 'amber' | 'neutral'> = {
   administrator: 'amber',
@@ -107,6 +114,95 @@ function teamBandIndexById(users: User[]): Map<string, number> {
   return bands
 }
 
+function matchesSearch(user: User, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  return user.name.toLowerCase().includes(q) || user.email.toLowerCase().includes(q)
+}
+
+function matchesFilters(
+  user: User,
+  filters: { search: string; role: RoleFilter; status: StatusFilter },
+): boolean {
+  if (!matchesSearch(user, filters.search)) return false
+  if (filters.role && !user.roles.includes(filters.role)) return false
+  if (filters.status === 'active' && !user.active) return false
+  if (filters.status === 'inactive' && user.active) return false
+  return true
+}
+
+/** Roster counts for the team scope — used by the quick-filter strip. */
+function rosterFigures(users: User[]) {
+  return {
+    total: users.length,
+    active: users.filter((user) => user.active).length,
+    inactive: users.filter((user) => !user.active).length,
+    admins: users.filter((user) => user.roles.includes('administrator')).length,
+  }
+}
+
+/**
+ * One cell in the roster summary strip. Clicking filters the table; selected
+ * state is a soft navy wash + left rule — not a solid filled pill.
+ */
+function StatCell({
+  label,
+  count,
+  icon,
+  selected,
+  onClick,
+  showDivider,
+}: {
+  label: string
+  count: number
+  icon: ReactNode
+  selected: boolean
+  onClick: () => void
+  showDivider?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      className={[
+        'relative flex min-w-0 flex-1 flex-col gap-3 px-5 py-4 text-left transition-colors',
+        showDivider ? 'border-t-hairline border-slate sm:border-t-0 sm:border-l-hairline' : '',
+        selected ? 'bg-[rgba(31,58,95,0.06)]' : 'bg-transparent hover:bg-shop-floor/80',
+      ].join(' ')}
+    >
+      {selected && (
+        <span
+          aria-hidden
+          className="absolute inset-y-3 left-0 w-0.5 rounded-full bg-navy sm:inset-y-4"
+        />
+      )}
+      <span className="flex items-center gap-2 text-sm leading-[150%] text-body-text">
+        <span className="inline-flex h-4 w-4 shrink-0 text-slate [&_svg]:h-4 [&_svg]:w-4">
+          {icon}
+        </span>
+        {label}
+      </span>
+      <span className="text-[28px] font-semibold leading-none text-ink tabular-nums">{count}</span>
+    </button>
+  )
+}
+
+/** Removable active-filter pill under the toolbar (HubSpot filter bar). */
+function ActiveFilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onRemove}
+      className="inline-flex items-center gap-1.5 rounded-md border-hairline border-slate bg-shop-floor px-2.5 py-1 text-xs font-medium leading-[170%] text-ink hover:border-navy hover:text-navy"
+    >
+      {label}
+      <X className="h-3.5 w-3.5 shrink-0 text-slate" strokeWidth={2} aria-hidden />
+      <span className="sr-only">Remove filter</span>
+    </button>
+  )
+}
+
 export function UsersScreen() {
   const { user: signedIn, refresh: refreshSignedIn } = useCurrentUser()
   const [load, setLoad] = useState<LoadState>({ status: 'loading' })
@@ -114,6 +210,9 @@ export function UsersScreen() {
   // Bumped to read the list again — after adding someone, or changing one.
   const [reloads, setReloads] = useState(0)
   const [teamFilter, setTeamFilter] = useState<TeamFilter>('')
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>('')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('')
+  const [search, setSearch] = useState('')
   const saView = Boolean(signedIn && isSuperAdmin(signedIn.roles))
 
   useEffect(() => {
@@ -169,7 +268,57 @@ export function UsersScreen() {
     })
   }, [load, saView, teamNameById])
 
-  const teamBands = useMemo(() => teamBandIndexById(sortedUsers), [sortedUsers])
+  // Quick-filter counts stay on the team-scoped roster so picking a view never
+  // zeroes out the other chips the way filtered-table stats would.
+  const figures = useMemo(() => rosterFigures(sortedUsers), [sortedUsers])
+
+  const visibleUsers = useMemo(
+    () =>
+      sortedUsers.filter((user) =>
+        matchesFilters(user, { search, role: roleFilter, status: statusFilter }),
+      ),
+    [sortedUsers, search, roleFilter, statusFilter],
+  )
+
+  const filtersActive = Boolean(search.trim() || roleFilter || statusFilter || teamFilter)
+
+  function clearFilters() {
+    setSearch('')
+    setRoleFilter('')
+    setStatusFilter('')
+    setTeamFilter('')
+  }
+
+  /** HubSpot view chips: one dimension at a time for status / admin. */
+  function selectView(view: 'all' | 'active' | 'inactive' | 'admins') {
+    setSearch('')
+    if (view === 'all') {
+      setRoleFilter('')
+      setStatusFilter('')
+      return
+    }
+    if (view === 'admins') {
+      setRoleFilter('administrator')
+      setStatusFilter('')
+      return
+    }
+    setRoleFilter('')
+    setStatusFilter(view)
+  }
+
+  // null when role + status are combined in a way that isn't one of the views.
+  const activeView: 'all' | 'active' | 'inactive' | 'admins' | null =
+    roleFilter === 'administrator' && !statusFilter
+      ? 'admins'
+      : statusFilter === 'active' && !roleFilter
+        ? 'active'
+        : statusFilter === 'inactive' && !roleFilter
+          ? 'inactive'
+          : !roleFilter && !statusFilter
+            ? 'all'
+            : null
+
+  const teamBands = useMemo(() => teamBandIndexById(visibleUsers), [visibleUsers])
 
   const columns: DataColumn<User>[] = [
     { id: 'name', header: 'Name', render: (user) => user.name },
@@ -230,37 +379,35 @@ export function UsersScreen() {
     },
   ]
 
-  const tableActions = (
-    <div className="flex items-center gap-3">
-      {saView && load.status === 'ready' && (
-        <div className="w-[200px]">
-          <Select
-            label=""
-            size="small"
-            value={teamFilter}
-            onChange={(event) => setTeamFilter(event.target.value)}
-          >
-            <option value="">All teams</option>
-            {[...load.teams]
-              .sort((a, b) => a.name.localeCompare(b.name))
-              .map((team) => (
-                <option key={team.id} value={team.id}>
-                  {team.name}
-                </option>
-              ))}
-          </Select>
-        </div>
-      )}
-      <div className="w-[140px]">
-        <Button size="small" onClick={() => setEditing({ user: null })}>
-          <span className="flex items-center justify-center gap-2">
-            <Plus className="h-4 w-4" strokeWidth={2} aria-hidden />
-            Add User
-          </span>
-        </Button>
-      </div>
-    </div>
-  )
+  const activeFilterChips: { key: string; label: string; clear: () => void }[] = []
+  if (roleFilter) {
+    activeFilterChips.push({
+      key: 'role',
+      label: `Role: ${roleLabel(roleFilter)}`,
+      clear: () => setRoleFilter(''),
+    })
+  }
+  if (statusFilter) {
+    activeFilterChips.push({
+      key: 'status',
+      label: `Status: ${statusFilter === 'active' ? 'Active' : 'Inactive'}`,
+      clear: () => setStatusFilter(''),
+    })
+  }
+  if (teamFilter && load.status === 'ready') {
+    activeFilterChips.push({
+      key: 'team',
+      label: `Team: ${teamNameById.get(teamFilter) ?? 'Unknown'}`,
+      clear: () => setTeamFilter(''),
+    })
+  }
+  if (search.trim()) {
+    activeFilterChips.push({
+      key: 'search',
+      label: `Search: ${search.trim()}`,
+      clear: () => setSearch(''),
+    })
+  }
 
   return (
     <PageShell title="Users">
@@ -273,17 +420,166 @@ export function UsersScreen() {
       {load.status === 'error' && <Alert>{load.message}</Alert>}
 
       {load.status === 'ready' && (
-        <DataTable
-          key={teamFilter}
-          title="All Users"
-          ariaLabel="All users"
-          rows={sortedUsers}
-          columns={columns}
-          getRowId={(user) => user.id}
-          emptyMessage={teamFilter ? 'No users on this team.' : 'No users yet.'}
-          pageSize={10}
-          actions={tableActions}
-        />
+        <div className="flex flex-1 flex-col gap-5">
+          {/* Single summary strip — four metrics, one card (CRM index pattern). */}
+          <div
+            className="overflow-hidden rounded-xl border-hairline border-slate bg-white"
+            role="toolbar"
+            aria-label="User views"
+          >
+            <div className="flex flex-col sm:flex-row">
+              <StatCell
+                label="Total users"
+                count={figures.total}
+                icon={<Users strokeWidth={2} aria-hidden />}
+                selected={activeView === 'all'}
+                onClick={() => selectView('all')}
+              />
+              <StatCell
+                label="Active"
+                count={figures.active}
+                icon={<UserCheck strokeWidth={2} aria-hidden />}
+                selected={activeView === 'active'}
+                onClick={() => selectView('active')}
+                showDivider
+              />
+              <StatCell
+                label="Inactive"
+                count={figures.inactive}
+                icon={<UserMinus strokeWidth={2} aria-hidden />}
+                selected={activeView === 'inactive'}
+                onClick={() => selectView('inactive')}
+                showDivider
+              />
+              <StatCell
+                label="Team admins"
+                count={figures.admins}
+                icon={<UserCog strokeWidth={2} aria-hidden />}
+                selected={activeView === 'admins'}
+                onClick={() => selectView('admins')}
+                showDivider
+              />
+            </div>
+          </div>
+
+          <DataTable
+            // Remount when discrete filters change so paging resets. Search is
+            // left out — putting it in the key remounted the field each keystroke.
+            key={`${teamFilter}|${roleFilter}|${statusFilter}`}
+            title="All Users"
+            ariaLabel="All users"
+            rows={visibleUsers}
+            columns={columns}
+            getRowId={(user) => user.id}
+            emptyMessage={
+              filtersActive ? 'No users match these filters.' : 'No users yet.'
+            }
+            pageSize={10}
+            actions={
+              <div className="w-[140px]">
+                <Button size="small" onClick={() => setEditing({ user: null })}>
+                  <span className="flex items-center justify-center gap-2">
+                    <Plus className="h-4 w-4" strokeWidth={2} aria-hidden />
+                    Add User
+                  </span>
+                </Button>
+              </div>
+            }
+            toolbar={
+              <div className="flex flex-col gap-3">
+                {/* Search leads; property filters sit to the right — CRM index toolbar. */}
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                  <div className="min-w-0 flex-1">
+                    <Input
+                      size="small"
+                      aria-label="Search by name or email"
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      placeholder="Search by name or email"
+                      autoComplete="off"
+                      startAdornment={
+                        <Search className="h-4 w-4 text-slate" strokeWidth={2} aria-hidden />
+                      }
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="w-[148px]">
+                      <Select
+                        size="small"
+                        value={roleFilter}
+                        aria-label="Filter by role"
+                        onChange={(event) => setRoleFilter(event.target.value as RoleFilter)}
+                      >
+                        <option value="">All roles</option>
+                        {STAFF_ROLES.map((role) => (
+                          <option key={role} value={role}>
+                            {roleLabel(role)}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                    <div className="w-[140px]">
+                      <Select
+                        size="small"
+                        value={statusFilter}
+                        aria-label="Filter by status"
+                        onChange={(event) =>
+                          setStatusFilter(event.target.value as StatusFilter)
+                        }
+                      >
+                        <option value="">All statuses</option>
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                      </Select>
+                    </div>
+                    {saView && (
+                      <div className="w-[168px]">
+                        <Select
+                          size="small"
+                          value={teamFilter}
+                          aria-label="Filter by team"
+                          onChange={(event) => setTeamFilter(event.target.value)}
+                        >
+                          <option value="">All teams</option>
+                          {[...load.teams]
+                            .sort((a, b) => a.name.localeCompare(b.name))
+                            .map((team) => (
+                              <option key={team.id} value={team.id}>
+                                {team.name}
+                              </option>
+                            ))}
+                        </Select>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {filtersActive && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {activeFilterChips.map((chip) => (
+                      <ActiveFilterChip
+                        key={chip.key}
+                        label={chip.label}
+                        onRemove={chip.clear}
+                      />
+                    ))}
+                    <span className="text-xs tabular-nums text-slate">
+                      {visibleUsers.length}{' '}
+                      {visibleUsers.length === 1 ? 'result' : 'results'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={clearFilters}
+                      className="ml-auto text-xs font-medium text-navy hover:underline"
+                    >
+                      Clear all
+                    </button>
+                  </div>
+                )}
+              </div>
+            }
+          />
+        </div>
       )}
 
       {editing && signedIn && load.status === 'ready' && (
