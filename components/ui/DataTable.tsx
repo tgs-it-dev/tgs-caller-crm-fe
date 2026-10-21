@@ -61,6 +61,11 @@ type DataTableProps<T> = {
    * that already owns the heading.
    */
   embedded?: boolean
+  /**
+   * Optional row chrome — e.g. even/odd team banding. `index` is within the
+   * visible page.
+   */
+  getRowSx?: (row: T, index: number) => object | undefined
 }
 
 /**
@@ -83,6 +88,7 @@ export function DataTable<T>({
   renderExpanded,
   minWidth,
   embedded = false,
+  getRowSx,
 }: DataTableProps<T>) {
   const [page, setPage] = useState(1)
 
@@ -145,13 +151,13 @@ export function DataTable<T>({
               </TableRow>
             </TableHead>
             <TableBody>
-              {visible.map((row) => {
+              {visible.map((row, index) => {
                 const rowId = getRowId(row)
                 const expanded = renderExpanded && rowId === expandedRowId
 
                 return (
                   <Fragment key={rowId}>
-                    <TableRow>
+                    <TableRow sx={getRowSx?.(row, index)}>
                       {columns.map((col) => (
                         <TableCell key={col.id} align={col.align}>
                           {col.render(row)}

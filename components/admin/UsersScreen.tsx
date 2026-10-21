@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { UserFormDialog } from '@/components/admin/UserFormDialog'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
@@ -10,11 +10,17 @@ import { Button } from '@/components/ui/Button'
 import { DataTable, type DataColumn } from '@/components/ui/DataTable'
 import { PageShell } from '@/components/ui/PageShell'
 import { Select } from '@/components/ui/Select'
-import { AuthError, isSuperAdmin } from '@/lib/auth'
+import { AuthError, isSuperAdmin, type Role } from '@/lib/auth'
 import { waitForMocking } from '@/lib/mockReady'
 import { withSession } from '@/lib/session'
 import { listTeams, type Team } from '@/lib/teams'
-import { listUsers, rolesLabel, type User } from '@/lib/users'
+import { tokens } from '@/lib/theme'
+import {
+  ASSIGNABLE_ROLES,
+  listUsers,
+  roleLabel,
+  type User,
+} from '@/lib/users'
 
 type LoadState =
   | { status: 'loading' }
@@ -24,8 +30,38 @@ type LoadState =
 /** The dialog's subject: a user to edit, null to add one, or closed. */
 type Editing = { user: User | null } | null
 
-/** Empty string = every team (no `team_id` on the list call). */
+/** Empty string = every team (no filter). */
 type TeamFilter = string
+
+type StaffRole = Exclude<Role, 'super_admin'>
+
+const ROLE_BADGE_TONE: Record<StaffRole, 'teal' | 'amber' | 'neutral'> = {
+  administrator: 'amber',
+  closer: 'teal',
+  fronter: 'neutral',
+}
+
+/** Rotating badge colours so each team is visually distinct in the Team column. */
+const TEAM_BADGE_COLORS = [
+  { fg: tokens.navy, bg: 'rgba(31, 58, 95, 0.12)' },
+  { fg: tokens.status.blue, bg: 'rgba(62, 124, 177, 0.14)' },
+  { fg: tokens.status.green, bg: 'rgba(79, 138, 91, 0.14)' },
+  { fg: tokens.status.gold, bg: 'rgba(201, 154, 62, 0.16)' },
+  { fg: '#7A5FA3', bg: 'rgba(122, 95, 163, 0.14)' },
+  { fg: tokens.status.red, bg: 'rgba(181, 80, 74, 0.12)' },
+] as const
+
+function TeamBadge({ name, band }: { name: string; band: number }) {
+  const color = TEAM_BADGE_COLORS[band % TEAM_BADGE_COLORS.length]
+  return (
+    <span
+      className="inline-flex max-w-full truncate rounded-md px-2 py-0.5 text-xs font-semibold leading-[170%]"
+      style={{ color: color.fg, backgroundColor: color.bg }}
+    >
+      {name}
+    </span>
+  )
+}
 
 function messageFor(err: unknown): string {
   if (err instanceof AuthError && err.status === 403) {
@@ -35,6 +71,40 @@ function messageFor(err: unknown): string {
     return 'Your session has ended. Please sign in again.'
   }
   return 'Could not load the user list.'
+}
+
+function staffRoles(roles: Role[]): StaffRole[] {
+  return ASSIGNABLE_ROLES.filter(
+    (role): role is StaffRole => role !== 'super_admin' && roles.includes(role)
+  )
+}
+
+function RoleBadges({ roles }: { roles: Role[] }) {
+  const shown = staffRoles(roles)
+  if (shown.length === 0) return <span className="text-slate">—</span>
+  return (
+    <span className="flex flex-wrap gap-1.5">
+      {shown.map((role) => (
+        <Badge key={role} tone={ROLE_BADGE_TONE[role]}>
+          {roleLabel(role)}
+        </Badge>
+      ))}
+    </span>
+  )
+}
+
+/** Stable colour index per team key, in first-seen order after sort. */
+function teamBandIndexById(users: User[]): Map<string, number> {
+  const bands = new Map<string, number>()
+  let next = 0
+  for (const user of users) {
+    const key = user.team_id ?? '__unassigned__'
+    if (!bands.has(key)) {
+      bands.set(key, next)
+      next += 1
+    }
+  }
+  return bands
 }
 
 export function UsersScreen() {
@@ -66,7 +136,6 @@ export function UsersScreen() {
         if (!cancelled) setLoad({ status: 'ready', users, teams })
       })
       .catch((err) => {
-        // The list goes with the access that allowed it.
         if (!cancelled) setLoad({ status: 'error', message: messageFor(err) })
       })
 
@@ -80,37 +149,51 @@ export function UsersScreen() {
   const teamNameById =
     load.status === 'ready' ? new Map(load.teams.map((team) => [team.id, team.name])) : new Map()
 
+  const sortedUsers = useMemo(() => {
+    if (load.status !== 'ready') return []
+    const rows = load.users
+    if (!saView) {
+      return [...rows].sort((a, b) => a.name.localeCompare(b.name))
+    }
+    return [...rows].sort((a, b) => {
+      const aName = a.team_id ? (teamNameById.get(a.team_id) ?? '') : 'zzz'
+      const bName = b.team_id ? (teamNameById.get(b.team_id) ?? '') : 'zzz'
+      const byTeam = aName.localeCompare(bName)
+      if (byTeam !== 0) return byTeam
+      return a.name.localeCompare(b.name)
+    })
+  }, [load, saView, teamNameById])
+
+  const teamBands = useMemo(() => teamBandIndexById(sortedUsers), [sortedUsers])
+
   const columns: DataColumn<User>[] = [
     { id: 'name', header: 'Name', render: (user) => user.name },
     {
       id: 'email',
       header: 'Email',
-      // The table lays its columns out at a fixed width, and an address is as
-      // long as someone made it: wrap rather than run into the next column.
       render: (user) => <span className="break-all">{user.email}</span>,
     },
-    { id: 'roles', header: 'Role', render: (user) => rolesLabel(user.roles) },
+    {
+      id: 'roles',
+      header: 'Role',
+      render: (user) => <RoleBadges roles={user.roles} />,
+    },
     ...(saView
       ? [
           {
             id: 'team_name',
             header: 'Team',
-            render: (user: User) =>
-              user.team_id ? (
-                (teamNameById.get(user.team_id) ?? 'Unknown team')
-              ) : (
-                <span className="text-slate">—</span>
-              ),
-          } satisfies DataColumn<User>,
-          {
-            id: 'team_id',
-            header: 'Team ID',
-            render: (user: User) =>
-              user.team_id ? (
-                <span className="break-all font-mono text-sm">{user.team_id}</span>
-              ) : (
-                <span className="text-slate">—</span>
-              ),
+            render: (user: User) => {
+              if (!user.team_id) {
+                return <span className="text-slate">—</span>
+              }
+              return (
+                <TeamBadge
+                  name={teamNameById.get(user.team_id) ?? 'Unknown team'}
+                  band={teamBands.get(user.team_id) ?? 0}
+                />
+              )
+            },
           } satisfies DataColumn<User>,
         ]
       : []),
@@ -186,9 +269,10 @@ export function UsersScreen() {
 
       {load.status === 'ready' && (
         <DataTable
+          key={teamFilter}
           title="All Users"
           ariaLabel="All users"
-          rows={load.users}
+          rows={sortedUsers}
           columns={columns}
           getRowId={(user) => user.id}
           emptyMessage={teamFilter ? 'No users on this team.' : 'No users yet.'}
