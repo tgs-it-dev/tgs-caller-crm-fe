@@ -203,6 +203,10 @@ export const theme = createTheme({
           '&.MuiInputBase-multiline': {
             padding: 0,
           },
+          '&.MuiInputBase-adornedStart': {
+            paddingLeft: 12,
+            '& .MuiInputBase-input': { paddingLeft: 8 },
+          },
           '&.MuiInputBase-adornedEnd': {
             paddingRight: 12,
             '& .MuiInputBase-input': { paddingRight: 8 },

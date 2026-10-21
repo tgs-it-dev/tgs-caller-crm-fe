@@ -40,6 +40,11 @@ type DataTableProps<T> = {
   emptyMessage: string
   /** Controls for the whole list, sat opposite the title — e.g. "Add User". */
   actions?: ReactNode
+  /**
+   * Full-width strip under the title row (filters, search). Keeps list chrome
+   * inside the card instead of floating on the page backdrop.
+   */
+  toolbar?: ReactNode
   /** `solid` = My Stats / closer cards; `live` = dashed Queue outline. */
   variant?: 'solid' | 'live'
   pageSize?: number
@@ -81,6 +86,7 @@ export function DataTable<T>({
   getRowId,
   emptyMessage,
   actions,
+  toolbar,
   variant = 'solid',
   pageSize = DEFAULT_PAGE_SIZE,
   paging,
@@ -215,6 +221,7 @@ export function DataTable<T>({
         <h2 className="text-lg font-medium leading-[120%] text-ink">{title}</h2>
         {actions}
       </div>
+      {toolbar ? <div className="mb-5 shrink-0">{toolbar}</div> : null}
       {body}
     </div>
   )

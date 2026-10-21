@@ -1,6 +1,7 @@
 'use client'
 
 import { Suspense, useMemo, useState, type ComponentType, type SVGProps } from 'react'
+import Image from 'next/image'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import MuiMenu from '@mui/material/Menu'
@@ -384,10 +385,12 @@ function SidebarInner() {
               collapsed ? '' : 'order-last'
             }`}
           >
-            <img
+            <Image
               src="/elements/collapse.png"
               alt=""
               aria-hidden
+              width={16}
+              height={16}
               className={`h-4 w-4 transition-transform ${collapsed ? 'rotate-180' : ''}`}
             />
           </button>
