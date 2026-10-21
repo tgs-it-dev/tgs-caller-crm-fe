@@ -490,7 +490,7 @@ export function UsersScreen() {
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
                   <div className="min-w-0 flex-1">
                     <Input
-                      size="small"
+                      // size="small"
                       aria-label="Search by name or email"
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
