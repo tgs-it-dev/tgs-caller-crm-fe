@@ -142,23 +142,21 @@ function rosterFigures(users: User[]) {
 }
 
 /**
- * One cell in the roster summary strip. Clicking filters the table; selected
- * state is a soft navy wash + left rule — not a solid filled pill.
+ * Metric card matching LiveCounters / StatTile: white tile, icon+label on
+ * top, figure at the foot. Clicking filters the list; selected = navy border.
  */
-function StatCell({
+function StatCard({
   label,
   count,
   icon,
   selected,
   onClick,
-  showDivider,
 }: {
   label: string
   count: number
   icon: ReactNode
   selected: boolean
   onClick: () => void
-  showDivider?: boolean
 }) {
   return (
     <button
@@ -166,24 +164,19 @@ function StatCell({
       onClick={onClick}
       aria-pressed={selected}
       className={[
-        'relative flex min-w-0 flex-1 flex-col gap-3 px-5 py-4 text-left transition-colors',
-        showDivider ? 'border-t-hairline border-slate sm:border-t-0 sm:border-l-hairline' : '',
-        selected ? 'bg-[rgba(31,58,95,0.06)]' : 'bg-transparent hover:bg-shop-floor/80',
+        'flex flex-col justify-between rounded-xl border-hairline bg-white p-5 text-left transition-colors',
+        selected
+          ? 'border-navy shadow-[0_0_0_1px_#1F3A5F]'
+          : 'border-slate hover:border-navy/40',
       ].join(' ')}
     >
-      {selected && (
-        <span
-          aria-hidden
-          className="absolute inset-y-3 left-0 w-0.5 rounded-full bg-navy sm:inset-y-4"
-        />
-      )}
-      <span className="flex items-center gap-2 text-sm leading-[150%] text-body-text">
-        <span className="inline-flex h-4 w-4 shrink-0 text-slate [&_svg]:h-4 [&_svg]:w-4">
+      <p className="flex items-center gap-2 text-sm leading-[120%] text-body-text">
+        <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center [&_svg]:h-5 [&_svg]:w-5">
           {icon}
         </span>
         {label}
-      </span>
-      <span className="text-[28px] font-semibold leading-none text-ink tabular-nums">{count}</span>
+      </p>
+      <p className="mt-6 text-[32px] font-semibold leading-none text-ink tabular-nums">{count}</p>
     </button>
   )
 }
@@ -421,45 +414,51 @@ export function UsersScreen() {
 
       {load.status === 'ready' && (
         <div className="flex flex-1 flex-col gap-5">
-          {/* Single summary strip — four metrics, one card (CRM index pattern). */}
           <div
-            className="overflow-hidden rounded-xl border-hairline border-slate bg-white"
+            className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4"
             role="toolbar"
             aria-label="User views"
           >
-            <div className="flex flex-col sm:flex-row">
-              <StatCell
-                label="Total users"
-                count={figures.total}
-                icon={<Users strokeWidth={2} aria-hidden />}
-                selected={activeView === 'all'}
-                onClick={() => selectView('all')}
-              />
-              <StatCell
-                label="Active"
-                count={figures.active}
-                icon={<UserCheck strokeWidth={2} aria-hidden />}
-                selected={activeView === 'active'}
-                onClick={() => selectView('active')}
-                showDivider
-              />
-              <StatCell
-                label="Inactive"
-                count={figures.inactive}
-                icon={<UserMinus strokeWidth={2} aria-hidden />}
-                selected={activeView === 'inactive'}
-                onClick={() => selectView('inactive')}
-                showDivider
-              />
-              <StatCell
-                label="Team admins"
-                count={figures.admins}
-                icon={<UserCog strokeWidth={2} aria-hidden />}
-                selected={activeView === 'admins'}
-                onClick={() => selectView('admins')}
-                showDivider
-              />
-            </div>
+            <StatCard
+              label="Total users"
+              count={figures.total}
+              icon={<Users color={tokens.slate} strokeWidth={2} aria-hidden />}
+              selected={activeView === 'all'}
+              onClick={() => selectView('all')}
+            />
+            <StatCard
+              label="Active"
+              count={figures.active}
+              icon={
+                <UserCheck
+                  color={figures.active > 0 ? tokens.status.bayGreen : tokens.slate}
+                  strokeWidth={2}
+                  aria-hidden
+                />
+              }
+              selected={activeView === 'active'}
+              onClick={() => selectView('active')}
+            />
+            <StatCard
+              label="Inactive"
+              count={figures.inactive}
+              icon={
+                <UserMinus
+                  color={figures.inactive > 0 ? tokens.status.gold : tokens.slate}
+                  strokeWidth={2}
+                  aria-hidden
+                />
+              }
+              selected={activeView === 'inactive'}
+              onClick={() => selectView('inactive')}
+            />
+            <StatCard
+              label="Team admins"
+              count={figures.admins}
+              icon={<UserCog color={tokens.slate} strokeWidth={2} aria-hidden />}
+              selected={activeView === 'admins'}
+              onClick={() => selectView('admins')}
+            />
           </div>
 
           <DataTable
