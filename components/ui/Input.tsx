@@ -5,7 +5,7 @@ import TextField from '@mui/material/TextField'
 import InputAdornment from '@mui/material/InputAdornment'
 
 type InputProps = InputHTMLAttributes<HTMLInputElement> & {
-  label: string
+  label: ReactNode
   endAdornment?: ReactNode
   /** Marks the field at fault — pair it with `helperText` saying what to fix. */
   error?: boolean

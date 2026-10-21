@@ -3,6 +3,7 @@
 import {
   ChangeEventHandler,
   FocusEventHandler,
+  ReactNode,
   SelectHTMLAttributes,
   forwardRef,
   useId,
@@ -12,7 +13,7 @@ import TextField from '@mui/material/TextField'
 // `size` is taken from the native attribute, which counts visible rows — this
 // one is the control's height, matching Button's prop of the same name.
 type SelectProps = Omit<SelectHTMLAttributes<HTMLSelectElement>, 'size'> & {
-  label?: string
+  label?: ReactNode
   /** `small` matches the `small` Button, for controls sat in a card header. */
   size?: 'default' | 'small'
 }
