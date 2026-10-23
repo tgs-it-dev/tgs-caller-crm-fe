@@ -12,9 +12,18 @@ export type InteractionStatus = 'active' | 'wrap_up' | 'closed'
 
 export type LeadSummary = {
   id: string
+  phone_no: string
+  /** @deprecated Prefer `phone_no` — kept for older call sites during the rename. */
   phone_normalized: string
   source: LeadSource
   created_at: string
+  first_name?: string | null
+  last_name?: string | null
+  vehicle_make?: string | null
+  vehicle_year?: number | null
+  vehicle_model?: string | null
+  win?: string | null
+  license_plate?: string | null
 }
 
 /**
@@ -42,9 +51,17 @@ export class InteractionNotFoundError extends Error {
 function toLeadSummary(lead: LeadResponse): LeadSummary {
   return {
     id: lead.id,
-    phone_normalized: lead.phone_normalized,
+    phone_no: lead.phone_no,
+    phone_normalized: lead.phone_no,
     source: lead.source,
     created_at: lead.created_at,
+    first_name: lead.first_name,
+    last_name: lead.last_name,
+    vehicle_make: lead.vehicle_make,
+    vehicle_year: lead.vehicle_year,
+    vehicle_model: lead.vehicle_model,
+    win: lead.win,
+    license_plate: lead.license_plate,
   }
 }
 

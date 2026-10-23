@@ -22,6 +22,9 @@ import {
   type InteractionDetail,
 } from '@/lib/interactions'
 import { waitForMocking } from '@/lib/mockReady'
+import { AuthError } from '@/lib/auth'
+import { takeLeadFormDraft } from '@/lib/leadFormDraft'
+import { leadVehicleLine } from '@/lib/leads'
 import {
   DNC_LABEL,
   EMPTY_ACTIVE_CALL_FORM,
@@ -37,8 +40,6 @@ import {
   submitQualification,
   type ActiveCallForm,
 } from '@/lib/qualification'
-import { AuthError } from '@/lib/auth'
-import { acceptFronterQueue, leaveFronterQueue } from '@/lib/queue'
 import { withSession } from '@/lib/session'
 import { createTransfer, type AvailableCloserItem } from '@/lib/transfers'
 
@@ -98,30 +99,11 @@ function ActiveCallBody({ interactionId }: { interactionId: string }) {
     if (!user) return
 
     waitForMocking()
-      .then(() =>
-        withSession(async (token) => {
-          // Claim the dialer-queue row when opening Active Call (deep link /
-          // Open call). Already claimed — including by us — or no open row is
-          // fine; exclusivity is enforced on accept, not on GET interaction.
-          try {
-            await acceptFronterQueue(
-              interactionId,
-              { fronter_user_id: user.id },
-              token
-            )
-          } catch (err) {
-            if (
-              !(err instanceof AuthError) ||
-              (err.code !== 'queue.not_answerable' && err.status !== 404)
-            ) {
-              throw err
-            }
-          }
-          return loadActiveCallWorkspace(interactionId, token)
-        })
-      )
+      .then(() => withSession((token) => loadActiveCallWorkspace(interactionId, token)))
       .then(({ interaction, qualification, dispositions, capturedDispositions, closers }) => {
         if (cancelled) return
+
+        const draft = takeLeadFormDraft(interactionId)
 
         if (qualification) {
           setForm(
@@ -134,10 +116,16 @@ function ActiveCallBody({ interactionId }: { interactionId: string }) {
           setForm(
             activeCallFormFromQualification(null, interaction.qualification.consent_dnc)
           )
+        } else {
+          const vehicle = leadVehicleLine(interaction.lead)
+          if (vehicle) {
+            setForm((prev) => ({ ...prev, vehicle }))
+          }
         }
 
         const latest = latestFronterDisposition(capturedDispositions)
         if (latest) setDispositionId(latest.disposition_id)
+        else if (draft?.disposition_id) setDispositionId(draft.disposition_id)
 
         setLoad({ status: 'ready', interaction, dispositions, closers })
       })
@@ -189,9 +177,6 @@ function ActiveCallBody({ interactionId }: { interactionId: string }) {
     setTransferError(null)
     try {
       await recordOutcome(disposition.id)
-      // Tolerates a 404: an interaction opened by direct link may have no open
-      // row, and the outcome is saved by this point either way.
-      await withSession((token) => leaveFronterQueue(interactionId, token))
       setEnded(disposition.label)
     } catch (err) {
       setTransferError(

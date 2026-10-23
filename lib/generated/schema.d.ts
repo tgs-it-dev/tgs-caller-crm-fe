@@ -645,18 +645,20 @@ export interface paths {
         put?: never;
         /**
          * Create a lead
-         * @description Create a lead, or return the one that already owns this number.
+         * @description Create a lead from the fronter form, or return the existing phone match.
          *
-         *     The phone may be sent in any format; it is matched and stored in E.164.
-         *     Responds 201 in both cases — compare `created_at` to tell a new lead from a
-         *     returning caller.
+         *     Body: ``phone_no``, first/last name, vehicle make/year/model, and WIN
+         *     and/or license plate. ``source`` is always ``manual``. ``team_id`` comes
+         *     from the caller's ``user_teams`` row (not the body). ``fronter_id`` is the
+         *     caller.
          *
-         *     A newly created lead also opens a fronter-queue opportunity (Interaction +
-         *     DialerQueueEntry) so that team's fronters can see it without a dialer event.
-         *     The queue row's campaign name comes from the team's campaign catalogue.
-         *     Re-posting an existing number does not enqueue again.
+         *     On insert: mints one ``interaction`` and returns its id. Disposition is
+         *     separate — Callback → fronter queue; Qualified (+ transfer) → closer queue.
          *
-         *     Team Admins create on their own team; Super Admins must pass ``team_id``.
+         *     ``phone_no`` may be any common format; it is matched and stored as E.164.
+         *     Responds 201 in both cases — compare ``created_at`` to tell a new lead from
+         *     a returning caller. Form fields are stored only on insert; use PATCH to
+         *     update.
          */
         post: operations["create_lead_leads_post"];
         delete?: never;
@@ -680,13 +682,12 @@ export interface paths {
          *
          *     ``multipart/form-data`` with ``file`` plus optional ``team_id`` /
          *     ``campaign_id`` (same scoping as single create). Source is always
-         *     ``manual``.
+         *     ``manual``. Bulk does not set fronter form fields.
          *
          *     **File-level** refusals (before any row is written): empty file
          *     (``lead.bulk_empty``), missing/wrong header (``lead.bulk_bad_header``),
          *     non-UTF-8 body (``lead.bulk_invalid_encoding``), too many data rows or
-         *     bytes (``lead.bulk_too_large``), and the usual team / campaign codes from
-         *     Phase 2.
+         *     bytes (``lead.bulk_too_large``), and the usual team / campaign codes.
          *
          *     **Row-level** outcomes are always returned in the 200 body
          *     (``created`` | ``existing`` | ``suppressed`` | ``invalid`` |
@@ -735,7 +736,11 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update fronter form fields on a lead
+         * @description Overwrite personal, vehicle, and WIN / license-plate fields.
+         */
+        patch: operations["patch_lead_leads__lead_id__patch"];
         trace?: never;
     };
     "/me/stats/today": {
@@ -820,50 +825,6 @@ export interface paths {
         get: operations["get_queue_queue_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/queue/fronter/{interaction_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * Update or leave a fronter dialer-queue entry
-         * @description UI/demo control before VICIdial drives status and leave.
-         *
-         *     ``left: true`` sets ``left_at`` so the row drops off GET /queue?role=fronter.
-         *     Empty body is rejected by the request schema (422). Accept uses
-         *     ``POST /queue/fronter/{interaction_id}/accept``.
-         */
-        patch: operations["patch_fronter_queue_entry_queue_fronter__interaction_id__patch"];
-        trace?: never;
-    };
-    "/queue/fronter/{interaction_id}/accept": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Fronter accepts a dialer-queue lead
-         * @description Claim the open row so other fronters no longer see it on their queue.
-         */
-        post: operations["accept_fronter_queue_entry_queue_fronter__interaction_id__accept_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1183,17 +1144,6 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /**
-         * AcceptFronterQueueRequest
-         * @description Body for POST /queue/fronter/{interaction_id}/accept.
-         */
-        AcceptFronterQueueRequest: {
-            /**
-             * Fronter User Id
-             * Format: uuid
-             */
-            fronter_user_id: string;
-        };
         /** AcceptInvitationRequest */
         AcceptInvitationRequest: {
             /** Password */
@@ -1282,12 +1232,12 @@ export interface components {
         Body_bulk_upload_leads_leads_bulk_post: {
             /**
              * Campaign Id
-             * @description Campaign whose name labels fronter queue rows for newly created leads. Same resolution rules as POST /leads.
+             * @description Optional campaign check when any eligible phone is new on the team (same resolution rules as before dialer-queue removal).
              */
             campaign_id?: string | null;
             /**
              * File
-             * @description CSV file. Required header column: phone. Optional: name (queue label only). At most 1000 data rows and 1048576 bytes.
+             * @description CSV file. Required header column: phone. Optional: name (ignored for storage; form fields are not mapped in bulk). At most 1000 data rows and 1048576 bytes.
              */
             file: string;
             /**
@@ -1536,8 +1486,11 @@ export interface components {
         DuplicatePhoneResponse: {
             /** Lead Count */
             lead_count: number;
-            /** Phone Normalized */
-            phone_normalized: string;
+            /**
+             * Phone No
+             * @description Shared phone in E.164.
+             */
+            phone_no: string;
             /**
              * Suppressed
              * @description Whether this number is on the company-wide DNC / suppression list.
@@ -1589,38 +1542,40 @@ export interface components {
             email: string;
         };
         /**
-         * FronterQueueItem
-         * @description Wire shape for an open fronter-queue row.
+         * FronterCallbackItem
+         * @description Wire shape for a fronter callback-list row.
          *
-         *     Also the PATCH / accept response: the post-update snapshot. Leaving the
-         *     queue does not add a left_at field here — the client sent ``left: true``,
-         *     and a later GET omits the row because ``left_at IS NULL`` filters it out.
+         *     Current fronter-stage disposition is ``Callback Requested``. Display name
+         *     comes from the lead's first/last name (phone when those are unset).
          */
-        FronterQueueItem: {
-            /** Campaign Name */
-            campaign_name: string;
+        FronterCallbackItem: {
             /**
-             * Fronter User Id
-             * @description Null until accepted; then the fronter who claimed the row
+             * Actor User Id
+             * Format: uuid
              */
-            fronter_user_id?: string | null;
-            /** Id */
+            actor_user_id: string;
+            /** Disposition Label */
+            disposition_label: string;
+            /**
+             * Dispositioned At
+             * Format: date-time
+             */
+            dispositioned_at: string;
+            /**
+             * Id
+             * Format: uuid
+             * @description Interaction id
+             */
             id: string;
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
             /** Lead Name */
             lead_name: string;
             /** Lead Phone */
             lead_phone: string;
-            /**
-             * Queued At
-             * Format: date-time
-             */
-            queued_at: string;
-            /**
-             * Status
-             * @description ringing | waiting | accepted
-             * @enum {string}
-             */
-            status: "ringing" | "waiting" | "accepted";
         };
         /** FunnelCounts */
         FunnelCounts: {
@@ -2090,33 +2045,40 @@ export interface components {
              */
             failed: number;
         };
-        /** LeadCreateRequest */
+        /**
+         * LeadCreateRequest
+         * @description Fronter (or admin) lead-form create body.
+         *
+         *     Required: personal + vehicle + WIN and/or license plate + ``phone_no``.
+         *     ``source`` is always ``manual`` (set by the endpoint). ``fronter_id`` and
+         *     ``team_id`` come from the authenticated user (``user_teams``) — not the body.
+         */
         LeadCreateRequest: {
+            /** First Name */
+            first_name: string;
+            /** Last Name */
+            last_name: string;
             /**
-             * Campaign Id
-             * @description Campaign whose name labels the fronter queue row. Must be active and linked to the lead's team. When omitted, the team's sole active campaign is used; if the team has none, a source-based label is used.
+             * License Plate
+             * @description License plate. Required when win is omitted.
              */
-            campaign_id?: string | null;
+            license_plate?: string | null;
             /**
-             * Name
-             * @description Optional display name for the fronter queue. When omitted, the normalized phone is used. Not stored on the lead row yet.
+             * Phone No
+             * @description Phone as entered; stored as E.164 in ``phone_no``.
              */
-            name?: string | null;
+            phone_no: string;
+            /** Vehicle Make */
+            vehicle_make: string;
+            /** Vehicle Model */
+            vehicle_model: string;
+            /** Vehicle Year */
+            vehicle_year: number;
             /**
-             * Phone
-             * @description Raw phone as received; the server normalizes it to E.164.
+             * Win
+             * @description WIN identifier. Required when license_plate is omitted.
              */
-            phone: string;
-            /**
-             * Source
-             * @enum {string}
-             */
-            source: "vicidial" | "ghl" | "manual";
-            /**
-             * Team Id
-             * @description Team the lead joins. A Super Admin must name one; a Team Admin may leave it out (their membership is used) and cannot name another.
-             */
-            team_id?: string | null;
+            win?: string | null;
         };
         /** LeadListResponse */
         LeadListResponse: {
@@ -2136,13 +2098,32 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** First Name */
+            first_name?: string | null;
+            /**
+             * Fronter Id
+             * @description Fronter (or form creator) who created the lead. Null for dialer/GHL ingest.
+             */
+            fronter_id?: string | null;
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Phone Normalized */
-            phone_normalized: string;
+            /**
+             * Interaction Id
+             * @description Interaction for this lead when known. Set on form create (new insert); on phone re-match, the latest interaction if one exists. Null for bulk/VICIdial rows that never opened an interaction. Use for ``POST /interactions/{id}/dispositions``.
+             */
+            interaction_id?: string | null;
+            /** Last Name */
+            last_name?: string | null;
+            /** License Plate */
+            license_plate?: string | null;
+            /**
+             * Phone No
+             * @description Lead phone in E.164.
+             */
+            phone_no: string;
             /**
              * Source
              * @enum {string}
@@ -2153,6 +2134,40 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+            /** Vehicle Make */
+            vehicle_make?: string | null;
+            /** Vehicle Model */
+            vehicle_model?: string | null;
+            /** Vehicle Year */
+            vehicle_year?: number | null;
+            /** Win */
+            win?: string | null;
+        };
+        /**
+         * LeadUpdateRequest
+         * @description Full fronter-form update for an existing lead.
+         */
+        LeadUpdateRequest: {
+            /** First Name */
+            first_name: string;
+            /** Last Name */
+            last_name: string;
+            /**
+             * License Plate
+             * @description License plate. Required when win is omitted.
+             */
+            license_plate?: string | null;
+            /** Vehicle Make */
+            vehicle_make: string;
+            /** Vehicle Model */
+            vehicle_model: string;
+            /** Vehicle Year */
+            vehicle_year: number;
+            /**
+             * Win
+             * @description WIN identifier. Required when license_plate is omitted.
+             */
+            win?: string | null;
         };
         /** LiveStatusResponse */
         LiveStatusResponse: {
@@ -2543,27 +2558,6 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
-        };
-        /**
-         * UpdateFronterQueueEntryRequest
-         * @description Partial update for a fronter dialer-queue row (UI/demo before VICIdial).
-         *
-         *     At least one of ``status`` or ``left`` must be set. ``left`` is only
-         *     ``true`` (or omitted): ``false`` is rejected so "stay queued" is never
-         *     spelled as a no-op boolean. Accept uses its own route — status here stays
-         *     ``ringing`` | ``waiting``.
-         */
-        UpdateFronterQueueEntryRequest: {
-            /**
-             * Left
-             * @description true leaves the queue (sets left_at); omit to stay open
-             */
-            left?: true | null;
-            /**
-             * Status
-             * @description ringing | waiting
-             */
-            status?: ("ringing" | "waiting") | null;
         };
         /** UpdateUserRequest */
         UpdateUserRequest: {
@@ -4008,7 +4002,8 @@ export interface operations {
             query?: {
                 limit?: number;
                 offset?: number;
-                phone_normalized?: string | null;
+                /** @description Filter by phone (any format; matched as E.164) */
+                phone_no?: string | null;
                 /** @description A Super Admin names one team's leads, or leaves it out for every team; anyone else may only name their own team. */
                 team_id?: string | null;
             };
@@ -4212,6 +4207,50 @@ export interface operations {
             };
         };
     };
+    patch_lead_leads__lead_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     stats_today_me_stats_today_get: {
         parameters: {
             query?: {
@@ -4338,7 +4377,7 @@ export interface operations {
     get_queue_queue_get: {
         parameters: {
             query: {
-                /** @description Which queue to return: fronter (dialer) or closer (transfers) */
+                /** @description Which list to return: fronter (callback list) or closer (transfers) */
                 role: "fronter" | "closer";
                 /** @description Closer queue only. A Super Admin names one team's transfers, or leaves it out for every team; anyone else may only name their own team. */
                 team_id?: string | null;
@@ -4355,95 +4394,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["FronterQueueItem"][] | components["schemas"]["CloserQueueItem"][];
-                };
-            };
-            /** @description Client Error */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Server Error */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    patch_fronter_queue_entry_queue_fronter__interaction_id__patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                interaction_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateFronterQueueEntryRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FronterQueueItem"];
-                };
-            };
-            /** @description Client Error */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Server Error */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    accept_fronter_queue_entry_queue_fronter__interaction_id__accept_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                interaction_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AcceptFronterQueueRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FronterQueueItem"];
+                    "application/json": components["schemas"]["FronterCallbackItem"][] | components["schemas"]["CloserQueueItem"][];
                 };
             };
             /** @description Client Error */

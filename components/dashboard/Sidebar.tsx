@@ -238,16 +238,22 @@ function normalizePath(pathname: string): string {
 function deskNav(role: 'fronter' | 'closer', activeCallHref: string): NavItem[] {
   const base = BASE_PATH[role]
   const workspace = `${base}/workspace`
-  const queue = role === 'closer' ? `${base}/queue` : base
+  // Fronter home is lead create + callbacks (no dialer queue). Closer keeps /closer/queue.
+  const listHref = role === 'closer' ? `${base}/queue` : base
+  const listLabel = role === 'closer' ? 'Queue' : 'Leads'
+  // Kept for when Active Call returns to the nav (see commented item below).
+  void activeCallHref
+  void workspace
   return [
-    {
-      href: activeCallHref,
-      label: 'Active Call',
-      icon: PhoneIcon,
-      // A closer's Active Call is the desk itself; a fronter's is always a workspace.
-      isActive: (p) => p.startsWith(workspace) || (role === 'closer' && p === base),
-    },
-    { href: queue, label: 'Queue', icon: QueueIcon, isActive: (p) => p === queue },
+    // Active Call — not shown while fronters work from Leads / create form only.
+    // {
+    //   href: activeCallHref,
+    //   label: 'Active Call',
+    //   icon: PhoneIcon,
+    //   // A closer's Active Call is the desk itself; a fronter's is always a workspace.
+    //   isActive: (p) => p.startsWith(workspace) || (role === 'closer' && p === base),
+    // },
+    { href: listHref, label: listLabel, icon: QueueIcon, isActive: (p) => p === listHref },
     {
       href: `${base}/stats`,
       label: 'My Stats',

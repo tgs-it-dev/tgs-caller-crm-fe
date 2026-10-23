@@ -6,8 +6,17 @@ export type LeadResponse = components['schemas']['LeadResponse']
 export type LeadSource = LeadResponse['source']
 export type LeadList = components['schemas']['LeadListResponse']
 export type NewLead = components['schemas']['LeadCreateRequest']
+export type LeadUpdate = components['schemas']['LeadUpdateRequest']
 export type LeadBulkUpload = components['schemas']['LeadBulkUploadResponse']
 export type LeadBulkRow = components['schemas']['LeadBulkRowResult']
+
+/** Matches BE LeadFormFields / LeadCreateRequest hard caps. */
+export const LEAD_NAME_MAX = 255
+export const LEAD_FIELD_MAX = 255
+export const LEAD_PHONE_MIN = 7
+export const LEAD_PHONE_MAX = 32
+export const VEHICLE_YEAR_MIN = 1900
+export const VEHICLE_YEAR_MAX = 2100
 
 /**
  * An authenticated call that keeps its failures intact.
@@ -52,14 +61,32 @@ export function listLeads(
 
 /** The team's lead for this number, written any way, or null. */
 export async function findLeadOnTeam(phone: string, token: string): Promise<LeadResponse | null> {
-  const params = new URLSearchParams({ phone_normalized: phone, limit: '1' })
+  const params = new URLSearchParams({ phone_no: phone, limit: '1' })
   const list = await json<LeadList>(`/leads?${params}`, token)
   return list.items[0] ?? null
 }
 
-/** A number already on the team comes back as that lead, with the same 201. */
+/**
+ * Create or fill a lead from the fronter form.
+ *
+ * 201 for both a new insert and a phone re-match — compare `created_at` (or
+ * the presence of prior form fields) to tell them apart. `interaction_id` is
+ * set so the caller can open Active Call.
+ */
 export function createLead(payload: NewLead, token: string): Promise<LeadResponse> {
   return json<LeadResponse>('/leads', token, { method: 'POST', body: JSON.stringify(payload) })
+}
+
+/** Overwrite personal / vehicle / WIN / plate — phone cannot change. */
+export function updateLead(
+  leadId: string,
+  payload: LeadUpdate,
+  token: string
+): Promise<LeadResponse> {
+  return json<LeadResponse>(`/leads/${leadId}`, token, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
 }
 
 export function uploadLeads(
@@ -71,4 +98,19 @@ export function uploadLeads(
   form.append('file', file)
   if (campaignId) form.append('campaign_id', campaignId)
   return json<LeadBulkUpload>('/leads/bulk', token, { method: 'POST', body: form })
+}
+
+/** Display name for queue / caller chrome: first + last, else the phone. */
+export function leadDisplayName(lead: Pick<LeadResponse, 'first_name' | 'last_name' | 'phone_no'>): string {
+  const name = [lead.first_name, lead.last_name].filter(Boolean).join(' ').trim()
+  return name || lead.phone_no
+}
+
+/** Vehicle line for Active Call prefill: "2018 Toyota Camry". */
+export function leadVehicleLine(
+  lead: Pick<LeadResponse, 'vehicle_year' | 'vehicle_make' | 'vehicle_model'>
+): string {
+  return [lead.vehicle_year, lead.vehicle_make, lead.vehicle_model]
+    .filter((part) => part != null && String(part).trim() !== '')
+    .join(' ')
 }

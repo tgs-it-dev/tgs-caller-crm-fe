@@ -38,11 +38,17 @@ function messageFor(err: unknown): string {
 
 const COLUMNS: DataColumn<LeadResponse>[] = [
   {
+    id: 'name',
+    header: 'Name',
+    render: (lead) => {
+      const name = [lead.first_name, lead.last_name].filter(Boolean).join(' ').trim()
+      return name || '—'
+    },
+  },
+  {
     id: 'phone',
     header: 'Phone',
-    render: (lead) => (
-      <span className="whitespace-nowrap">{formatPhone(lead.phone_normalized)}</span>
-    ),
+    render: (lead) => <span className="whitespace-nowrap">{formatPhone(lead.phone_no)}</span>,
   },
   { id: 'source', header: 'Source', render: (lead) => SOURCE_LABEL[lead.source] },
   {
@@ -141,11 +147,7 @@ export function LeadsScreen() {
       )}
 
       {adding === 'one' && load.status === 'ready' && (
-        <LeadFormDialog
-          campaigns={load.campaigns}
-          onClose={() => setAdding(null)}
-          onSaved={showAdded}
-        />
+        <LeadFormDialog onClose={() => setAdding(null)} onSaved={showAdded} />
       )}
 
       {adding === 'file' && load.status === 'ready' && (

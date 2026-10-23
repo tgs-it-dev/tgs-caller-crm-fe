@@ -517,28 +517,38 @@ function mockFunnelStage(
 const MOCK_LEADS: Record<string, LeadResponse> = {
   'lead-1': {
     id: 'lead-1',
-    phone_normalized: '+13235550142',
+    phone_no: '+13235550142',
     source: 'vicidial',
+    first_name: 'Alex',
+    last_name: 'Rivera',
+    vehicle_make: 'Honda',
+    vehicle_year: 2016,
+    vehicle_model: 'Accord',
     created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3).toISOString(),
     updated_at: new Date().toISOString(),
   },
   'lead-2': {
     id: 'lead-2',
-    phone_normalized: '+14085550199',
+    phone_no: '+14085550199',
     source: 'ghl',
+    first_name: 'Sam',
+    last_name: 'Nguyen',
+    vehicle_make: 'Toyota',
+    vehicle_year: 2019,
+    vehicle_model: 'Camry',
     created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 12).toISOString(),
     updated_at: new Date().toISOString(),
   },
   'lead-1102': {
     id: 'lead-1102',
-    phone_normalized: '+13105550188',
+    phone_no: '+13105550188',
     source: 'vicidial',
     created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5).toISOString(),
     updated_at: new Date().toISOString(),
   },
   'lead-1103': {
     id: 'lead-1103',
-    phone_normalized: '+18135550177',
+    phone_no: '+18135550177',
     source: 'ghl',
     created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 8).toISOString(),
     updated_at: new Date().toISOString(),
@@ -583,7 +593,7 @@ function synthesizeLead(interactionId: string): LeadResponse {
   const digits = interactionId.replace(/\D/g, '').slice(-4).padStart(4, '0')
   const lead: LeadResponse = {
     id: leadId,
-    phone_normalized: `+1323555${digits}`,
+    phone_no: `+1323555${digits}`,
     source: Number(digits) % 2 === 0 ? 'vicidial' : 'ghl',
     created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(),
     updated_at: new Date().toISOString(),
@@ -607,10 +617,7 @@ function interactionDetail(interactionId: string): InteractionDetailResponse | n
   }
 }
 
-// Seed for the fronter Queue screen. Deterministic rather than randomised so
-// the table, wait times, and pagination look identical on every reload, and so
-// nothing depends on ordering luck. `GET /queue?role=fronter|closer` is live on
-// the backend; this mock keeps the fronter dialer shape for local UI work.
+// Closer transfer queue + fronter callback list (Callback Requested only).
 const QUEUE_LEAD_NAMES = [
   'Mubeen N.',
   'Alicia R.',
@@ -622,30 +629,37 @@ const QUEUE_LEAD_NAMES = [
   'Sofia L.',
 ]
 
-const QUEUE_CAMPAIGNS = [
-  'Auto Warranty — Q3',
-  'Extended Coverage',
-  'Renewal Outreach',
-  'Mileage Expiry',
-]
-
 const QUEUE_SEEDED_AT = Date.now()
 
-// 48 rows so the 5-per-page table paginates across 10 pages like the design.
-const LEFT_QUEUE = new Set<string>()
-
-const MOCK_FRONTER_QUEUE: FronterQueueEntry[] = Array.from({ length: 48 }, (_, index) => {
-  // Index 1 stands in for this fronter's open accepted call (user id "1").
-  const claimed = index === 1
+const MOCK_FRONTER_CALLBACKS: FronterQueueEntry[] = Array.from({ length: 6 }, (_, index) => {
+  const leadId = `lead-cb-${2000 + index}`
+  const phone = `+1323555${(1000 + index).toString().slice(-4)}`
+  const name = QUEUE_LEAD_NAMES[index % QUEUE_LEAD_NAMES.length]
+  const [first = name, ...rest] = name.split(' ')
+  const last = rest.join(' ') || 'Callback'
+  const at = new Date(QUEUE_SEEDED_AT - (index + 1) * 45 * 60 * 1000).toISOString()
+  const lead: LeadResponse = {
+    id: leadId,
+    phone_no: phone,
+    source: 'manual',
+    first_name: first,
+    last_name: last,
+    vehicle_make: 'Toyota',
+    vehicle_year: 2018,
+    vehicle_model: 'Camry',
+    win: `WIN-CB-${2000 + index}`,
+    created_at: at,
+    updated_at: at,
+  }
+  MOCK_LEADS[leadId] = lead
   return {
-    id: `int-${2000 + index}`,
-    lead_name: QUEUE_LEAD_NAMES[index % QUEUE_LEAD_NAMES.length],
-    lead_phone: `+1323555${(1000 + index).toString().slice(-4)}`,
-    campaign_name: QUEUE_CAMPAIGNS[index % QUEUE_CAMPAIGNS.length],
-    // Staggered so the top of the queue has waited longest (first row = 03:12).
-    queued_at: new Date(QUEUE_SEEDED_AT - (192 - index * 4) * 1000).toISOString(),
-    status: claimed ? 'accepted' : index % 7 === 0 ? 'ringing' : 'waiting',
-    fronter_user_id: claimed ? '1' : null,
+    id: `int-cb-${2000 + index}`,
+    lead_id: leadId,
+    lead_name: name,
+    lead_phone: phone,
+    disposition_label: 'Callback Requested',
+    dispositioned_at: at,
+    actor_user_id: '1',
   }
 })
 
@@ -672,7 +686,7 @@ function seededTeamLead(
   daysAgo: number
 ): MockTeamLead {
   const at = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString()
-  return { id, phone_normalized: phone, source, team_id: teamId, created_at: at, updated_at: at }
+  return { id, phone_no: phone, source, team_id: teamId, created_at: at, updated_at: at }
 }
 
 /** Newest first, as the API lists them. */
@@ -688,13 +702,8 @@ const MOCK_SUPPRESSED_PHONES = new Set(['+12125550000'])
 let issuedLeads = 0
 
 function leadBody(lead: MockTeamLead): LeadResponse {
-  return {
-    id: lead.id,
-    phone_normalized: lead.phone_normalized,
-    source: lead.source,
-    created_at: lead.created_at,
-    updated_at: lead.updated_at,
-  }
+  const { team_id: _teamId, ...body } = lead
+  return body
 }
 
 /** A US-only stand-in for the API's normalizer: E.164, or null when unusable. */
@@ -706,10 +715,126 @@ function mockNormalizePhone(raw: string): string | null {
 }
 
 function teamLeadFor(teamId: string, phone: string): MockTeamLead | undefined {
-  return MOCK_TEAM_LEADS.find((lead) => lead.team_id === teamId && lead.phone_normalized === phone)
+  return MOCK_TEAM_LEADS.find((lead) => lead.team_id === teamId && lead.phone_no === phone)
 }
 
-/** The queue label for a team's new leads, by the API's rule, or why it refuses. */
+type LeadFormBody = {
+  first_name?: string
+  last_name?: string
+  phone_no?: string
+  vehicle_make?: string
+  vehicle_year?: number
+  vehicle_model?: string
+  win?: string | null
+  license_plate?: string | null
+}
+
+function mockValidateLeadForm(body: LeadFormBody): FieldError[] {
+  const fields: FieldError[] = []
+  const need = (field: string, ok: boolean, message: string) => {
+    if (!ok) fields.push({ field, in: 'body', message })
+  }
+  need('first_name', Boolean(body.first_name?.trim()), 'Enter a first name.')
+  need('last_name', Boolean(body.last_name?.trim()), 'Enter a last name.')
+  need('vehicle_make', Boolean(body.vehicle_make?.trim()), 'Enter the vehicle make.')
+  need('vehicle_model', Boolean(body.vehicle_model?.trim()), 'Enter the vehicle model.')
+  const year = body.vehicle_year
+  need(
+    'vehicle_year',
+    typeof year === 'number' && Number.isInteger(year) && year >= 1900 && year <= 2100,
+    'Enter a year between 1900 and 2100.'
+  )
+  const win = body.win?.trim()
+  const plate = body.license_plate?.trim()
+  if (!win && !plate) {
+    fields.push({ field: 'win', in: 'body', message: 'provide win and/or license_plate' })
+    fields.push({
+      field: 'license_plate',
+      in: 'body',
+      message: 'provide win and/or license_plate',
+    })
+  }
+  return fields
+}
+
+/** Form create: insert + mint interaction, or fill an existing phone match. */
+function addMockFormLead(teamId: string, actorId: string, body: LeadFormBody): MockTeamLead {
+  const phone = mockNormalizePhone(String(body.phone_no ?? ''))!
+  const existing = teamLeadFor(teamId, phone)
+  const now = new Date().toISOString()
+  const formFields = {
+    first_name: body.first_name!.trim(),
+    last_name: body.last_name!.trim(),
+    vehicle_make: body.vehicle_make!.trim(),
+    vehicle_year: body.vehicle_year!,
+    vehicle_model: body.vehicle_model!.trim(),
+    win: body.win?.trim() || null,
+    license_plate: body.license_plate?.trim() || null,
+    fronter_id: actorId,
+  }
+
+  if (existing) {
+    Object.assign(existing, formFields, { updated_at: now })
+    MOCK_LEADS[existing.id] = leadBody(existing)
+    let interactionId = existing.interaction_id
+    if (!interactionId) {
+      issuedLeads += 1
+      interactionId = `int-manual-${issuedLeads}`
+      existing.interaction_id = interactionId
+      MOCK_INTERACTIONS[interactionId] = {
+        id: interactionId,
+        lead_id: existing.id,
+        created_at: now,
+        updated_at: now,
+        qualification: null,
+      }
+      MOCK_LEADS[existing.id] = leadBody(existing)
+    }
+    return existing
+  }
+
+  issuedLeads += 1
+  const interactionId = `int-manual-${issuedLeads}`
+  const lead: MockTeamLead = {
+    id: `lead-manual-${issuedLeads}`,
+    phone_no: phone,
+    source: 'manual',
+    team_id: teamId,
+    created_at: now,
+    updated_at: now,
+    interaction_id: interactionId,
+    ...formFields,
+  }
+  MOCK_TEAM_LEADS.unshift(lead)
+  MOCK_LEADS[lead.id] = leadBody(lead)
+  MOCK_INTERACTIONS[interactionId] = {
+    id: interactionId,
+    lead_id: lead.id,
+    created_at: now,
+    updated_at: now,
+    qualification: null,
+  }
+  return lead
+}
+
+/** Bulk CSV: phone-only row onto the team (no form fields, no interaction). */
+function addMockLead(teamId: string, phone: string): MockTeamLead {
+  issuedLeads += 1
+  const now = new Date().toISOString()
+  const lead: MockTeamLead = {
+    id: `lead-manual-${issuedLeads}`,
+    phone_no: phone,
+    source: 'manual',
+    team_id: teamId,
+    created_at: now,
+    updated_at: now,
+  }
+  MOCK_TEAM_LEADS.unshift(lead)
+  MOCK_LEADS[lead.id] = leadBody(lead)
+  return lead
+}
+
+/** The queue label for a team's new bulk leads, by the API's rule, or why it refuses. */
 function mockCampaignFor(
   teamId: string,
   campaignId: string | null | undefined
@@ -738,43 +863,22 @@ function mockCampaignFor(
   return { name: active[0]?.name ?? null }
 }
 
-/** A new lead on the team, and on the fronter queue the way the API enqueues it. */
-function addMockLead(
-  teamId: string,
-  phone: string,
-  name: string | null,
-  campaignName: string | null
-): MockTeamLead {
-  issuedLeads += 1
-  const now = new Date().toISOString()
-  const lead: MockTeamLead = {
-    id: `lead-manual-${issuedLeads}`,
-    phone_normalized: phone,
-    source: 'manual',
-    team_id: teamId,
-    created_at: now,
-    updated_at: now,
+/** Admin-only routes refuse fronters; lead create allows fronter or administrator. */
+function leadCreateRefusal(authorization: string | null) {
+  const user = MOCK_TOKENS.get((authorization || '').replace(/^Bearer\s+/i, ''))
+  if (!user || !user.active) {
+    return {
+      status: 401,
+      body: authErrorBody('Could not validate credentials', 'auth.not_authenticated'),
+    }
   }
-  MOCK_TEAM_LEADS.unshift(lead)
-  MOCK_LEADS[lead.id] = leadBody(lead)
-  const interactionId = `int-manual-${issuedLeads}`
-  MOCK_INTERACTIONS[interactionId] = {
-    id: interactionId,
-    lead_id: lead.id,
-    created_at: now,
-    updated_at: now,
-    qualification: null,
+  if (!user.roles.includes('fronter') && !roleSatisfies(user.roles, 'administrator')) {
+    return {
+      status: 403,
+      body: authErrorBody('Insufficient role for this operation', 'auth.forbidden'),
+    }
   }
-  MOCK_FRONTER_QUEUE.push({
-    id: interactionId,
-    lead_name: name ?? phone,
-    lead_phone: phone,
-    campaign_name: campaignName ?? 'Manual upload',
-    queued_at: now,
-    status: 'waiting',
-    fronter_user_id: null,
-  })
-  return lead
+  return null
 }
 
 /** Good enough for mock mode: no quoted commas. */
@@ -1196,7 +1300,7 @@ for (const [index, exception] of MOCK_EXCEPTIONS.entries()) {
   const leadId = `lead-${exception.interaction_id}`
   MOCK_LEADS[leadId] = {
     id: leadId,
-    phone_normalized: `+1323555${String(4000 + index).slice(-4)}`,
+    phone_no: `+1323555${String(4000 + index).slice(-4)}`,
     source: index % 2 === 0 ? 'vicidial' : 'ghl',
     created_at: HOURS_AGO(72),
     updated_at: HOURS_AGO(2),
@@ -1915,14 +2019,14 @@ export const handlers = [
     const params = req.url.searchParams
     const limit = Number(params.get('limit') ?? 50)
     const offset = Number(params.get('offset') ?? 0)
-    const raw = params.get('phone_normalized')
+    const raw = params.get('phone_no')
     const phone = raw === null ? null : mockNormalizePhone(raw)
     if (raw !== null && phone === null) {
       return res(
         ctx.status(422),
         ctx.json(
           authErrorBody(`not a usable phone number: '${raw}'`, 'lead.invalid_phone', [
-            { field: 'phone_normalized', in: 'query', message: 'not a usable phone number' },
+            { field: 'phone_no', in: 'query', message: 'not a usable phone number' },
           ])
         )
       )
@@ -1932,7 +2036,7 @@ export const handlers = [
     const rows = MOCK_TEAM_LEADS.filter(
       (lead) =>
         (everyTeam || lead.team_id === actor.team_id) &&
-        (phone === null || lead.phone_normalized === phone)
+        (phone === null || lead.phone_no === phone)
     )
     return res(
       ctx.status(200),
@@ -1947,7 +2051,7 @@ export const handlers = [
 
   rest.post('/leads', async (req, res, ctx) => {
     const authorization = req.headers.get('authorization')
-    const refused = adminRefusal(authorization)
+    const refused = leadCreateRefusal(authorization)
     if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
 
     const actor = MOCK_TOKENS.get((authorization || '').replace(/^Bearer\s+/i, ''))!
@@ -1955,50 +2059,48 @@ export const handlers = [
       return res(
         ctx.status(422),
         ctx.json(
-          authErrorBody('a team is required', 'lead.team_required', [
-            { field: 'team_id', in: 'body', message: 'a team is required' },
+          authErrorBody('a team membership is required', 'lead.team_required', [
+            { field: 'body', in: 'body', message: 'a team membership is required' },
           ])
         )
       )
     }
 
-    const body = (await req.json()) as {
-      phone?: string
-      name?: string | null
-      campaign_id?: string | null
+    const body = (await req.json()) as LeadFormBody
+    const formErrors = mockValidateLeadForm(body)
+    if (formErrors.length > 0) {
+      return res(
+        ctx.status(422),
+        ctx.json(authErrorBody('validation failed', 'validation_error', formErrors))
+      )
     }
-    const phone = mockNormalizePhone(String(body.phone ?? ''))
+
+    const phone = mockNormalizePhone(String(body.phone_no ?? ''))
     if (!phone) {
       return res(
         ctx.status(422),
         ctx.json(
-          authErrorBody(`not a usable phone number: '${body.phone}'`, 'lead.invalid_phone', [
-            { field: 'phone', in: 'body', message: 'not a usable phone number' },
+          authErrorBody(`not a usable phone number: '${body.phone_no}'`, 'lead.invalid_phone', [
+            { field: 'phone_no', in: 'body', message: 'not a usable phone number' },
           ])
         )
       )
     }
 
-    // A number the team already has comes back as it is, nothing queued.
     const existing = teamLeadFor(actor.team_id, phone)
-    if (existing) return res(ctx.status(201), ctx.json(leadBody(existing)))
-
-    const campaign = mockCampaignFor(actor.team_id, body.campaign_id)
-    if ('status' in campaign) return res(ctx.status(campaign.status), ctx.json(campaign.body))
-
-    if (MOCK_SUPPRESSED_PHONES.has(phone)) {
+    if (!existing && MOCK_SUPPRESSED_PHONES.has(phone)) {
       const detail = 'this phone number is on the company do-not-call list'
       return res(
         ctx.status(422),
         ctx.json(
           authErrorBody(detail, 'lead.phone_suppressed', [
-            { field: 'phone', in: 'body', message: detail },
+            { field: 'phone_no', in: 'body', message: detail },
           ])
         )
       )
     }
 
-    const lead = addMockLead(actor.team_id, phone, body.name?.trim() || null, campaign.name)
+    const lead = addMockFormLead(actor.team_id, actor.id, { ...body, phone_no: phone })
     return res(ctx.status(201), ctx.json(leadBody(lead)))
   }),
 
@@ -2091,7 +2193,9 @@ export const handlers = [
       if (MOCK_SUPPRESSED_PHONES.has(phone)) {
         return { row, phone, status: 'suppressed', lead_id: null, error: 'on the do-not-call list' }
       }
-      const lead = addMockLead(teamId, phone, name || null, campaignName)
+      const lead = addMockLead(teamId, phone)
+      void name
+      void campaignName
       return { row, phone, status: 'created', lead_id: lead.id, error: null }
     })
 
@@ -2119,83 +2223,60 @@ export const handlers = [
     return res(ctx.status(200), ctx.json(lead))
   }),
 
-  // Rows that have left the queue. Held apart from MOCK_FRONTER_QUEUE so that
-  // stays the seed and a reload restores it, the way re-running the seed script
-  // does against the real database.
-  rest.patch('/queue/fronter/:interactionId', async (req, res, ctx) => {
-    const interactionId = req.params.interactionId as string
-    const body = (await req.json()) as { left?: true; status?: 'ringing' | 'waiting' }
-    const entry = MOCK_FRONTER_QUEUE.find((row) => row.id === interactionId)
-    if (!entry || LEFT_QUEUE.has(interactionId)) {
-      return res(
-        ctx.status(404),
-        ctx.json({
-          detail: 'no open queue entry for this interaction',
-          code: 'queue.entry_not_found',
-        })
-      )
-    }
-    if (body.left) LEFT_QUEUE.add(interactionId)
-    if (body.status) entry.status = body.status
-    return res(ctx.status(200), ctx.json(entry))
-  }),
+  rest.patch('/leads/:leadId', async (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = leadCreateRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
 
-  // Fronter queue Accept — same exclusivity as closer transfer accept.
-  rest.post('/queue/fronter/:interactionId/accept', async (req, res, ctx) => {
-    const interactionId = req.params.interactionId as string
-    const body = (await req.json()) as { fronter_user_id: string }
-    const actor = MOCK_TOKENS.get(
-      (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '')
-    )
-    if (!actor) {
-      return res(
-        ctx.status(401),
-        ctx.json(authErrorBody('Could not validate credentials', 'auth.not_authenticated'))
-      )
-    }
-    if (body.fronter_user_id !== actor.id) {
-      return res(
-        ctx.status(403),
-        ctx.json(authErrorBody('cannot act on behalf of another user', 'auth.forbidden'))
-      )
-    }
-    const entry = MOCK_FRONTER_QUEUE.find((row) => row.id === interactionId)
-    if (!entry || LEFT_QUEUE.has(interactionId)) {
+    const leadId = req.params.leadId as string
+    const existing =
+      MOCK_LEADS[leadId] ?? Object.values(MOCK_LEADS).find((row) => row.id === leadId)
+    if (!existing) {
       return res(
         ctx.status(404),
-        ctx.json({
-          detail: 'no open queue entry for this interaction',
-          code: 'queue.entry_not_found',
-        })
+        ctx.json({ detail: 'Lead not found.', code: 'lead.not_found' })
       )
     }
-    if (entry.fronter_user_id != null) {
+
+    const body = (await req.json()) as LeadFormBody
+    const formErrors = mockValidateLeadForm({ ...body, phone_no: existing.phone_no })
+    if (formErrors.length > 0) {
       return res(
-        ctx.status(409),
-        ctx.json({
-          detail: `this queue entry is already ${entry.status}`,
-          code: 'queue.not_answerable',
-        })
+        ctx.status(422),
+        ctx.json(authErrorBody('validation failed', 'validation_error', formErrors))
       )
     }
-    entry.status = 'accepted'
-    entry.fronter_user_id = body.fronter_user_id
-    return res(ctx.status(200), ctx.json(entry))
+
+    const now = new Date().toISOString()
+    const updated: LeadResponse = {
+      ...existing,
+      first_name: body.first_name!.trim(),
+      last_name: body.last_name!.trim(),
+      vehicle_make: body.vehicle_make!.trim(),
+      vehicle_year: body.vehicle_year!,
+      vehicle_model: body.vehicle_model!.trim(),
+      win: body.win?.trim() || null,
+      license_plate: body.license_plate?.trim() || null,
+      updated_at: now,
+    }
+    MOCK_LEADS[updated.id] = updated
+    const teamRow = MOCK_TEAM_LEADS.find((row) => row.id === updated.id)
+    if (teamRow) Object.assign(teamRow, updated)
+
+    const callback = MOCK_FRONTER_CALLBACKS.find((row) => row.lead_id === updated.id)
+    if (callback) {
+      const name = [updated.first_name, updated.last_name].filter(Boolean).join(' ').trim()
+      callback.lead_name = name || updated.phone_no
+      callback.lead_phone = updated.phone_no
+    }
+
+    return res(ctx.status(200), ctx.json(updated))
   }),
 
   rest.get('/queue', (req, res, ctx) => {
     const role = req.url.searchParams.get('role')
     if (role === 'fronter') {
-      const actor = MOCK_TOKENS.get(
-        (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '')
-      )
-      // Unclaimed rows, or rows this fronter already claimed — others disappear.
-      const visible = MOCK_FRONTER_QUEUE.filter((row) => {
-        if (LEFT_QUEUE.has(row.id)) return false
-        if (row.fronter_user_id == null) return true
-        return actor != null && row.fronter_user_id === actor.id
-      })
-      return res(ctx.status(200), ctx.json(visible))
+      return res(ctx.status(200), ctx.json(MOCK_FRONTER_CALLBACKS))
     }
     if (role === 'closer') {
       return res(ctx.status(200), ctx.json(MOCK_CLOSER_QUEUE))
@@ -2526,6 +2607,34 @@ export const handlers = [
       created_at: now,
     }
     MOCK_INTERACTION_DISPOSITIONS.set(interactionId, [...existing, record])
+
+    // Callback Requested → fronter callback list (same rule as GET /queue?role=fronter).
+    if (catalog.stage === 'fronter' && catalog.label === 'Callback Requested') {
+      const already = MOCK_FRONTER_CALLBACKS.some((row) => row.id === interactionId)
+      if (!already) {
+        const interaction = MOCK_INTERACTIONS[interactionId]
+        const lead = interaction
+          ? MOCK_LEADS[interaction.lead_id] ??
+            MOCK_TEAM_LEADS.find((row) => row.id === interaction.lead_id)
+          : undefined
+        const phone = lead?.phone_no ?? '+10000000000'
+        const name = lead
+          ? [lead.first_name, lead.last_name].filter(Boolean).join(' ').trim() || phone
+          : phone
+        MOCK_FRONTER_CALLBACKS.unshift({
+          id: interactionId,
+          lead_id: lead?.id ?? `lead-for-${interactionId}`,
+          lead_name: name,
+          lead_phone: phone,
+          disposition_label: catalog.label,
+          dispositioned_at: now,
+          actor_user_id: actor.id,
+        })
+      }
+    } else if (catalog.stage === 'fronter') {
+      const idx = MOCK_FRONTER_CALLBACKS.findIndex((row) => row.id === interactionId)
+      if (idx >= 0) MOCK_FRONTER_CALLBACKS.splice(idx, 1)
+    }
 
     return res(ctx.status(201), ctx.json(record))
   }),
