@@ -6,6 +6,7 @@ import {
   readRefreshToken,
   readToken,
   refreshTokens,
+  requestPasswordChange,
   revokeRefreshToken,
   storeSession,
 } from '@/lib/auth'
@@ -45,6 +46,23 @@ export function refreshSession(): Promise<void> {
     })
   }
   return inFlight
+}
+
+/**
+ * Change the signed-in user's password and keep this tab signed in.
+ *
+ * The change ends every session, this tab's refresh token included, and returns
+ * a new pair. It runs under the refresh lock, so no renewal here or in another
+ * tab can send the old token in the meantime: the API treats that as theft and
+ * would end the new session too. The lock is not reentrant, so nothing inside it
+ * renews; `withSession` does that before or after, never during.
+ */
+export function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  return withSession((token) =>
+    withRefreshLock(async () => {
+      await storeSession(await requestPasswordChange(currentPassword, newPassword, token))
+    })
+  )
 }
 
 function withRefreshLock<T>(task: () => Promise<T>): Promise<T> {

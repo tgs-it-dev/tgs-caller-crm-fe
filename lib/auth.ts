@@ -1,6 +1,7 @@
 import type { components } from '@/lib/generated/schema'
 import { readApiError, type FieldError } from '@/lib/apiError'
 import { apiUrl } from '@/lib/apiUrl'
+import type { TimeZoneName } from '@/lib/format'
 import { deleteSession, saveSession, type SavedSession } from '@/lib/sessionStore'
 
 /** Role literals from the frozen OpenAPI `UserResponse.roles` enum. */
@@ -70,6 +71,36 @@ export async function getCurrentUser(token: string): Promise<CurrentUser> {
   })
   if (!res.ok) throw await authError(res)
   return res.json() as Promise<CurrentUser>
+}
+
+/** Save the signed-in user's own time zone; the updated profile comes back. */
+export async function updateMyTimezone(timezone: TimeZoneName, token: string): Promise<CurrentUser> {
+  const res = await fetch(apiUrl('/auth/me'), {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ timezone }),
+  })
+  if (!res.ok) throw await authError(res)
+  return res.json() as Promise<CurrentUser>
+}
+
+/**
+ * Change your own password. The API ends every session, this one's included, and
+ * hands back a fresh pair; call it through `changePassword` in `lib/session.ts`,
+ * which stores that pair before any renewal can run.
+ */
+export async function requestPasswordChange(
+  currentPassword: string,
+  newPassword: string,
+  token: string
+): Promise<TokenResponse> {
+  const res = await fetch(apiUrl('/auth/password/change'), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  })
+  if (!res.ok) throw await authError(res)
+  return res.json() as Promise<TokenResponse>
 }
 
 // The backend may grant more than one role; the primary role decides

@@ -9,7 +9,7 @@ import type { LeadBulkRow, LeadResponse } from '../lib/leads'
 import { PUSH_INTERVAL_MS, type AgentStatus, type LiveStatus } from '../lib/liveStatus'
 import type { CloserQueueEntry, FronterQueueEntry } from '../lib/queue'
 import type { QualificationCreateRequest, QualificationResponse } from '../lib/qualification'
-import { BUSINESS_TIMEZONE } from '../lib/format'
+import { BUSINESS_TIMEZONE, TIME_ZONES, type TimeZoneName } from '../lib/format'
 import type {
   FunnelInteractionList,
   FunnelStage,
@@ -31,6 +31,8 @@ type MockUser = {
   created_at: string
   /** Super Admin has no team pin; everyone else belongs to the mock team. */
   team_id: string | null
+  /** The zone their times are drawn in; Eastern until they choose another. */
+  timezone?: TimeZoneName
 }
 
 const SEEDED_AT = new Date(Date.now() - 1000 * 60 * 60 * 24 * 30).toISOString()
@@ -277,6 +279,19 @@ function userBody(user: MockUser) {
     roles: user.roles,
     created_at: user.created_at,
     team_id: user.team_id,
+    timezone: user.timezone ?? BUSINESS_TIMEZONE,
+  }
+}
+
+/** The signed-in mock user behind an Authorization header, if any. */
+function mockActor(authorization: string | null): MockUser | undefined {
+  return MOCK_TOKENS.get((authorization || '').replace(/^Bearer\s+/i, ''))
+}
+
+/** Setting a password ends every refresh session the user has, as the API does. */
+function endMockSessions(user: MockUser) {
+  for (const [token, holder] of MOCK_REFRESH_TOKENS) {
+    if (holder.id === user.id) MOCK_REFRESH_TOKENS.delete(token)
   }
 }
 
@@ -345,21 +360,29 @@ function mockLiveStatus(): LiveStatus {
     }
   })
 
+  const today = {
+    leads: 26 + (tick % 20),
+    interactions: 30 + (tick % 20),
+    qualifications: 12 + (tick % 7),
+    transfers_offered: 8 + (tick % 5),
+    transfers_accepted: 5 + (tick % 3),
+    transfers_rejected: 1 + (tick % 2),
+    sales: 2 + (tick % 2),
+  }
+  // A Karachi day starts hours earlier, so it holds a different set of calls.
+  const karachi = { ...today, transfers_offered: today.transfers_offered + 3 }
+
   return {
     generated_at: new Date().toISOString(),
     timezone: BUSINESS_TIMEZONE,
     agents,
     active_calls: agents.filter((agent) => isBusy(agent.status)).length,
     pending_transfers: tick % 3,
-    funnel_today: {
-      leads: 26 + (tick % 20),
-      interactions: 30 + (tick % 20),
-      qualifications: 12 + (tick % 7),
-      transfers_offered: 8 + (tick % 5),
-      transfers_accepted: 5 + (tick % 3),
-      transfers_rejected: 1 + (tick % 2),
-      sales: 2 + (tick % 2),
-    },
+    funnel_today: today,
+    funnel_today_by_timezone: [
+      { timezone: 'America/New_York', funnel: today },
+      { timezone: 'Asia/Karachi', funnel: karachi },
+    ],
   }
 }
 
@@ -1407,6 +1430,64 @@ export const handlers = [
     return res(ctx.status(200), ctx.json(userBody(user)))
   }),
 
+  rest.patch('/auth/me', async (req, res, ctx) => {
+    const user = mockActor(req.headers.get('authorization'))
+    if (!user || !user.active) {
+      return res(
+        ctx.status(401),
+        ctx.json(authErrorBody('Could not validate credentials', 'auth.not_authenticated'))
+      )
+    }
+    const body = (await req.json()) as { timezone?: string }
+    const zone = TIME_ZONES.find((option) => option.value === body.timezone)?.value
+    if (!zone) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody('not a time zone this CRM offers', 'validation_error', [
+            { field: 'timezone', in: 'body', message: 'not a time zone this CRM offers' },
+          ])
+        )
+      )
+    }
+    user.timezone = zone
+    return res(ctx.status(200), ctx.json(userBody(user)))
+  }),
+
+  rest.post('/auth/password/change', async (req, res, ctx) => {
+    const user = mockActor(req.headers.get('authorization'))
+    if (!user || !user.active) {
+      return res(
+        ctx.status(401),
+        ctx.json(authErrorBody('Could not validate credentials', 'auth.not_authenticated'))
+      )
+    }
+    const body = (await req.json()) as { current_password?: string; new_password?: string }
+    if (!body.new_password || body.new_password.length < 8) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody('String should have at least 8 characters', 'validation_error', [
+            { field: 'new_password', in: 'body', message: 'String should have at least 8 characters' },
+          ])
+        )
+      )
+    }
+    if (body.current_password !== user.password) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody('current password is incorrect', 'user.password_incorrect', [
+            { field: 'current_password', in: 'body', message: 'incorrect' },
+          ])
+        )
+      )
+    }
+    user.password = body.new_password
+    endMockSessions(user)
+    return res(ctx.status(200), ctx.json(issueMockTokens(user)))
+  }),
+
   rest.post('/auth/invitations/lookup', async (req, res, ctx) => {
     const { token } = (await req.json()) as { token?: string }
     const opened = openLink(String(token), 'invite')
@@ -1765,6 +1846,42 @@ export const handlers = [
     return res(ctx.status(201), ctx.json(userBody(created)))
   }),
 
+  rest.put('/auth/users/:userId/password', async (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = superAdminRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const user = MOCK_USERS.find((u) => u.id === req.params.userId)
+    if (!user) {
+      return res(ctx.status(404), ctx.json(authErrorBody('user not found', 'user.not_found')))
+    }
+    if (mockActor(authorization)?.id === user.id) {
+      return res(
+        ctx.status(400),
+        ctx.json(
+          authErrorBody(
+            'change your own password with /auth/password/change',
+            'user.cannot_reset_own_password'
+          )
+        )
+      )
+    }
+    const body = (await req.json()) as { password?: string }
+    if (!body.password || body.password.length < 8) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody('String should have at least 8 characters', 'validation_error', [
+            { field: 'password', in: 'body', message: 'String should have at least 8 characters' },
+          ])
+        )
+      )
+    }
+    user.password = body.password
+    endMockSessions(user)
+    return res(ctx.status(204))
+  }),
+
   rest.patch('/auth/users/:userId', async (req, res, ctx) => {
     const authorization = req.headers.get('authorization')
     const refused = adminRefusal(authorization)
@@ -1870,7 +1987,14 @@ export const handlers = [
 
     return res(
       ctx.status(200),
-      ctx.json(mockFunnel(start, end, req.url.searchParams.get('timezone')))
+      ctx.json(
+        mockFunnel(
+          start,
+          end,
+          req.url.searchParams.get('timezone') ??
+            mockActor(req.headers.get('authorization'))?.timezone
+        )
+      )
     )
   }),
 
@@ -1891,7 +2015,15 @@ export const handlers = [
     return res(
       ctx.status(200),
       ctx.json(
-        mockFunnelStage(stage, start, end, limit, offset, req.url.searchParams.get('timezone'))
+        mockFunnelStage(
+          stage,
+          start,
+          end,
+          limit,
+          offset,
+          req.url.searchParams.get('timezone') ??
+            mockActor(req.headers.get('authorization'))?.timezone
+        )
       )
     )
   }),

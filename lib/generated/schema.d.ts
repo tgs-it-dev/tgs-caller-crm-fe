@@ -99,7 +99,11 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Change your own settings
+         * @description Change the signed-in user's own time zone.
+         */
+        patch: operations["update_me_auth_me_patch"];
         trace?: never;
     };
     "/auth/password/change": {
@@ -256,6 +260,30 @@ export interface paths {
          *     carrying it has not gone out yet.
          */
         post: operations["invite_user_auth_users__user_id__invite_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/users/{user_id}/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set a user's password (Super Admin only)
+         * @description Replace someone's password so the Super Admin can tell them the new one.
+         *
+         *     Every session they have ends, as with any reset. Not for your own account:
+         *     `/auth/password/change` asks for the current password, so a borrowed session
+         *     cannot take the account over.
+         */
+        put: operations["set_user_password_auth_users__user_id__password_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -746,10 +774,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * This agent's dispositions and transfers for today's business day
+         * This agent's dispositions and transfers for today, in their time zone
          * @description My Stats for the signed-in fronter or closer.
          *
-         *     Scoped to the caller and to the configured business day — never another
+         *     Scoped to the caller and to today in their own time zone: never another
          *     agent's rows, never yesterday's. An empty day is empty arrays and zero
          *     counts, not 404. Includes summary integers for the My Stats cards
          *     (``calls_today``, ``sales``, ``calls_transferred``). Fronter: dispositions
@@ -2165,6 +2193,11 @@ export interface components {
             agents: components["schemas"]["AgentLiveStatus"][];
             funnel_today: components["schemas"]["FunnelCounts"];
             /**
+             * Funnel Today By Timezone
+             * @description Today in each zone a user can choose, so every viewer reads their own day.
+             */
+            funnel_today_by_timezone: components["schemas"]["ZoneFunnelCounts"][];
+            /**
              * Generated At
              * Format: date-time
              */
@@ -2176,7 +2209,7 @@ export interface components {
             pending_transfers: number;
             /**
              * Timezone
-             * @description The business time zone. funnel_today is its day; show times in it too, so the page reads as one day.
+             * @description The business time zone. funnel_today is its day.
              */
             timezone: string;
         };
@@ -2314,6 +2347,14 @@ export interface components {
             note?: string | null;
             /** Resolved */
             resolved: boolean;
+        };
+        /**
+         * SetUserPasswordRequest
+         * @description A Super Admin choosing someone else's password, to tell them in person.
+         */
+        SetUserPasswordRequest: {
+            /** Password */
+            password: string;
         };
         /** TeamCreateRequest */
         TeamCreateRequest: {
@@ -2565,6 +2606,18 @@ export interface components {
              */
             status?: ("ringing" | "waiting") | null;
         };
+        /**
+         * UpdateMeRequest
+         * @description What a signed-in user may change about their own account.
+         */
+        UpdateMeRequest: {
+            /**
+             * Timezone
+             * @description The zone their times are shown in and their days are counted in.
+             * @enum {string}
+             */
+            timezone: "America/New_York" | "Asia/Karachi";
+        };
         /** UpdateUserRequest */
         UpdateUserRequest: {
             /** Active */
@@ -2618,6 +2671,21 @@ export interface components {
             roles: ("fronter" | "closer" | "administrator" | "super_admin")[];
             /** Team Id */
             team_id?: string | null;
+            /**
+             * Timezone
+             * @description The zone this user's times are shown in and their days are counted in.
+             * @enum {string}
+             */
+            timezone: "America/New_York" | "Asia/Karachi";
+        };
+        /** ZoneFunnelCounts */
+        ZoneFunnelCounts: {
+            funnel: components["schemas"]["FunnelCounts"];
+            /**
+             * Timezone
+             * @enum {string}
+             */
+            timezone: "America/New_York" | "Asia/Karachi";
         };
     };
     responses: never;
@@ -2802,6 +2870,48 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    update_me_auth_me_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateMeRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -3186,6 +3296,48 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    set_user_password_auth_users__user_id__password_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetUserPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4599,7 +4751,7 @@ export interface operations {
             query: {
                 start: string;
                 end: string;
-                /** @description IANA name deciding which day the dates mean, e.g. America/New_York. Defaults to the configured business day, so figures stay comparable between people unless someone deliberately asks for another region's. */
+                /** @description IANA name deciding which day the dates mean, e.g. America/New_York. Defaults to the caller's own time zone, so people who share a zone see the same figures for the same dates. */
                 timezone?: string | null;
                 /** @description A Super Admin names one team, or leaves it out for the whole company. Anyone else always gets their own team; naming another is refused with 403 team.forbidden. */
                 team_id?: string | null;
@@ -4644,7 +4796,7 @@ export interface operations {
             query: {
                 start: string;
                 end: string;
-                /** @description IANA name deciding which day the dates mean, e.g. America/New_York. Defaults to the configured business day, so figures stay comparable between people unless someone deliberately asks for another region's. */
+                /** @description IANA name deciding which day the dates mean, e.g. America/New_York. Defaults to the caller's own time zone, so people who share a zone see the same figures for the same dates. */
                 timezone?: string | null;
                 /** @description A Super Admin names one team, or leaves it out for the whole company. Anyone else always gets their own team; naming another is refused with 403 team.forbidden. */
                 team_id?: string | null;
