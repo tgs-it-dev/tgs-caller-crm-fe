@@ -24,7 +24,10 @@ export function Dialog({
 }: {
   open: boolean
   title: string
-  /** Escape and the backdrop both route here — and are ignored while `busy`. */
+  /**
+   * Called from Cancel (and other explicit actions). Backdrop and Escape do
+   * not close — a half-filled CRM form must not dismiss on a stray click.
+   */
   onClose: () => void
   /** Something is in flight: closing now would lose the answer to it. */
   busy?: boolean
@@ -38,8 +41,12 @@ export function Dialog({
   return (
     <MuiDialog
       open={open}
-      onClose={() => {
-        if (!busy) onClose()
+      onClose={(_event, reason) => {
+        if (busy) return
+        // Only the Cancel action (or equivalent) should dismiss — never the
+        // dimmed overlay or Escape mid-form.
+        if (reason === 'backdropClick' || reason === 'escapeKeyDown') return
+        onClose()
       }}
       aria-labelledby={titleId}
       fullWidth
