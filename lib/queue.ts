@@ -6,7 +6,7 @@ import { authError } from '@/lib/auth'
 export type QueueRole = 'fronter' | 'closer'
 
 /**
- * Fronter worklist is callbacks only (disposition Callback Requested).
+ * Fronter worklist is callbacks only (disposition Callback).
  * Dialer accept / leave endpoints are gone.
  */
 export type FronterQueueEntry = components['schemas']['FronterCallbackItem']

@@ -8,7 +8,11 @@ import type { InteractionDetailResponse } from '../lib/interactions'
 import type { LeadBulkRow, LeadResponse } from '../lib/leads'
 import { PUSH_INTERVAL_MS, type AgentStatus, type LiveStatus } from '../lib/liveStatus'
 import type { CloserQueueEntry, FronterQueueEntry } from '../lib/queue'
-import type { QualificationCreateRequest, QualificationResponse } from '../lib/qualification'
+import type {
+  QualificationCreateRequest,
+  QualificationCustomer,
+  QualificationResponse,
+} from '../lib/qualification'
 import { BUSINESS_TIMEZONE } from '../lib/format'
 import type {
   FunnelInteractionList,
@@ -519,11 +523,11 @@ const MOCK_LEADS: Record<string, LeadResponse> = {
     id: 'lead-1',
     phone_no: '+13235550142',
     source: 'vicidial',
-    first_name: 'Alex',
-    last_name: 'Rivera',
-    vehicle_make: 'Honda',
-    vehicle_year: 2016,
-    vehicle_model: 'Accord',
+    first_name: 'Jane',
+    last_name: 'D.',
+    vehicle_make: 'Toyota',
+    vehicle_year: 2019,
+    vehicle_model: 'Camry',
     created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3).toISOString(),
     updated_at: new Date().toISOString(),
   },
@@ -543,6 +547,11 @@ const MOCK_LEADS: Record<string, LeadResponse> = {
     id: 'lead-1102',
     phone_no: '+13105550188',
     source: 'vicidial',
+    first_name: 'Alex',
+    last_name: 'R.',
+    vehicle_make: 'Honda',
+    vehicle_year: 2021,
+    vehicle_model: 'Accord',
     created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5).toISOString(),
     updated_at: new Date().toISOString(),
   },
@@ -550,6 +559,11 @@ const MOCK_LEADS: Record<string, LeadResponse> = {
     id: 'lead-1103',
     phone_no: '+18135550177',
     source: 'ghl',
+    first_name: 'Priya',
+    last_name: 'S.',
+    vehicle_make: 'Ford',
+    vehicle_year: 2016,
+    vehicle_model: 'F-150',
     created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 8).toISOString(),
     updated_at: new Date().toISOString(),
   },
@@ -617,7 +631,27 @@ function interactionDetail(interactionId: string): InteractionDetailResponse | n
   }
 }
 
-// Closer transfer queue + fronter callback list (Callback Requested only).
+function customerFromLead(lead: LeadResponse): QualificationCustomer {
+  return {
+    lead_id: lead.id,
+    phone_no: lead.phone_no,
+    first_name: lead.first_name ?? null,
+    last_name: lead.last_name ?? null,
+    vehicle_make: lead.vehicle_make ?? null,
+    vehicle_year: lead.vehicle_year ?? null,
+    vehicle_model: lead.vehicle_model ?? null,
+    vin: lead.vin ?? null,
+    license_plate: lead.license_plate ?? null,
+  }
+}
+
+function leadForInteraction(interactionId: string): LeadResponse {
+  const interaction = interactionDetail(interactionId)
+  if (!interaction) return synthesizeLead(interactionId)
+  return MOCK_LEADS[interaction.lead_id] ?? synthesizeLead(interactionId)
+}
+
+// Closer transfer queue + fronter callback list (Callback only).
 const QUEUE_LEAD_NAMES = [
   'Mubeen N.',
   'Alicia R.',
@@ -647,7 +681,7 @@ const MOCK_FRONTER_CALLBACKS: FronterQueueEntry[] = Array.from({ length: 6 }, (_
     vehicle_make: 'Toyota',
     vehicle_year: 2018,
     vehicle_model: 'Camry',
-    win: `WIN-CB-${2000 + index}`,
+    vin: `VIN-CB-${2000 + index}`,
     created_at: at,
     updated_at: at,
   }
@@ -657,7 +691,7 @@ const MOCK_FRONTER_CALLBACKS: FronterQueueEntry[] = Array.from({ length: 6 }, (_
     lead_id: leadId,
     lead_name: name,
     lead_phone: phone,
-    disposition_label: 'Callback Requested',
+    disposition_label: 'Callback',
     dispositioned_at: at,
     actor_user_id: '1',
   }
@@ -725,7 +759,7 @@ type LeadFormBody = {
   vehicle_make?: string
   vehicle_year?: number
   vehicle_model?: string
-  win?: string | null
+  vin?: string | null
   license_plate?: string | null
 }
 
@@ -744,14 +778,14 @@ function mockValidateLeadForm(body: LeadFormBody): FieldError[] {
     typeof year === 'number' && Number.isInteger(year) && year >= 1900 && year <= 2100,
     'Enter a year between 1900 and 2100.'
   )
-  const win = body.win?.trim()
+  const vin = body.vin?.trim()
   const plate = body.license_plate?.trim()
-  if (!win && !plate) {
-    fields.push({ field: 'win', in: 'body', message: 'provide win and/or license_plate' })
+  if (!vin && !plate) {
+    fields.push({ field: 'vin', in: 'body', message: 'provide vin and/or license_plate' })
     fields.push({
       field: 'license_plate',
       in: 'body',
-      message: 'provide win and/or license_plate',
+      message: 'provide vin and/or license_plate',
     })
   }
   return fields
@@ -768,7 +802,7 @@ function addMockFormLead(teamId: string, actorId: string, body: LeadFormBody): M
     vehicle_make: body.vehicle_make!.trim(),
     vehicle_year: body.vehicle_year!,
     vehicle_model: body.vehicle_model!.trim(),
-    win: body.win?.trim() || null,
+    vin: body.vin?.trim() || null,
     license_plate: body.license_plate?.trim() || null,
     fronter_id: actorId,
   }
@@ -909,15 +943,29 @@ const MOCK_AVAILABLE_CLOSERS: AvailableCloserItem[] = [
 function seedCloserQualification(
   interactionId: string,
   snapshot: {
-    vehicle: string
-    mileage: string
-    state: string
-    warranty_status: string
-    notes: string
+    first_name: string
+    last_name: string
+    phone_no: string
+    vehicle_year: string
+    vehicle_make: string
+    vehicle_model: string
+    vin: string
+    license_plate: string
   },
   consent: { consent_given: boolean; dnc_flagged: boolean }
 ) {
   const now = new Date().toISOString()
+  const lead = leadForInteraction(interactionId)
+  // Keep lead fields in sync with the desk seed so GET /qualification returns them.
+  lead.first_name = snapshot.first_name || lead.first_name
+  lead.last_name = snapshot.last_name || lead.last_name
+  lead.phone_no = snapshot.phone_no || lead.phone_no
+  lead.vehicle_year = Number(snapshot.vehicle_year) || lead.vehicle_year
+  lead.vehicle_make = snapshot.vehicle_make || lead.vehicle_make
+  lead.vehicle_model = snapshot.vehicle_model || lead.vehicle_model
+  if (snapshot.vin) lead.vin = snapshot.vin
+  if (snapshot.license_plate) lead.license_plate = snapshot.license_plate
+
   MOCK_QUALIFICATIONS.set(interactionId, {
     id: `qual-seed-${interactionId}`,
     interaction_id: interactionId,
@@ -931,16 +979,11 @@ function seedCloserQualification(
         decisionMakerConfirmed: true,
       },
       disposition: 'qualified',
-      notes: snapshot.notes,
       override: { applied: false, reason: '' },
-      vehicle: snapshot.vehicle,
-      vehicle_year: snapshot.vehicle.split(/\s+/)[0] ?? '',
-      vehicle_make: snapshot.vehicle.split(/\s+/)[1] ?? '',
-      vehicle_model: snapshot.vehicle.split(/\s+/).slice(2).join(' '),
-      mileage: snapshot.mileage.replace(/,/g, ''),
-      state: snapshot.state,
-      warranty_status: snapshot.warranty_status,
-    } as QualificationResponse['snapshot_json'],
+      vehicle_year: snapshot.vehicle_year,
+      vehicle_make: snapshot.vehicle_make,
+      vehicle_model: snapshot.vehicle_model,
+    },
     consent_dnc: {
       consent_given: consent.consent_given,
       consent_captured_at: consent.consent_given ? now : null,
@@ -948,7 +991,7 @@ function seedCloserQualification(
       dnc_source: null,
     },
     created_at: now,
-    updated_at: now,
+    customer: customerFromLead(lead),
   })
 }
 
@@ -988,11 +1031,14 @@ function seedCloserQualification(
     seedCloserQualification(
       entry.interaction_id,
       {
-        vehicle: '2018 Nissan Altima',
-        mileage: '71000',
-        state: 'CA',
-        warranty_status: 'Expired',
-        notes: 'Queued transfer — fronter qualification snapshot',
+        first_name: entry.lead_name.split(/\s+/)[0] ?? 'Queued',
+        last_name: entry.lead_name.split(/\s+/).slice(1).join(' ') || 'Lead',
+        phone_no: entry.lead_phone,
+        vehicle_year: '2018',
+        vehicle_make: 'Nissan',
+        vehicle_model: 'Altima',
+        vin: '',
+        license_plate: '',
       },
       { consent_given: true, dnc_flagged: false }
     )
@@ -1040,7 +1086,7 @@ const MOCK_DISPOSITION_CATALOG: MockDisposition[] = [
   { id: 'disp-closer-dnc', label: 'Do Not Call', stage: 'closer', ...ENDS_THE_CALL },
   { id: 'disp-fronter-qualified', label: 'Qualified - Transferred', stage: 'fronter', ...HANDS_OVER },
   { id: 'disp-fronter-not-interested', label: 'Not Interested', stage: 'fronter', ...ENDS_THE_CALL },
-  { id: 'disp-fronter-callback', label: 'Callback Requested', stage: 'fronter', ...ENDS_THE_CALL },
+  { id: 'disp-fronter-callback', label: 'Callback', stage: 'fronter', ...ENDS_THE_CALL },
   { id: 'disp-fronter-dnc', label: 'Do Not Call', stage: 'fronter', ...ENDS_THE_CALL },
   { id: 'disp-fronter-invalid', label: 'Wrong Number', stage: 'fronter', ...ENDS_THE_CALL },
 ]
@@ -1116,7 +1162,7 @@ type MyStatsDispositionSeed = {
 const MY_STATS_LABELS = [
   'Qualified - Transferred',
   'Not Interested',
-  'Callback Requested',
+  'Callback',
   'Do Not Call',
   'Wrong Number',
 ] as const
@@ -1403,13 +1449,47 @@ const MOCK_RAW_EVENTS: Record<string, InteractionEvent[]> = {
 // already serves. int-exc-4 gets none, so "never saved" is reachable too.
 ;(() => {
   const seeds = [
-    { id: 'int-exc-1', vehicle: '2016 Honda Accord', mileage: '92,400', state: 'TX', warranty_status: 'Expired', notes: 'Wants coverage before a long drive; call back after 5pm.', dnc: false },
-    { id: 'int-exc-2', vehicle: '2019 Ford F-150', mileage: '61,880', state: 'OH', warranty_status: 'Expiring soon', notes: 'Asked for the powertrain tier in writing.', dnc: false },
-    { id: 'int-exc-3', vehicle: '2013 Toyota Camry', mileage: '148,010', state: 'FL', warranty_status: 'Expired', notes: 'Flagged Do Not Call mid-conversation.', dnc: true },
+    {
+      id: 'int-exc-1',
+      first_name: 'Alex',
+      last_name: 'Rivera',
+      phone_no: '+13235550142',
+      vehicle_year: 2016,
+      vehicle_make: 'Honda',
+      vehicle_model: 'Accord',
+      dnc: false,
+    },
+    {
+      id: 'int-exc-2',
+      first_name: 'Sam',
+      last_name: 'Nguyen',
+      phone_no: '+14085550199',
+      vehicle_year: 2019,
+      vehicle_make: 'Ford',
+      vehicle_model: 'F-150',
+      dnc: false,
+    },
+    {
+      id: 'int-exc-3',
+      first_name: 'Casey',
+      last_name: 'Brooks',
+      phone_no: '+13105550188',
+      vehicle_year: 2013,
+      vehicle_make: 'Toyota',
+      vehicle_model: 'Camry',
+      dnc: true,
+    },
   ]
 
   for (const seed of seeds) {
     const captured = HOURS_AGO(7)
+    const lead = leadForInteraction(seed.id)
+    lead.first_name = seed.first_name
+    lead.last_name = seed.last_name
+    lead.phone_no = seed.phone_no
+    lead.vehicle_year = seed.vehicle_year
+    lead.vehicle_make = seed.vehicle_make
+    lead.vehicle_model = seed.vehicle_model
     MOCK_QUALIFICATIONS.set(seed.id, {
       id: `qual-${seed.id}`,
       interaction_id: seed.id,
@@ -1423,13 +1503,11 @@ const MOCK_RAW_EVENTS: Record<string, InteractionEvent[]> = {
           decisionMakerConfirmed: true,
         },
         disposition: 'qualified',
-        notes: seed.notes,
         override: { applied: false, reason: '' },
-        vehicle: seed.vehicle,
-        mileage: seed.mileage,
-        state: seed.state,
-        warranty_status: seed.warranty_status,
-      } as QualificationResponse['snapshot_json'],
+        vehicle_year: String(seed.vehicle_year),
+        vehicle_make: seed.vehicle_make,
+        vehicle_model: seed.vehicle_model,
+      },
       consent_dnc: {
         consent_given: !seed.dnc,
         consent_captured_at: seed.dnc ? null : captured,
@@ -1437,7 +1515,7 @@ const MOCK_RAW_EVENTS: Record<string, InteractionEvent[]> = {
         dnc_source: seed.dnc ? 'agent' : null,
       },
       created_at: captured,
-      updated_at: captured,
+      customer: customerFromLead(lead),
     })
   }
 })()
@@ -2255,7 +2333,7 @@ export const handlers = [
       vehicle_make: body.vehicle_make!.trim(),
       vehicle_year: body.vehicle_year!,
       vehicle_model: body.vehicle_model!.trim(),
-      win: body.win?.trim() || null,
+      vin: body.vin?.trim() || null,
       license_plate: body.license_plate?.trim() || null,
       updated_at: now,
     }
@@ -2384,13 +2462,29 @@ export const handlers = [
     if (!saved) {
       return res(ctx.status(404), ctx.json({ detail: 'No qualification saved yet.' }))
     }
-    return res(ctx.status(200), ctx.json(saved))
+    // Refresh customer from the lead the way the live GET does.
+    const withCustomer: QualificationResponse = {
+      ...saved,
+      customer: customerFromLead(leadForInteraction(req.params.interactionId as string)),
+    }
+    return res(ctx.status(200), ctx.json(withCustomer))
   }),
 
   rest.post('/qualification', async (req, res, ctx) => {
     const body = (await req.json()) as QualificationCreateRequest
     const existing = MOCK_QUALIFICATIONS.get(body.interaction_id)
     const now = new Date().toISOString()
+    const snap = body.snapshot_json as Record<string, unknown>
+    const lead = leadForInteraction(body.interaction_id)
+    // Mirror fronter form fields onto the lead when the snapshot carries them.
+    if (typeof snap.vehicle_make === 'string' && snap.vehicle_make) lead.vehicle_make = snap.vehicle_make
+    if (typeof snap.vehicle_model === 'string' && snap.vehicle_model) {
+      lead.vehicle_model = snap.vehicle_model
+    }
+    if (snap.vehicle_year != null && String(snap.vehicle_year).trim()) {
+      const year = Number(snap.vehicle_year)
+      if (Number.isFinite(year)) lead.vehicle_year = year
+    }
 
     const record: QualificationResponse = {
       id: existing?.id ?? `qual-${++qualificationSeq}`,
@@ -2399,7 +2493,7 @@ export const handlers = [
       snapshot_json: body.snapshot_json as QualificationResponse['snapshot_json'],
       consent_dnc: body.consent_dnc,
       created_at: existing?.created_at ?? now,
-      updated_at: now,
+      customer: customerFromLead(lead),
     }
     MOCK_QUALIFICATIONS.set(body.interaction_id, record)
 
@@ -2608,8 +2702,8 @@ export const handlers = [
     }
     MOCK_INTERACTION_DISPOSITIONS.set(interactionId, [...existing, record])
 
-    // Callback Requested → fronter callback list (same rule as GET /queue?role=fronter).
-    if (catalog.stage === 'fronter' && catalog.label === 'Callback Requested') {
+    // Callback → fronter callback list (same rule as GET /queue?role=fronter).
+    if (catalog.stage === 'fronter' && catalog.label === 'Callback') {
       const already = MOCK_FRONTER_CALLBACKS.some((row) => row.id === interactionId)
       if (!already) {
         const interaction = MOCK_INTERACTIONS[interactionId]

@@ -23,17 +23,18 @@ export type ConsentDnc = components['schemas']['ConsentDnc']
 
 /**
  * Closer-facing read model for the Qualification Snapshot card.
- * Backed by `QualificationResponse.snapshot_json` + `consent_dnc` once the
- * fronter saves; keys below mirror the Figma labels until BE freezes a
- * dedicated closer DTO.
+ * Prefer `QualificationResponse.customer` (lead fields); fall back to
+ * `snapshot_json` vehicle_* for older saves that predate the customer block.
  */
 export type CloserQualificationSnapshot = {
-  vehicle: string
-  mileage: string
-  state: string
-  warranty_status: string
-  consent_label: string
-  notes: string
+  first_name: string
+  last_name: string
+  phone_no: string
+  vehicle_year: string
+  vehicle_make: string
+  vehicle_model: string
+  vin: string
+  license_plate: string
 }
 
 /**
@@ -78,14 +79,16 @@ export function closerWorkspaceHref(interactionId: string, transferId?: string |
   return `/closer/workspace/?${params.toString()}`
 }
 
-/** Seeded snapshot matching the Figma Closer Active Call frame. */
+/** Seeded snapshot matching the closer Qualification Snapshot card. */
 export const MOCK_CLOSER_SNAPSHOT: CloserQualificationSnapshot = {
-  vehicle: '2019 Toyota Camry',
-  mileage: '62,400',
-  state: 'TX',
-  warranty_status: 'Expired',
-  consent_label: 'Confirmed',
-  notes: 'Customer mentioned transmission noise',
+  first_name: 'Jane',
+  last_name: 'D.',
+  phone_no: '+13235550142',
+  vehicle_year: '2019',
+  vehicle_make: 'Toyota',
+  vehicle_model: 'Camry',
+  vin: '',
+  license_plate: '',
 }
 
 /** Desk rows that MSW must also seed (qualification + accepted transfer). */
@@ -116,12 +119,14 @@ export const CLOSER_DESK_SEEDS: readonly CloserDeskSeed[] = [
     from_name: 'Alex R.',
     accepted_offset_min: 1,
     snapshot: {
-      vehicle: '2021 Honda Accord',
-      mileage: '38,200',
-      state: 'CA',
-      warranty_status: 'Active',
-      consent_label: 'Confirmed',
-      notes: 'Interested in bumper-to-bumper extension',
+      first_name: 'Alex',
+      last_name: 'R.',
+      phone_no: '+13105550188',
+      vehicle_year: '2021',
+      vehicle_make: 'Honda',
+      vehicle_model: 'Accord',
+      vin: '',
+      license_plate: '',
     },
     consent_given: true,
     dnc_flagged: false,
@@ -132,12 +137,14 @@ export const CLOSER_DESK_SEEDS: readonly CloserDeskSeed[] = [
     from_name: 'Priya S.',
     accepted_offset_min: 2,
     snapshot: {
-      vehicle: '2016 Ford F-150',
-      mileage: '94,800',
-      state: 'FL',
-      warranty_status: 'Expired',
-      consent_label: 'Not confirmed',
-      notes: 'Caller asked about powertrain coverage only',
+      first_name: 'Priya',
+      last_name: 'S.',
+      phone_no: '+18135550177',
+      vehicle_year: '2016',
+      vehicle_make: 'Ford',
+      vehicle_model: 'F-150',
+      vin: '',
+      license_plate: '',
     },
     consent_given: false,
     dnc_flagged: false,
@@ -181,14 +188,12 @@ function snapString(value: unknown): string {
   return ''
 }
 
-function vehicleFromSnap(snap: Record<string, unknown>): string {
-  const combined = snapString(snap.vehicle)
-  if (combined.trim()) return combined
-  return [snap.vehicle_year, snap.vehicle_make, snap.vehicle_model]
-    .map(snapString)
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0 && part.toLowerCase() !== 'not provided')
-    .join(' ')
+function prefer(...values: unknown[]): string {
+  for (const value of values) {
+    const text = snapString(value).trim()
+    if (text && text.toLowerCase() !== 'not provided') return text
+  }
+  return ''
 }
 
 export function snapshotFromQualification(
@@ -197,20 +202,17 @@ export function snapshotFromQualification(
   if (!qualification) return null
 
   const snap = qualification.snapshot_json as Record<string, unknown>
-  const consent = qualification.consent_dnc
-  const consent_label = consent.dnc_flagged
-    ? 'DNC flagged'
-    : consent.consent_given
-      ? 'Confirmed'
-      : 'Not confirmed'
+  const customer = qualification.customer
 
   return {
-    vehicle: vehicleFromSnap(snap),
-    mileage: snapString(snap.mileage),
-    state: snapString(snap.state),
-    warranty_status: snapString(snap.warranty_status),
-    consent_label,
-    notes: snapString(snap.notes),
+    first_name: prefer(customer?.first_name),
+    last_name: prefer(customer?.last_name),
+    phone_no: prefer(customer?.phone_no),
+    vehicle_year: prefer(customer?.vehicle_year, snap.vehicle_year),
+    vehicle_make: prefer(customer?.vehicle_make, snap.vehicle_make),
+    vehicle_model: prefer(customer?.vehicle_model, snap.vehicle_model),
+    vin: prefer(customer?.vin, snap.vin),
+    license_plate: prefer(customer?.license_plate, snap.license_plate),
   }
 }
 

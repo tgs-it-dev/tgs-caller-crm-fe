@@ -51,7 +51,7 @@ const FIELD_KEYS = [
   'vehicle_make',
   'vehicle_year',
   'vehicle_model',
-  'win',
+  'vin',
   'license_plate',
 ] as const
 
@@ -97,8 +97,11 @@ export function LeadEditDialog({
       .then(({ lead, disp, available }) => {
         if (cancelled) return
         const form = leadFormValuesFromLead(lead)
-        const callback = disp.find((row) => row.label === CALLBACK_DISPOSITION_LABEL)
-        if (callback) form.disposition_id = callback.id
+        // Queue row already carries the outcome that put this lead on the list.
+        const current =
+          disp.find((row) => row.label === entry.disposition_label) ??
+          disp.find((row) => row.label === CALLBACK_DISPOSITION_LABEL)
+        if (current) form.disposition_id = current.id
         setValues(form)
         setDispositions(disp)
         setClosers(available)
@@ -114,7 +117,7 @@ export function LeadEditDialog({
     return () => {
       cancelled = true
     }
-  }, [entry.lead_id])
+  }, [entry.lead_id, entry.disposition_label])
 
   function patch(next: Partial<LeadCreateFormValues>) {
     setValues((prev) => ({ ...prev, ...next }))

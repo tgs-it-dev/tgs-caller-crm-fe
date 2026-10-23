@@ -6,7 +6,7 @@ import MuiAlert from '@mui/material/Alert'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import { QueueTable } from '@/components/queue/QueueTable'
 import { Alert } from '@/components/ui/Alert'
-import { Badge } from '@/components/ui/Badge'
+// import { Badge } from '@/components/ui/Badge'
 import { PageShell } from '@/components/ui/PageShell'
 import { AuthError } from '@/lib/auth'
 import { closerWorkspaceHref } from '@/lib/closer'
@@ -136,11 +136,11 @@ export function QueueScreen({ role }: { role: 'closer' }) {
   return (
     <PageShell
       title="Queue"
-      actions={
-        <Badge tone="live" dot>
-          Live
-        </Badge>
-      }
+      // actions={
+      //   <Badge tone="live" dot>
+      //     Live
+      //   </Badge>
+      // }
     >
       <QueueBody />
     </PageShell>

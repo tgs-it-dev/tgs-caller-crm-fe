@@ -54,7 +54,7 @@ const FIELD_KEYS = [
   'vehicle_make',
   'vehicle_year',
   'vehicle_model',
-  'win',
+  'vin',
   'license_plate',
 ] as const
 

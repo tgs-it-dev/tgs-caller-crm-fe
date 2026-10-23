@@ -181,27 +181,27 @@ const TEAM_ADMIN_NAV: NavItem[] = [
     icon: ReportsIcon,
     isActive: (p) => p.startsWith('/admin/reports'),
   },
-  {
-    href: '/admin/exceptions',
-    label: 'Exceptions',
-    icon: ExceptionsIcon,
-    // Not /admin/interactions: that screen is reached from here and from the
-    // reports funnel, so lighting either one is wrong half the time. It lights
-    // nothing, and its back link says which way the reader came in.
-    isActive: (p) => p.startsWith('/admin/exceptions'),
-  },
+  // {
+  //   href: '/admin/exceptions',
+  //   label: 'Exceptions',
+  //   icon: ExceptionsIcon,
+  //   // Not /admin/interactions: that screen is reached from here and from the
+  //   // reports funnel, so lighting either one is wrong half the time. It lights
+  //   // nothing, and its back link says which way the reader came in.
+  //   isActive: (p) => p.startsWith('/admin/exceptions'),
+  // },
   {
     href: '/admin/users',
     label: 'Users',
     icon: UsersIcon,
     isActive: (p) => p.startsWith('/admin/users'),
   },
-  {
-    href: '/admin/leads',
-    label: 'Leads',
-    icon: LeadsIcon,
-    isActive: (p) => p.startsWith('/admin/leads'),
-  },
+  // {
+  //   href: '/admin/leads',
+  //   label: 'Leads',
+  //   icon: LeadsIcon,
+  //   isActive: (p) => p.startsWith('/admin/leads'),
+  // },
 ]
 
 /** Super Admin modules — Users / Teams / Campaigns only. */

@@ -1,13 +1,27 @@
+import type { ReactNode } from 'react'
 import type { CloserQualificationSnapshot } from '@/lib/closer'
+import { formatPhone } from '@/lib/format'
 
-const ROWS: { label: string; key: keyof CloserQualificationSnapshot }[] = [
-  { label: 'Vehicle Year / Make / Model :', key: 'vehicle' },
-  { label: 'Mileage:', key: 'mileage' },
-  { label: 'State:', key: 'state' },
-  { label: 'Warranty Status:', key: 'warranty_status' },
-  { label: 'Consent / DNC confirmation:', key: 'consent_label' },
-  { label: 'Notes:', key: 'notes' },
-]
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="space-y-2">
+      <h3 className="border-b-hairline border-light-grey pb-2 text-base font-semibold leading-[120%] text-ink">
+        {title}
+      </h3>
+      <dl className="space-y-2">{children}</dl>
+    </section>
+  )
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  const text = value.trim()
+  return (
+    <div className="grid grid-cols-1 gap-1 sm:grid-cols-2 sm:gap-x-8">
+      <dt className="text-sm font-normal leading-[150%] text-body-text">{label}</dt>
+      <dd className="text-base font-medium leading-[150%] text-ink">{text || '—'}</dd>
+    </div>
+  )
+}
 
 export function QualificationSnapshot({
   snapshot,
@@ -23,17 +37,27 @@ export function QualificationSnapshot({
         Qualification Snapshot
       </h2>
       {snapshot ? (
-        <dl className="mt-4 space-y-2">
-          {ROWS.map(({ label, key }) => (
-            <div
-              key={key}
-              className="grid grid-cols-1 gap-1 sm:grid-cols-2 sm:gap-x-8"
-            >
-              <dt className="text-sm font-normal leading-[150%] text-body-text">{label}</dt>
-              <dd className="text-base font-medium leading-[150%] text-ink">{snapshot[key]}</dd>
-            </div>
-          ))}
-        </dl>
+        <div className="mt-4 space-y-6">
+          <Section title="Personal">
+            <Row label="First name:" value={snapshot.first_name} />
+            <Row label="Last name:" value={snapshot.last_name} />
+            <Row
+              label="Phone:"
+              value={snapshot.phone_no ? formatPhone(snapshot.phone_no) : ''}
+            />
+          </Section>
+
+          <Section title="Vehicle">
+            <Row label="Make:" value={snapshot.vehicle_make} />
+            <Row label="Model:" value={snapshot.vehicle_model} />
+            <Row label="Year:" value={snapshot.vehicle_year} />
+          </Section>
+
+          <Section title="Identity">
+            <Row label="VIN:" value={snapshot.vin} />
+            <Row label="License plate:" value={snapshot.license_plate} />
+          </Section>
+        </div>
       ) : (
         !isLoading && (
           <p className="mt-4 text-sm leading-[150%] text-slate">

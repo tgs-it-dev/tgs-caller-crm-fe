@@ -22,7 +22,7 @@ export type LeadSummary = {
   vehicle_make?: string | null
   vehicle_year?: number | null
   vehicle_model?: string | null
-  win?: string | null
+  vin?: string | null
   license_plate?: string | null
 }
 
@@ -60,7 +60,7 @@ function toLeadSummary(lead: LeadResponse): LeadSummary {
     vehicle_make: lead.vehicle_make,
     vehicle_year: lead.vehicle_year,
     vehicle_model: lead.vehicle_model,
-    win: lead.win,
+    vin: lead.vin,
     license_plate: lead.license_plate,
   }
 }

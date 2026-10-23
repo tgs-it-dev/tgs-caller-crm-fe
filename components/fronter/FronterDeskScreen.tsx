@@ -60,7 +60,7 @@ function callbackColumns(onEdit: (entry: FronterQueueEntry) => void): DataColumn
     },
     {
       id: 'when',
-      header: 'Requested',
+      header: 'Created at',
       render: (entry) => (
         <span className="whitespace-nowrap">{formatDateTime(entry.dispositioned_at)}</span>
       ),
@@ -158,7 +158,7 @@ export function FronterDeskScreen() {
         {load.status === 'error' && <Alert>{load.message}</Alert>}
         {load.status === 'ready' && (
           <DataTable
-            title="Callbacks"
+            title="Scheduled callbacks"
             ariaLabel="Leads waiting for a callback"
             rows={load.entries}
             columns={callbackColumns((entry) => setEditing(entry))}

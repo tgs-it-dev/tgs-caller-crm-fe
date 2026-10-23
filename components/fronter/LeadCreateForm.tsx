@@ -1,6 +1,9 @@
 'use client'
 
 import { type FormEvent, type ReactNode } from 'react'
+import FormControlLabel from '@mui/material/FormControlLabel'
+import Radio from '@mui/material/Radio'
+import RadioGroup from '@mui/material/RadioGroup'
 import { ClosersTable } from '@/components/workspace/ClosersTable'
 import { Alert } from '@/components/ui/Alert'
 import { Input } from '@/components/ui/Input'
@@ -28,14 +31,34 @@ function RequiredMark() {
   )
 }
 
+/** Matches UserFormDialog / Checkbox row sizing for MUI radios. */
+const RADIO_ROW_SX = {
+  m: 0,
+  gap: 1.25,
+  alignItems: 'center',
+  '& .MuiFormControlLabel-label': { fontSize: '0.875rem', lineHeight: '20px' },
+} as const
+
+const RADIO_CONTROL_SX = {
+  p: 0,
+  color: 'slate.main',
+  '&.Mui-checked': { color: 'navy.main' },
+  '& .MuiSvgIcon-root': { fontSize: 18 },
+} as const
+
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <fieldset className="space-y-4">
-      <legend className="text-sm font-medium leading-[150%] text-ink">{title}</legend>
+    <section className="space-y-5">
+      <h3 className="border-b-hairline border-light-grey pb-3 text-base font-semibold leading-[120%] text-ink">
+        {title}
+      </h3>
       {children}
-    </fieldset>
+    </section>
   )
 }
+
+/** Agent picks one identity field; BE requires at least one of VIN / plate. */
+export type LeadIdentityKind = 'vin' | 'license_plate'
 
 export type LeadCreateFormValues = {
   first_name: string
@@ -44,7 +67,9 @@ export type LeadCreateFormValues = {
   vehicle_make: string
   vehicle_year: string
   vehicle_model: string
-  win: string
+  /** Which identity field the agent is filling — the other is sent as null. */
+  identity_kind: LeadIdentityKind
+  vin: string
   license_plate: string
   /** Empty = open Active Call without capturing an outcome yet. */
   disposition_id: string
@@ -57,7 +82,8 @@ export const EMPTY_LEAD_CREATE_FORM: LeadCreateFormValues = {
   vehicle_make: '',
   vehicle_year: '',
   vehicle_model: '',
-  win: '',
+  identity_kind: 'vin',
+  vin: '',
   license_plate: '',
   disposition_id: '',
 }
@@ -91,17 +117,23 @@ export function validateLeadCreateForm(
     }
   }
 
-  if (!values.win.trim() && !values.license_plate.trim()) {
-    found.win = 'Provide a WIN, a license plate, or both.'
-    found.license_plate = 'Provide a WIN, a license plate, or both.'
+  if (values.identity_kind === 'vin') {
+    if (!values.vin.trim()) found.vin = 'Enter the VIN.'
+  } else if (!values.license_plate.trim()) {
+    found.license_plate = 'Enter the license plate.'
   }
 
   return found
 }
 
+function identityPayload(values: LeadCreateFormValues): Pick<NewLead, 'vin' | 'license_plate'> {
+  if (values.identity_kind === 'vin') {
+    return { vin: values.vin.trim(), license_plate: null }
+  }
+  return { vin: null, license_plate: values.license_plate.trim() }
+}
+
 export function leadCreatePayload(values: LeadCreateFormValues): NewLead {
-  const win = values.win.trim()
-  const plate = values.license_plate.trim()
   return {
     first_name: values.first_name.trim(),
     last_name: values.last_name.trim(),
@@ -109,27 +141,25 @@ export function leadCreatePayload(values: LeadCreateFormValues): NewLead {
     vehicle_make: values.vehicle_make.trim(),
     vehicle_year: Number(values.vehicle_year.trim()),
     vehicle_model: values.vehicle_model.trim(),
-    ...(win ? { win } : { win: null }),
-    ...(plate ? { license_plate: plate } : { license_plate: null }),
+    ...identityPayload(values),
   }
 }
 
 /** PATCH body — phone is not on LeadUpdateRequest. */
 export function leadUpdatePayload(values: LeadCreateFormValues): LeadUpdate {
-  const win = values.win.trim()
-  const plate = values.license_plate.trim()
   return {
     first_name: values.first_name.trim(),
     last_name: values.last_name.trim(),
     vehicle_make: values.vehicle_make.trim(),
     vehicle_year: Number(values.vehicle_year.trim()),
     vehicle_model: values.vehicle_model.trim(),
-    ...(win ? { win } : { win: null }),
-    ...(plate ? { license_plate: plate } : { license_plate: null }),
+    ...identityPayload(values),
   }
 }
 
 export function leadFormValuesFromLead(lead: LeadResponse): LeadCreateFormValues {
+  const vin = lead.vin ?? ''
+  const plate = lead.license_plate ?? ''
   return {
     first_name: lead.first_name ?? '',
     last_name: lead.last_name ?? '',
@@ -137,8 +167,10 @@ export function leadFormValuesFromLead(lead: LeadResponse): LeadCreateFormValues
     vehicle_make: lead.vehicle_make ?? '',
     vehicle_year: lead.vehicle_year != null ? String(lead.vehicle_year) : '',
     vehicle_model: lead.vehicle_model ?? '',
-    win: lead.win ?? '',
-    license_plate: lead.license_plate ?? '',
+    // Prefer VIN when both exist; plate-only rows open on plate.
+    identity_kind: vin.trim() ? 'vin' : plate.trim() ? 'license_plate' : 'vin',
+    vin,
+    license_plate: plate,
     disposition_id: '',
   }
 }
@@ -178,7 +210,7 @@ export function LeadCreateForm({
     dispositions?.find((row) => row.id === values.disposition_id) ?? null
   const showTransfer = Boolean(selectedDisposition?.allows_transfer && closers)
   return (
-    <form id={formId} onSubmit={onSubmit} noValidate className="space-y-6 pt-1">
+    <form id={formId} onSubmit={onSubmit} noValidate className="space-y-8 pt-1">
       {banner && <Alert>{banner}</Alert>}
 
       <Section title="Personal">
@@ -223,6 +255,7 @@ export function LeadCreateForm({
           onChange={(e) => onChange({ phone_no: e.target.value })}
           error={Boolean(problems.phone_no)}
           helperText={problems.phone_no}
+          placeholder="212 555 0100"
           maxLength={LEAD_PHONE_MAX}
           disabled={phoneLocked}
         />
@@ -273,36 +306,63 @@ export function LeadCreateForm({
           />
         </div>
       </Section>
-
       <Section title="Identity">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Input
-            label={
-              <>
-                WIN
-                <RequiredMark />
-              </>
+        <fieldset className="space-y-4">
+          <legend className="mb-1 text-sm font-medium leading-[150%] text-ink">
+            Identify with
+            <RequiredMark />
+          </legend>
+          <RadioGroup
+            row
+            value={values.identity_kind}
+            onChange={(event) =>
+              onChange({ identity_kind: event.target.value as LeadIdentityKind })
             }
-            value={values.win}
-            onChange={(e) => onChange({ win: e.target.value })}
-            error={Boolean(problems.win)}
-            helperText={problems.win}
-            maxLength={LEAD_FIELD_MAX}
-          />
-          <Input
-            label={
-              <>
-                License plate
-                <RequiredMark />
-              </>
-            }
-            value={values.license_plate}
-            onChange={(e) => onChange({ license_plate: e.target.value })}
-            error={Boolean(problems.license_plate)}
-            helperText={problems.license_plate}
-            maxLength={LEAD_FIELD_MAX}
-          />
-        </div>
+            className="flex flex-wrap gap-x-6 gap-y-2"
+          >
+            <FormControlLabel
+              value="vin"
+              sx={RADIO_ROW_SX}
+              control={<Radio size="small" disableRipple sx={RADIO_CONTROL_SX} />}
+              label="VIN"
+            />
+            <FormControlLabel
+              value="license_plate"
+              sx={RADIO_ROW_SX}
+              control={<Radio size="small" disableRipple sx={RADIO_CONTROL_SX} />}
+              label="License plate"
+            />
+          </RadioGroup>
+          {values.identity_kind === 'vin' ? (
+            <Input
+              label={
+                <>
+                  VIN
+                  <RequiredMark />
+                </>
+              }
+              value={values.vin}
+              onChange={(e) => onChange({ vin: e.target.value })}
+              error={Boolean(problems.vin)}
+              helperText={problems.vin}
+              maxLength={LEAD_FIELD_MAX}
+            />
+          ) : (
+            <Input
+              label={
+                <>
+                  License plate
+                  <RequiredMark />
+                </>
+              }
+              value={values.license_plate}
+              onChange={(e) => onChange({ license_plate: e.target.value })}
+              error={Boolean(problems.license_plate)}
+              helperText={problems.license_plate}
+              maxLength={LEAD_FIELD_MAX}
+            />
+          )}
+        </fieldset>
       </Section>
 
       {dispositions && (

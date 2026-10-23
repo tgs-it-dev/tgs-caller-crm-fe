@@ -645,20 +645,23 @@ export interface paths {
         put?: never;
         /**
          * Create a lead
-         * @description Create a lead from the fronter form, or return the existing phone match.
+         * @description Create or fill a lead from the fronter form.
          *
-         *     Body: ``phone_no``, first/last name, vehicle make/year/model, and WIN
-         *     and/or license plate. ``source`` is always ``manual``. ``team_id`` comes
-         *     from the caller's ``user_teams`` row (not the body). ``fronter_id`` is the
-         *     caller.
+         *     Body: ``phone_no``, first/last name, vehicle make/year/model, and VIN
+         *     and/or license plate. ``source`` is always ``manual`` on insert. ``team_id``
+         *     comes from the caller's ``user_teams`` row (not the body). ``fronter_id`` is
+         *     the caller.
          *
-         *     On insert: mints one ``interaction`` and returns its id. Disposition is
-         *     separate — Callback → fronter queue; Qualified (+ transfer) → closer queue.
+         *     On **new** phone: inserts the lead, mints one ``interaction``, returns its
+         *     id. On **existing** phone: writes the submitted form fields onto that lead
+         *     (so a prior phone-only / dialer row is filled in), keeps or mints an
+         *     interaction, and returns ``interaction_id``. Disposition stays separate —
+         *     Callback → fronter queue; Qualified (+ transfer) → closer queue.
          *
-         *     ``phone_no`` may be any common format; it is matched and stored as E.164.
+         *     ``phone_no`` is stored as submitted (not rewritten to E.164). Matching
+         *     still accepts the E.164 form so a dialer row for the same number is found.
          *     Responds 201 in both cases — compare ``created_at`` to tell a new lead from
-         *     a returning caller. Form fields are stored only on insert; use PATCH to
-         *     update.
+         *     a returning caller.
          */
         post: operations["create_lead_leads_post"];
         delete?: never;
@@ -738,7 +741,7 @@ export interface paths {
         head?: never;
         /**
          * Update fronter form fields on a lead
-         * @description Overwrite personal, vehicle, and WIN / license-plate fields.
+         * @description Overwrite personal, vehicle, and VIN / license-plate fields.
          */
         patch: operations["patch_lead_leads__lead_id__patch"];
         trace?: never;
@@ -804,6 +807,9 @@ export interface paths {
         /**
          * Fetch the current qualification for an interaction
          * @description The highest version — earlier ones stay on record but are not the answer.
+         *
+         *     Includes ``customer`` (lead personal / vehicle / identity) so the closer
+         *     form does not need a second lead fetch.
          */
         get: operations["get_latest_qualification__interaction_id__get"];
         put?: never;
@@ -1545,8 +1551,8 @@ export interface components {
          * FronterCallbackItem
          * @description Wire shape for a fronter callback-list row.
          *
-         *     Current fronter-stage disposition is ``Callback Requested``. Display name
-         *     comes from the lead's first/last name (phone when those are unset).
+         *     Current fronter-stage disposition is ``Callback``. Display name comes from
+         *     the lead's first/last name (phone when those are unset).
          */
         FronterCallbackItem: {
             /**
@@ -2049,7 +2055,7 @@ export interface components {
          * LeadCreateRequest
          * @description Fronter (or admin) lead-form create body.
          *
-         *     Required: personal + vehicle + WIN and/or license plate + ``phone_no``.
+         *     Required: personal + vehicle + VIN and/or license plate + ``phone_no``.
          *     ``source`` is always ``manual`` (set by the endpoint). ``fronter_id`` and
          *     ``team_id`` come from the authenticated user (``user_teams``) — not the body.
          */
@@ -2060,12 +2066,12 @@ export interface components {
             last_name: string;
             /**
              * License Plate
-             * @description License plate. Required when win is omitted.
+             * @description License plate. Required when vin is omitted.
              */
             license_plate?: string | null;
             /**
              * Phone No
-             * @description Phone as entered; stored as E.164 in ``phone_no``.
+             * @description Phone as entered; stored as submitted (not rewritten to E.164).
              */
             phone_no: string;
             /** Vehicle Make */
@@ -2075,10 +2081,10 @@ export interface components {
             /** Vehicle Year */
             vehicle_year: number;
             /**
-             * Win
-             * @description WIN identifier. Required when license_plate is omitted.
+             * Vin
+             * @description VIN identifier. Required when license_plate is omitted.
              */
-            win?: string | null;
+            vin?: string | null;
         };
         /** LeadListResponse */
         LeadListResponse: {
@@ -2121,7 +2127,7 @@ export interface components {
             license_plate?: string | null;
             /**
              * Phone No
-             * @description Lead phone in E.164.
+             * @description Lead phone as stored (as entered on form create; E.164 for dialer/bulk).
              */
             phone_no: string;
             /**
@@ -2140,8 +2146,8 @@ export interface components {
             vehicle_model?: string | null;
             /** Vehicle Year */
             vehicle_year?: number | null;
-            /** Win */
-            win?: string | null;
+            /** Vin */
+            vin?: string | null;
         };
         /**
          * LeadUpdateRequest
@@ -2154,7 +2160,7 @@ export interface components {
             last_name: string;
             /**
              * License Plate
-             * @description License plate. Required when win is omitted.
+             * @description License plate. Required when vin is omitted.
              */
             license_plate?: string | null;
             /** Vehicle Make */
@@ -2164,10 +2170,10 @@ export interface components {
             /** Vehicle Year */
             vehicle_year: number;
             /**
-             * Win
-             * @description WIN identifier. Required when license_plate is omitted.
+             * Vin
+             * @description VIN identifier. Required when license_plate is omitted.
              */
-            win?: string | null;
+            vin?: string | null;
         };
         /** LiveStatusResponse */
         LiveStatusResponse: {
@@ -2221,6 +2227,36 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /**
+         * QualificationCustomer
+         * @description Lead / customer fields for the interaction this qualification belongs to.
+         *
+         *     Form-captured rows have personal + vehicle + VIN and/or plate; dialer/bulk
+         *     rows may only have ``phone_no`` until a fronter fills the rest.
+         */
+        QualificationCustomer: {
+            /** First Name */
+            first_name?: string | null;
+            /** Last Name */
+            last_name?: string | null;
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
+            /** License Plate */
+            license_plate?: string | null;
+            /** Phone No */
+            phone_no: string;
+            /** Vehicle Make */
+            vehicle_make?: string | null;
+            /** Vehicle Model */
+            vehicle_model?: string | null;
+            /** Vehicle Year */
+            vehicle_year?: number | null;
+            /** Vin */
+            vin?: string | null;
+        };
         /** QualificationResponse */
         QualificationResponse: {
             consent_dnc: components["schemas"]["ConsentDnc"];
@@ -2229,6 +2265,7 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            customer: components["schemas"]["QualificationCustomer"];
             /**
              * Id
              * Format: uuid
@@ -4002,7 +4039,7 @@ export interface operations {
             query?: {
                 limit?: number;
                 offset?: number;
-                /** @description Filter by phone (any format; matched as E.164) */
+                /** @description Filter by phone (exact or E.164 of the same number) */
                 phone_no?: string | null;
                 /** @description A Super Admin names one team's leads, or leaves it out for every team; anyone else may only name their own team. */
                 team_id?: string | null;

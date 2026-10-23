@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { RequireRole } from '@/components/auth/RequireRole'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import { Alert } from '@/components/ui/Alert'
-import { Badge } from '@/components/ui/Badge'
+// import { Badge } from '@/components/ui/Badge'
 import { PageShell } from '@/components/ui/PageShell'
 import { CallerLeadInfo } from './CallerLeadInfo'
 import { DispositionCard } from './DispositionCard'
@@ -53,9 +53,9 @@ function LiveCallBadge({ startedAt }: { startedAt: string }) {
 
   return (
     <div className="flex items-center gap-3">
-      <Badge tone="live" dot>
+      {/* <Badge tone="live" dot>
         Live
-      </Badge>
+      </Badge> */}
       <span className="text-sm text-ink">on call — {elapsed}</span>
     </div>
   )

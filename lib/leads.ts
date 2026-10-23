@@ -77,7 +77,7 @@ export function createLead(payload: NewLead, token: string): Promise<LeadRespons
   return json<LeadResponse>('/leads', token, { method: 'POST', body: JSON.stringify(payload) })
 }
 
-/** Overwrite personal / vehicle / WIN / plate — phone cannot change. */
+/** Overwrite personal / vehicle / VIN / plate — phone cannot change. */
 export function updateLead(
   leadId: string,
   payload: LeadUpdate,

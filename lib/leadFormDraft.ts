@@ -42,4 +42,4 @@ export function takeLeadFormDraft(interactionId: string): LeadFormDraft | null {
 }
 
 /** Catalogue label that places an interaction on the fronter callback list. */
-export const CALLBACK_DISPOSITION_LABEL = 'Callback Requested'
+export const CALLBACK_DISPOSITION_LABEL = 'Callback'

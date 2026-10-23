@@ -8,7 +8,7 @@ import {
   latestFronterDisposition,
   type InteractionDispositionResponse,
 } from '@/lib/dispositions'
-import { formatDateTime, localZoneName } from '@/lib/format'
+import { formatDateTime, formatPhone, localZoneName } from '@/lib/format'
 import type {
   CallLeg,
   InteractionEvent,
@@ -157,47 +157,30 @@ export function TransfersPanel({ transfers }: { transfers: InteractionTransfer[]
   )
 }
 
-/** The design's rows, in its order and its wording. */
-const SNAPSHOT_ROWS: { key: string; label: string }[] = [
-  { key: 'mileage', label: 'Mileage:' },
-  { key: 'state', label: 'State:' },
-  { key: 'warranty_status', label: 'Warranty Status:' },
-]
+/** Dropped from the closer/admin card — no longer shown as named rows or extras. */
+const HIDDEN_SNAPSHOT_KEYS = new Set([
+  'mileage',
+  'state',
+  'warranty_status',
+  'notes',
+  'vehicle',
+  'vehicle_year',
+  'vehicle_make',
+  'vehicle_model',
+  'vin',
+  'license_plate',
+  'checklist',
+  'disposition',
+  'override',
+])
 
-/** Split keys Active Call may also write alongside free-text `vehicle`. */
-const VEHICLE_SPLIT_KEYS = ['vehicle_year', 'vehicle_make', 'vehicle_model'] as const
-
-/** Invented by an older write path — not a value a fronter typed. */
-function isVehiclePlaceholder(value: unknown): boolean {
-  return typeof value === 'string' && value.trim().toLowerCase() === 'not provided'
-}
-
-/**
- * The design asks for one Vehicle line; the snapshot may hold it as one key or
- * as year, make and model separately. Whichever keys it used are reported back,
- * so they are not then listed a second time below.
- */
-function vehicleLine(snapshot: QualificationRecord['snapshot_json']): {
-  value: unknown
-  used: string[]
-} {
-  // Free-text line wins. Always consume the split keys too — older saves wrote
-  // both, and listing them again as snake_case extras was the bug.
-  if (typeof snapshot.vehicle === 'string' && snapshot.vehicle) {
-    return { value: snapshot.vehicle, used: ['vehicle', ...VEHICLE_SPLIT_KEYS] }
+function preferField(...values: unknown[]): string {
+  for (const value of values) {
+    if (value === null || value === undefined) continue
+    const text = String(value).trim()
+    if (text && text.toLowerCase() !== 'not provided') return text
   }
-
-  const parts = VEHICLE_SPLIT_KEYS.filter((key) => {
-    const value = snapshot[key]
-    if (isVehiclePlaceholder(value)) return false
-    return (typeof value === 'string' && value) || typeof value === 'number'
-  })
-  if (parts.length === 0) return { value: null, used: ['vehicle', ...VEHICLE_SPLIT_KEYS] }
-
-  return {
-    value: parts.map((key) => String(snapshot[key])).join(' '),
-    used: ['vehicle', ...VEHICLE_SPLIT_KEYS],
-  }
+  return ''
 }
 
 /** Whatever is in the JSON, readable — objects as JSON rather than "[object Object]". */
@@ -221,22 +204,15 @@ function SnapshotRow({ label, children }: { label: string; children: ReactNode }
   )
 }
 
-/**
- * One line for consent, as the design asks.
- *
- * A DNC flag outranks consent: it is a compliance stop, and reading
- * "Confirmed" on a flagged record would be the worst possible answer here.
- */
-function consentLine(consent: QualificationRecord['consent_dnc']): ReactNode {
-  if (consent.dnc_flagged) {
-    return (
-      <Badge tone="red">
-        Do Not Call{consent.dnc_source ? ` · ${consent.dnc_source}` : ''}
-      </Badge>
-    )
-  }
-  if (!consent.consent_given) return <span className="text-slate">Not confirmed</span>
-  return 'Confirmed'
+function SnapshotSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="space-y-3">
+      <h3 className="border-b-hairline border-light-grey pb-2 text-base font-semibold leading-[120%] text-ink">
+        {title}
+      </h3>
+      {children}
+    </section>
+  )
 }
 
 function PanelShell({ title, children }: { title: string; children: ReactNode }) {
@@ -372,32 +348,59 @@ export function QualificationPanel({ record }: { record: QualificationRecord | n
   }
 
   const snapshot = record.snapshot_json
-  const vehicle = vehicleLine(snapshot)
-  const named = new Set([...SNAPSHOT_ROWS.map((row) => row.key), 'notes', ...vehicle.used])
+  const customer = record.customer
   // Listed rather than dropped: snapshot_json is free-form, and a screen for
-  // auditing a record should not decide half of it is not worth showing.
-  const extras = Object.keys(snapshot).filter((key) => !named.has(key))
+  // auditing a record should not decide half of it is not worth showing —
+  // except the fields the product has retired from this card.
+  const extras = Object.keys(snapshot).filter((key) => !HIDDEN_SNAPSHOT_KEYS.has(key))
+
+  const firstName = preferField(customer?.first_name)
+  const lastName = preferField(customer?.last_name)
+  const phone = preferField(customer?.phone_no)
+  const year = preferField(customer?.vehicle_year, snapshot.vehicle_year)
+  const make = preferField(customer?.vehicle_make, snapshot.vehicle_make)
+  const model = preferField(customer?.vehicle_model, snapshot.vehicle_model)
+  const vin = preferField(customer?.vin, snapshot.vin)
+  const plate = preferField(customer?.license_plate, snapshot.license_plate)
 
   return (
     <PanelShell title="Qualification Snapshot">
-      <dl className="space-y-3">
-        <SnapshotRow label="Vehicle Year / Make / Model :">{snapshotValue(vehicle.value)}</SnapshotRow>
+      <div className="space-y-6">
+        <SnapshotSection title="Personal">
+          <dl className="space-y-3">
+            <SnapshotRow label="First name:">{snapshotValue(firstName)}</SnapshotRow>
+            <SnapshotRow label="Last name:">{snapshotValue(lastName)}</SnapshotRow>
+            <SnapshotRow label="Phone:">{snapshotValue(phone ? formatPhone(phone) : '')}</SnapshotRow>
+          </dl>
+        </SnapshotSection>
 
-        {SNAPSHOT_ROWS.map((row) => (
-          <SnapshotRow key={row.key} label={row.label}>
-            {snapshotValue(snapshot[row.key])}
-          </SnapshotRow>
-        ))}
+        <SnapshotSection title="Vehicle">
+          <dl className="space-y-3">
+            <SnapshotRow label="Make:">{snapshotValue(make)}</SnapshotRow>
+            <SnapshotRow label="Model:">{snapshotValue(model)}</SnapshotRow>
+            <SnapshotRow label="Year:">{snapshotValue(year)}</SnapshotRow>
+          </dl>
+        </SnapshotSection>
 
-        <SnapshotRow label="Consent / DNC confirmation:">{consentLine(record.consent_dnc)}</SnapshotRow>
-        <SnapshotRow label="Notes:">{snapshotValue(snapshot.notes)}</SnapshotRow>
+        <SnapshotSection title="Identity">
+          <dl className="space-y-3">
+            <SnapshotRow label="VIN:">{snapshotValue(vin)}</SnapshotRow>
+            <SnapshotRow label="License plate:">{snapshotValue(plate)}</SnapshotRow>
+          </dl>
+        </SnapshotSection>
 
-        {extras.map((key) => (
-          <SnapshotRow key={key} label={`${key}:`}>
-            {snapshotValue(snapshot[key])}
-          </SnapshotRow>
-        ))}
-      </dl>
+        {extras.length > 0 && (
+          <SnapshotSection title="Other">
+            <dl className="space-y-3">
+              {extras.map((key) => (
+                <SnapshotRow key={key} label={`${key}:`}>
+                  {snapshotValue(snapshot[key])}
+                </SnapshotRow>
+              ))}
+            </dl>
+          </SnapshotSection>
+        )}
+      </div>
     </PanelShell>
   )
 }
