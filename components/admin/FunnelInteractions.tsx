@@ -6,9 +6,8 @@ import MuiButton from '@mui/material/Button'
 import { STAGE_LABEL, STAGE_TIME_LABEL } from '@/components/admin/FunnelChart'
 import { Alert } from '@/components/ui/Alert'
 import { DataTable, type DataColumn } from '@/components/ui/DataTable'
-import { Select } from '@/components/ui/Select'
 import { AuthError } from '@/lib/auth'
-import { BUSINESS_TIMEZONE, formatDateTimeIn, formatPhone, formatZone } from '@/lib/format'
+import { formatDateTimeIn, formatPhone, formatZone } from '@/lib/format'
 import { waitForMocking } from '@/lib/mockReady'
 import {
   fetchFunnelStage,
@@ -110,22 +109,17 @@ const columnsIn = (timeZone: string, stage: FunnelStage): DataColumn<FunnelInter
  * The interactions behind one funnel number.
  *
  * Takes the funnel that was answered, never the range that was asked for — on
- * the first read those can differ, and only the reply carries a zone. Picking
- * another zone climbs to the parent so the bars reload under the same window —
- * a list-only change would disagree with the figure above it.
+ * the first read those can differ, and only the reply carries a zone.
  */
 export function FunnelInteractions({
   id,
   stage,
   funnel,
-  onTimezoneChange,
 }: {
   /** What the bars' `aria-controls` points at — every state carries it. */
   id: string
   stage: FunnelStage
   funnel: HistoricalFunnel
-  /** Reloads the whole funnel under this zone so bars and list stay aligned. */
-  onTimezoneChange: (timezone: string) => void
 }) {
   const [offset, setOffset] = useState(0)
   const [load, setLoad] = useState<LoadState>({ status: 'loading' })
@@ -171,8 +165,6 @@ export function FunnelInteractions({
   }
 
   const heading = `Interactions behind ${STAGE_LABEL[stage]}`
-  // Business Eastern only — the CRM does not offer other zones on this list.
-  const zones = [BUSINESS_TIMEZONE] as const
 
   return (
     <DataTable
@@ -202,20 +194,6 @@ export function FunnelInteractions({
           <span className="whitespace-nowrap text-xs leading-[150%] text-slate">
             Times in {formatZone(funnel.end, load.list.timezone)}
           </span>
-          <div className="w-[220px]">
-            <Select
-              label="Timezone"
-              size="small"
-              value={BUSINESS_TIMEZONE}
-              onChange={(event) => onTimezoneChange(event.target.value)}
-            >
-              {zones.map((zone) => (
-                <option key={zone} value={zone}>
-                  {zone}
-                </option>
-              ))}
-            </Select>
-          </div>
         </div>
       }
     />

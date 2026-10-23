@@ -155,8 +155,9 @@ The administrator dashboard (`/admin`) is fed by `lib/liveStatus.ts`:
 - Under MSW there's no socket to mock, so it polls the snapshot every 15s.
 - "Live" means the newest snapshot arrived within three push intervals,
   timed by arrival — a socket kept open by pings can still carry stale figures.
-- Times show in the business time zone the snapshot names (`timezone`), with its
-  abbreviation, so they read in the same day as the counts.
+- Times show in the user's own zone, with its abbreviation. The counters read
+  `funnel_today_by_timezone`, which carries today in every zone a user can
+  choose, so one push gives each viewer their own day.
 
 ## Fronter Active Call
 
@@ -199,13 +200,13 @@ disposition picker and the transfer panel.
 inclusive range of business days — Attempts, Connects, Qualified, Transfer
 Attempts.
 
-- **No `timezone` is sent.** A business day is the server's to define; the reply
-  names the zone it counted in, and the page shows it beside the window as the
-  abbreviation ("EDT"), the way the live dashboard writes times. The page opens
-  on today in that zone — except on the very first request, where nothing has
-  named the zone yet, so it uses the browser's day and corrects itself if the
-  reply disagrees, staying on the loading state so a day nobody asked for is
-  never drawn. A window the user picked is never corrected.
+- **No `timezone` is sent.** The server counts in the signed-in user's own zone
+  (see Settings) and names it in the reply, and the page shows it beside the
+  window as the abbreviation ("EDT", "PKT"). The page opens on today in the
+  user's zone. If a reply ever names another zone and those days disagree, it
+  corrects itself, staying on the loading state so a day nobody asked for is
+  never drawn. A window the user picked is never corrected. There is no zone
+  picker on this page: the user's setting is the only one.
 - **The bars needn't narrow.** All four counts share one cohort, so Attempts
   bounds the rest, but Qualified doesn't require a call leg — with the dialer
   events unmapped, Connects sits at 0 under a non-zero Qualified. Bars measure
@@ -274,21 +275,15 @@ Attempts.
   reads them in a zone, and the same days under another one are a different
   cohort (`2026-09-23` is 25 interactions in `America/New_York` and 39 in
   `Asia/Karachi`). The aggregate asks without one so the server picks and
-  *names* the business zone; the list passes that name back, which is the only
+  *names* the user's zone; the list passes that name back, which is the only
   thing making its `total` the same figure as the bar above it. So the list is
   handed the funnel that came back, never the range that was asked for — on the
   first read those disagree, and only the reply carries a zone.
-- **The list's times are drawn in the business zone, not the reader's.** The
-  exception to the rule under "Exceptions and interaction detail" below, and for
-  that rule's own reason: it says interaction timestamps use the local zone
-  *because those answers carry no business zone the way `/reporting/*` does* —
-  and this one does, in `timezone`. Drawn locally instead, a row's date is
-  simply the wrong day: from `Asia/Karachi`, 209 of 670 rows carry a different
-  date from the business day the figure above them counted, and near the edge a
-  row can show a date outside the window in the card's own heading. A list of
-  the records behind a number must not disagree with it about when. So
-  `formatDateTimeIn(created_at, list.timezone)`, and the caption is
-  `formatZone()` — the same abbreviation the window above the chart carries.
+- **The list's times are drawn in the zone the reply counted in.** That is the
+  user's own zone, but the list reads it from `timezone` rather than assuming
+  it, because a list of the records behind a number must not disagree with it
+  about when. So `formatDateTimeIn(created_at, list.timezone)`, and the caption
+  is `formatZone()`, the same abbreviation the window above the chart carries.
 - **A row carries the lead's phone because nothing else on it is human.**
   `FunnelInteraction` is `id`, `lead_id`, `created_at` plus `lead_phone` and
   `lead_source`, the last two joined on in the backend. A page of uuids and
@@ -403,6 +398,31 @@ state or team. Administrator-only, like the rest of `/admin`.
 - Failures land on the input they name: the API's `fields` array is mapped onto
   the matching control (a duplicate address shows under Email), and anything
   unnamed falls back to the dialog's `<Alert>`.
+- **A Super Admin can reset someone's password** from Edit User's Password
+  section, which switches the same dialog to a reset step (Back keeps any unsaved
+  edits): `PUT /auth/users/{id}/password` with a password they type and tell the
+  person. Every session that person has ends, so they are signed out within the
+  15-minute access token. Super Admin only, and never your own account
+  (`user.cannot_reset_own_password`); your own goes through Settings.
+
+## Settings
+
+`/admin/settings`, `/fronter/settings` and `/closer/settings` all render one
+`SettingsScreen`, so each desk keeps its own nav around it. The Settings row in
+the sidebar's bottom section links to the current desk's page.
+
+- **Time zone.** Eastern (`America/New_York`) or Pakistan (`Asia/Karachi`),
+  saved with `PATCH /auth/me`. Every formatter in `lib/format.ts` draws in it,
+  and the server counts "today" and report days in it. `CurrentUserProvider`
+  sets it before rendering and keys its children by it, so saving a new zone
+  redraws every screen. Eastern shows as EDT or EST on its own; Karachi is
+  labelled "PKT" by `zoneAbbreviation`, because Intl calls it "GMT+5".
+- **Password.** `POST /auth/password/change` with the current one. The API ends
+  every session and hands this device a new pair, which `changePassword` in
+  `lib/session.ts` stores while holding the refresh lock, so no renewal can
+  send the old token in the meantime. Another signed-in device still holds an
+  ended token, and its next refresh makes the API end every session, this one
+  included: the success message says the user may need to sign in again here.
 
 ## Campaigns
 

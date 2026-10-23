@@ -25,7 +25,7 @@ export function DateRangePicker({
   onChange,
 }: {
   range: DateRange
-  /** The latest day that can be asked for — today, in the business zone once it's known. */
+  /** The latest day that can be asked for: today, in the user's zone. */
   max: string
   onChange: (range: DateRange) => void
 }) {

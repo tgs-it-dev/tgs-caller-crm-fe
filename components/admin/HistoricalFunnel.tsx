@@ -23,11 +23,10 @@ import { withSession } from '@/lib/session'
 const LIST_ID = 'funnel-interactions'
 
 /**
- * A window the page chose rather than the user, and so one it may still
- * correct. `timezone` is unset until someone picks one — the first read lets
- * the server name the business day.
+ * A window, and whether the page chose it rather than the user, and so may
+ * still correct it. No zone: the server counts in the user's own.
  */
-type Selection = { range: DateRange; auto: boolean; timezone?: string }
+type Selection = { range: DateRange; auto: boolean }
 
 type LoadState =
   | { status: 'loading' }
@@ -38,8 +37,6 @@ function messageFor(err: unknown): string {
   if (err instanceof AuthError && err.status === 403) return 'You no longer have access to reports.'
   if (err instanceof AuthError && err.status === 401)
     return 'Your session has ended. Please sign in again.'
-  if (err instanceof AuthError && err.code === 'reporting.unknown_timezone')
-    return 'That time zone is not recognised.'
   return 'Could not load the funnel for this range.'
 }
 
@@ -52,8 +49,8 @@ export function HistoricalFunnel() {
   // Bumped only when the page moves the window itself, to start the date fields
   // again from it. A window the user picked leaves their fields alone.
   const [pageMoved, setPageMoved] = useState(0)
-  // The business zone, once a reply has named it. Until then Eastern days are
-  // used for the picker max (same default as `defaultRange`).
+  // The zone the reply counted in, once it has named one. Until then the
+  // user's own zone sets the picker max (same default as `defaultRange`).
   const [zone, setZone] = useState<string | undefined>(undefined)
   // Which bar the list below is showing. A new window doesn't reset it: someone
   // reading Qualified who moves the dates still wants Qualified.
@@ -69,20 +66,20 @@ export function HistoricalFunnel() {
     let cancelled = false
 
     waitForMocking()
-      .then(() => withSession((token) => fetchFunnel(selected.range, token, selected.timezone)))
+      .then(() => withSession((token) => fetchFunnel(selected.range, token)))
       .then((funnel) => {
         if (cancelled) return
         setZone(funnel.timezone)
 
-        // The page opens on yesterday–today in Eastern. Where the reply names
-        // another business zone and those days disagree, these figures cover a
+        // The page opens on yesterday–today in the user's zone. Where the reply
+        // names another zone and those days disagree, these figures cover a
         // window nobody asked for: they're dropped and the right one read
         // instead, leaving the page loading rather than showing them.
         if (selected.auto) {
           const corrected = defaultRange(funnel.timezone)
           if (corrected.start !== selected.range.start || corrected.end !== selected.range.end) {
             setPageMoved((moved) => moved + 1)
-            select({ range: corrected, auto: true, timezone: selected.timezone })
+            select({ range: corrected, auto: true })
             return
           }
         }
@@ -119,7 +116,7 @@ export function HistoricalFunnel() {
               key={pageMoved}
               range={selected.range}
               max={businessDay(new Date(), zone)}
-              onChange={(range) => select({ range, auto: false, timezone: selected.timezone })}
+              onChange={(range) => select({ range, auto: false })}
             />
           </header>
 
@@ -149,9 +146,6 @@ export function HistoricalFunnel() {
             id={LIST_ID}
             stage={stage}
             funnel={load.funnel}
-            onTimezoneChange={(timezone) =>
-              select({ range: selected.range, auto: false, timezone })
-            }
           />
         )}
       </div>
