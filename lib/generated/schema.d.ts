@@ -564,13 +564,12 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Call legs recorded for an interaction
-         * @description Administrator-only, like the rest of the review view.
+         * Call legs recorded for an interaction (Super Admin only)
+         * @description Super Admin only, like the rest of the review view.
          *
          *     An empty list is the expected answer today and not an error: nothing
          *     populates call_legs while the dialer's push carries no call id, so this
-         *     reads empty until that mapping lands. See ADR 0004. Team-scoped for Team
-         *     Admin; Super Admin may open any interaction.
+         *     reads empty until that mapping lands. See ADR 0004.
          */
         get: operations["list_call_legs_interactions__interaction_id__call_legs_get"];
         put?: never;
@@ -620,13 +619,12 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Raw inbound events recorded against an interaction
+         * Raw inbound events recorded against an interaction (Super Admin only)
          * @description The payloads this interaction was derived from, newest first.
          *
          *     Only events the worker linked. One stored before the link existed, one still
          *     unprocessed, and one identifying no interaction all read as absent, so an
          *     empty list means none were recorded rather than none arrived.
-         *     Team-scoped for Team Admin.
          */
         get: operations["list_events_interactions__interaction_id__events_get"];
         put?: never;
@@ -645,12 +643,11 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Transfer history for an interaction
+         * Transfer history for an interaction (Super Admin only)
          * @description Every attempt, not just the live one.
          *
          *     A rejected or timed-out transfer releases the interaction to be retried, so
          *     the attempts are the history somebody reviewing this came to see.
-         *     Team-scoped for Team Admin.
          */
         get: operations["list_transfers_interactions__interaction_id__transfers_get"];
         put?: never;

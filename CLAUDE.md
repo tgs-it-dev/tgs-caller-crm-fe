@@ -297,7 +297,8 @@ Attempts.
 
 `/admin/exceptions` works the reconciliation queue through `lib/exceptions.ts`;
 `/admin/interactions/[interactionId]` is the record behind a row, read through
-`lib/interactionDetail.ts`. Administrator-only, like the rest of `/admin`.
+`lib/interactionDetail.ts`. Exceptions is open to every administrator; the
+detail screen is Super Admin only.
 
 - **Reconciliation makes no call to VICIdial.** It is a self-consistency audit of
   the CRM's own tables against the raw event inbox, swept every five minutes by
@@ -338,6 +339,12 @@ Attempts.
   today; a new caller adds its entry and passes the param. An unrecognised or
   absent `from` falls back to the dashboard, which is what a bookmarked link
   gets.
+- **It is a lead's full view, so it is the Super Admin's alone.** The API
+  refuses a Team Admin the interaction, its dispositions, its qualification, a
+  single transfer and the three panels, and the page sits behind
+  `RequireRole role="super_admin"`.
+  Its two ways in, "Open interaction detail" on an exception and the drill-down's
+  Detail column, show for Super Admins only; a Team Admin keeps the rows.
 - **It lights no sidebar item**, because it now has two ways in and lighting
   either one would be wrong half the time. `isActive` for Exceptions matches
   `/admin/exceptions` only. The back link is what says where the reader came

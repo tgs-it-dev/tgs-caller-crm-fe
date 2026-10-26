@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import MuiButton from '@mui/material/Button'
 import { ExceptionEvidence } from '@/components/admin/ExceptionEvidence'
+import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import { Alert } from '@/components/ui/Alert'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -11,7 +12,7 @@ import { DataTable, type DataColumn } from '@/components/ui/DataTable'
 import { PageShell } from '@/components/ui/PageShell'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
-import { AuthError } from '@/lib/auth'
+import { AuthError, isSuperAdmin } from '@/lib/auth'
 import {
   listExceptions,
   NOTE_LIMIT,
@@ -247,7 +248,7 @@ export function ExceptionsScreen() {
   )
 }
 
-/** The evidence, a way into the interaction, and the one decision to record. */
+/** The evidence, a way into the interaction for a Super Admin, and the one decision to record. */
 function ExceptionRow({
   exception,
   resolvedByName,
@@ -257,6 +258,7 @@ function ExceptionRow({
   resolvedByName: string | undefined
   onChanged: () => void
 }) {
+  const { user } = useCurrentUser()
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -298,14 +300,16 @@ function ExceptionRow({
               of this row and has to look like the control it is. Our Button
               wrapper renders a <button>, so this borrows MUI's outlined style
               directly rather than faking it in Tailwind. */}
-          <MuiButton
-            component={Link}
-            href={`/admin/interactions/?id=${encodeURIComponent(exception.interaction_id)}&from=exceptions`}
-            variant="outlined"
-            size="small"
-          >
-            Open interaction detail
-          </MuiButton>
+          {user && isSuperAdmin(user.roles) && (
+            <MuiButton
+              component={Link}
+              href={`/admin/interactions/?id=${encodeURIComponent(exception.interaction_id)}&from=exceptions`}
+              variant="outlined"
+              size="small"
+            >
+              Open interaction detail
+            </MuiButton>
+          )}
         </div>
 
         <div className="rounded-lg border-hairline border-slate bg-white p-4">

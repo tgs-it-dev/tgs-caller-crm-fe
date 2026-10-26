@@ -13,7 +13,8 @@ function Detail() {
   const from = search.get('from') ?? undefined
 
   return (
-    <RequireRole role="administrator">
+    // A lead's full view is the Super Admin's; a Team Admin is sent back to their desk.
+    <RequireRole role="super_admin">
       <InteractionDetailScreen interactionId={interactionId} from={from} />
     </RequireRole>
   )

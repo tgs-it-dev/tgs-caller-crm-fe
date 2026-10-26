@@ -4,9 +4,10 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import MuiButton from '@mui/material/Button'
 import { STAGE_LABEL, STAGE_TIME_LABEL } from '@/components/admin/FunnelChart'
+import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import { Alert } from '@/components/ui/Alert'
 import { DataTable, type DataColumn } from '@/components/ui/DataTable'
-import { AuthError } from '@/lib/auth'
+import { AuthError, isSuperAdmin } from '@/lib/auth'
 import { formatDateTimeIn, formatPhone, formatZone } from '@/lib/format'
 import { waitForMocking } from '@/lib/mockReady'
 import {
@@ -123,6 +124,8 @@ export function FunnelInteractions({
 }) {
   const [offset, setOffset] = useState(0)
   const [load, setLoad] = useState<LoadState>({ status: 'loading' })
+  const { user } = useCurrentUser()
+  const canOpenDetail = Boolean(user && isSuperAdmin(user.roles))
 
   useEffect(() => {
     let cancelled = false
@@ -172,7 +175,10 @@ export function FunnelInteractions({
       title={heading}
       ariaLabel={heading}
       rows={load.list.items}
-      columns={columnsIn(load.list.timezone, stage)}
+      // Detail opens a lead's full view, which is the Super Admin's alone.
+      columns={columnsIn(load.list.timezone, stage).filter(
+        (column) => canOpenDetail || column.id !== 'actions'
+      )}
       getRowId={(row) => row.id}
       // Ids and timestamps that must not wrap; the card scrolls if a viewport
       // is too narrow to hold them.
