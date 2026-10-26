@@ -309,15 +309,21 @@ sidebar item, `RequireRole role="super_admin"`, and the API's 403.
   by when the sale was recorded. Near the edges of a range they can differ from
   the funnel, which credits everything to the day the lead came in.
 - **Conversion is worked out of the range's own leads**: of the leads created
-  during the dates, the share sold at any time, shown as "8.0% (8 of 100)". It
-  cannot pass 100%, and it rises as those leads close. "n/a" means no leads.
+  during the dates, the share sold at any time. A cell shows the rate, a bar to
+  compare teams by eye, then "8 of 100". It cannot pass 100%, and it rises as
+  those leads close. "n/a" means no leads.
 - **Fronter outcomes are each lead's latest**, one column per catalogue row in
   the reply, so No answer and Callback need no label matching. Every row carries
   the same outcomes in the same order, and the columns are keyed by
-  `disposition_id`.
+  `disposition_id`. An outcome nobody recorded during the dates gets no column.
 - **The page opens on this month so far** (`monthToDate()`) and, like Reports,
   sends no `timezone`. It needs no correction step, because the user's zone is
   set before the page renders.
+- **The filters have a card of their own at the top**, outside both tables, so
+  the sales report can share them when it lands. Tiles carry the totals. Both
+  tables are shown whole (`paginate={false}`), the Team column takes the slack
+  (`width` on its column), the "All teams" row is shaded and bold, and a team
+  with nothing in the range is drawn in grey.
 - The sales list with amounts, and its agent filter, come with the closer's cart.
 
 ## Exceptions and interaction detail
