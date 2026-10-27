@@ -203,10 +203,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List users (administrators only) */
+        /** List users (administrators and QA Managers) */
         get: operations["list_users_auth_users_get"];
         put?: never;
-        /** Create a user (administrators only) */
+        /** Create a user (administrators and QA Managers) */
         post: operations["create_user_auth_users_post"];
         delete?: never;
         options?: never;
@@ -221,7 +221,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get a user (administrators only) */
+        /** Get a user (administrators and QA Managers) */
         get: operations["get_user_auth_users__user_id__get"];
         put?: never;
         post?: never;
@@ -229,7 +229,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Update a user (administrators only)
+         * Update a user (administrators and QA Managers)
          * @description Patch name, roles, active and/or team.
          *
          *     Changing the team is Super Admin only, follows the same rules as
@@ -253,7 +253,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Send a fresh invitation (administrators only)
+         * Send a fresh invitation (administrators and QA Managers)
          * @description Issue another invitation, superseding any the user has not used.
          *
          *     202 rather than 204: the link exists the moment this returns, but the email
@@ -670,23 +670,18 @@ export interface paths {
         put?: never;
         /**
          * Create a lead
-         * @description Create or fill a lead from the fronter form.
+         * @description Create a lead from the fronter form, or return the existing phone match.
          *
          *     Body: ``phone_no``, first/last name, vehicle make/year/model, and VIN
-         *     and/or license plate. ``source`` is always ``manual`` on insert. ``team_id``
-         *     comes from the caller's ``user_teams`` row (not the body). ``fronter_id`` is
-         *     the caller.
+         *     and/or license plate. ``source`` is always ``manual``. ``team_id`` comes
+         *     from the caller's ``user_teams`` row (not the body). ``fronter_id`` is the
+         *     caller.
          *
-         *     On **new** phone: inserts the lead, mints one ``interaction``, returns its
-         *     id. On **existing** phone: writes the submitted form fields onto that lead
-         *     (so a prior phone-only / dialer row is filled in), keeps or mints an
-         *     interaction, and returns ``interaction_id``. Disposition stays separate —
-         *     Callback → fronter queue; Qualified (+ transfer) → closer queue.
-         *
-         *     ``phone_no`` is stored as submitted (not rewritten to E.164). Matching
-         *     still accepts the E.164 form so a dialer row for the same number is found.
+         *     ``phone_no`` may be any common format; it is matched and stored as E.164.
          *     Responds 201 in both cases — compare ``created_at`` to tell a new lead from
-         *     a returning caller.
+         *     a returning caller. Form fields are stored only on insert; use PATCH to
+         *     update. Always opens an ``Interaction`` and returns ``interaction_id`` so
+         *     the fronter can disposition or transfer without a dialer event.
          */
         post: operations["create_lead_leads_post"];
         delete?: never;
@@ -814,6 +809,9 @@ export interface paths {
          *     There is no update endpoint by design: a correction is another version, so
          *     what a closer was shown stays readable afterwards. Once a transfer is in
          *     flight the interaction is frozen and this returns 409.
+         *
+         *     Response includes ``customer`` (lead personal / vehicle / identity) and
+         *     merges those fields into ``snapshot_json`` on write.
          */
         post: operations["create_qualification_post"];
         delete?: never;
@@ -833,8 +831,8 @@ export interface paths {
          * Fetch the current qualification for an interaction
          * @description The highest version — earlier ones stay on record but are not the answer.
          *
-         *     Includes ``customer`` (lead personal / vehicle / identity) so the closer
-         *     form does not need a second lead fetch.
+         *     Includes ``customer`` so the closer card can render Personal / Vehicle /
+         *     Identity without a separate lead fetch.
          */
         get: operations["get_latest_qualification__interaction_id__get"];
         put?: never;
@@ -1217,7 +1215,7 @@ export interface components {
              * Role
              * @enum {string}
              */
-            role: "fronter" | "closer" | "administrator" | "super_admin";
+            role: "fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "super_admin";
             /**
              * Since
              * Format: date-time
@@ -1474,10 +1472,10 @@ export interface components {
             /** Password */
             password?: string | null;
             /** Roles */
-            roles: ("fronter" | "closer" | "administrator" | "super_admin")[];
+            roles: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "super_admin")[];
             /**
              * Team Id
-             * @description Team the account joins: a Team Admin's own team, which they may leave out. A Super Admin must name one, except for a super_admin account.
+             * @description Team the account joins: a Team Admin or QA Manager's own team, which they may leave out. A Super Admin must name one, except for a super_admin account. qa_manager and qa_agent are team-scoped and always need a team.
              */
             team_id?: string | null;
         };
@@ -2121,7 +2119,7 @@ export interface components {
             license_plate?: string | null;
             /**
              * Phone No
-             * @description Phone as entered; stored as submitted (not rewritten to E.164).
+             * @description Phone as entered; stored as E.164 in ``phone_no``.
              */
             phone_no: string;
             /** Vehicle Make */
@@ -2132,7 +2130,7 @@ export interface components {
             vehicle_year: number;
             /**
              * Vin
-             * @description VIN identifier. Required when license_plate is omitted.
+             * @description VIN. Required when license_plate is omitted.
              */
             vin?: string | null;
         };
@@ -2168,7 +2166,7 @@ export interface components {
             id: string;
             /**
              * Interaction Id
-             * @description Interaction for this lead when known. Set on form create (new insert); on phone re-match, the latest interaction if one exists. Null for bulk/VICIdial rows that never opened an interaction. Use for ``POST /interactions/{id}/dispositions``.
+             * @description Interaction opened for this form create so the fronter can disposition or transfer. Null on list/get and bulk.
              */
             interaction_id?: string | null;
             /** Last Name */
@@ -2177,7 +2175,7 @@ export interface components {
             license_plate?: string | null;
             /**
              * Phone No
-             * @description Lead phone as stored (as entered on form create; E.164 for dialer/bulk).
+             * @description Lead phone in E.164.
              */
             phone_no: string;
             /**
@@ -2221,7 +2219,7 @@ export interface components {
             vehicle_year: number;
             /**
              * Vin
-             * @description VIN identifier. Required when license_plate is omitted.
+             * @description VIN. Required when license_plate is omitted.
              */
             vin?: string | null;
         };
@@ -2291,7 +2289,7 @@ export interface components {
             interaction_id: string;
             /**
              * Snapshot Json
-             * @description The fronter's answers. Frozen once the transfer occurs.
+             * @description The fronter's answers. Personal / vehicle / identity from the lead are merged in on capture. Frozen once the transfer occurs.
              */
             snapshot_json: {
                 [key: string]: unknown;
@@ -2758,7 +2756,7 @@ export interface components {
             /** Name */
             name?: string | null;
             /** Roles */
-            roles?: ("fronter" | "closer" | "administrator" | "super_admin")[] | null;
+            roles?: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "super_admin")[] | null;
             /**
              * Team Id
              * @description Super Admin only: moves the user to this team, saved with the rest of the change. Leave it out to keep their team.
@@ -2801,7 +2799,7 @@ export interface components {
             /** Name */
             name: string;
             /** Roles */
-            roles: ("fronter" | "closer" | "administrator" | "super_admin")[];
+            roles: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "super_admin")[];
             /** Team Id */
             team_id?: string | null;
             /**
@@ -3249,7 +3247,7 @@ export interface operations {
                 /** @description Filter by account state */
                 active?: boolean | null;
                 /** @description Filter by role held */
-                role?: ("fronter" | "closer" | "administrator" | "super_admin") | null;
+                role?: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "super_admin") | null;
                 /** @description Members of this team only (Super Admins never match) */
                 team_id?: string | null;
                 /** @description Substring of email or name */
@@ -4293,7 +4291,7 @@ export interface operations {
             query?: {
                 limit?: number;
                 offset?: number;
-                /** @description Filter by phone (exact or E.164 of the same number) */
+                /** @description Filter by phone (any format; matched as E.164) */
                 phone_no?: string | null;
                 /** @description A Super Admin names one team's leads, or leaves it out for every team; anyone else may only name their own team. */
                 team_id?: string | null;

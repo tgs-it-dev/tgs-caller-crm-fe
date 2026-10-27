@@ -11,7 +11,7 @@ import { DataTable, type DataColumn } from '@/components/ui/DataTable'
 import { Input } from '@/components/ui/Input'
 import { PageShell } from '@/components/ui/PageShell'
 import { Select } from '@/components/ui/Select'
-import { AuthError, isSuperAdmin, type Role } from '@/lib/auth'
+import { AuthError, isQaManager, isSuperAdmin, isTeamAdmin, type Role } from '@/lib/auth'
 import { waitForMocking } from '@/lib/mockReady'
 import { withSession } from '@/lib/session'
 import { listTeams, type Team } from '@/lib/teams'
@@ -42,10 +42,26 @@ const STAFF_ROLES = ASSIGNABLE_ROLES.filter(
   (role): role is StaffRole => role !== 'super_admin',
 )
 
-const ROLE_BADGE_TONE: Record<StaffRole, 'teal' | 'amber' | 'neutral'> = {
+const ROLE_BADGE_TONE: Record<StaffRole, 'teal' | 'amber' | 'neutral' | 'red'> = {
   administrator: 'amber',
+  qa_manager: 'red',
+  qa_agent: 'teal',
   closer: 'teal',
   fronter: 'neutral',
+}
+
+/** Role filter options for the signed-in actor's scope. */
+function filterableRoles(actorRoles: readonly Role[]): StaffRole[] {
+  if (isSuperAdmin(actorRoles)) return STAFF_ROLES
+  if (isQaManager(actorRoles) && !isTeamAdmin(actorRoles)) {
+    return STAFF_ROLES.filter((role) => role === 'qa_manager' || role === 'qa_agent')
+  }
+  if (isTeamAdmin(actorRoles)) {
+    return STAFF_ROLES.filter(
+      (role) => role === 'administrator' || role === 'closer' || role === 'fronter',
+    )
+  }
+  return STAFF_ROLES
 }
 
 /** Rotating badge colours so each team is visually distinct in the Team column. */
@@ -132,12 +148,15 @@ function matchesFilters(
 }
 
 /** Roster counts for the team scope — used by the quick-filter strip. */
-function rosterFigures(users: User[]) {
+function rosterFigures(users: User[], qaView: boolean) {
   return {
     total: users.length,
     active: users.filter((user) => user.active).length,
     inactive: users.filter((user) => !user.active).length,
-    admins: users.filter((user) => user.roles.includes('administrator')).length,
+    // Fourth chip: Team Admins for SA/TA, QA Agents for a QA Manager desk.
+    focus: users.filter((user) =>
+      qaView ? user.roles.includes('qa_agent') : user.roles.includes('administrator'),
+    ).length,
   }
 }
 
@@ -207,6 +226,11 @@ export function UsersScreen() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('')
   const [search, setSearch] = useState('')
   const saView = Boolean(signedIn && isSuperAdmin(signedIn.roles))
+  // QA Manager desk (not also a Team Admin / SA) — narrower list and create ceiling.
+  const qaView = Boolean(
+    signedIn && isQaManager(signedIn.roles) && !isSuperAdmin(signedIn.roles) && !isTeamAdmin(signedIn.roles),
+  )
+  const roleOptions = signedIn ? filterableRoles(signedIn.roles) : STAFF_ROLES
 
   useEffect(() => {
     let cancelled = false
@@ -217,7 +241,7 @@ export function UsersScreen() {
           const list = await listUsers(token, {
             teamId: saView && teamFilter ? teamFilter : null,
           })
-          // Team names label the SA Team column + filter; Team Admin does not need the catalogue.
+          // Team names label the SA Team column + filter; Team Admin / QA Manager do not need the catalogue.
           const teams = saView ? (await listTeams(token)).items : []
           return { list, teams }
         })
@@ -263,7 +287,7 @@ export function UsersScreen() {
 
   // Quick-filter counts stay on the team-scoped roster so picking a view never
   // zeroes out the other chips the way filtered-table stats would.
-  const figures = useMemo(() => rosterFigures(sortedUsers), [sortedUsers])
+  const figures = useMemo(() => rosterFigures(sortedUsers, qaView), [sortedUsers, qaView])
 
   const visibleUsers = useMemo(
     () =>
@@ -282,16 +306,18 @@ export function UsersScreen() {
     setTeamFilter('')
   }
 
-  /** HubSpot view chips: one dimension at a time for status / admin. */
-  function selectView(view: 'all' | 'active' | 'inactive' | 'admins') {
+  const focusRole: StaffRole = qaView ? 'qa_agent' : 'administrator'
+
+  /** HubSpot view chips: one dimension at a time for status / focus role. */
+  function selectView(view: 'all' | 'active' | 'inactive' | 'focus') {
     setSearch('')
     if (view === 'all') {
       setRoleFilter('')
       setStatusFilter('')
       return
     }
-    if (view === 'admins') {
-      setRoleFilter('administrator')
+    if (view === 'focus') {
+      setRoleFilter(focusRole)
       setStatusFilter('')
       return
     }
@@ -300,9 +326,9 @@ export function UsersScreen() {
   }
 
   // null when role + status are combined in a way that isn't one of the views.
-  const activeView: 'all' | 'active' | 'inactive' | 'admins' | null =
-    roleFilter === 'administrator' && !statusFilter
-      ? 'admins'
+  const activeView: 'all' | 'active' | 'inactive' | 'focus' | null =
+    roleFilter === focusRole && !statusFilter
+      ? 'focus'
       : statusFilter === 'active' && !roleFilter
         ? 'active'
         : statusFilter === 'inactive' && !roleFilter
@@ -453,11 +479,11 @@ export function UsersScreen() {
               onClick={() => selectView('inactive')}
             />
             <StatCard
-              label="Team admins"
-              count={figures.admins}
+              label={qaView ? 'QA agents' : 'Team admins'}
+              count={figures.focus}
               icon={<UserCog color={tokens.slate} strokeWidth={2} aria-hidden />}
-              selected={activeView === 'admins'}
-              onClick={() => selectView('admins')}
+              selected={activeView === 'focus'}
+              onClick={() => selectView('focus')}
             />
           </div>
 
@@ -510,7 +536,7 @@ export function UsersScreen() {
                         onChange={(event) => setRoleFilter(event.target.value as RoleFilter)}
                       >
                         <option value="">All roles</option>
-                        {STAFF_ROLES.map((role) => (
+                        {roleOptions.map((role) => (
                           <option key={role} value={role}>
                             {roleLabel(role)}
                           </option>

@@ -13,7 +13,7 @@ import { Dialog } from '@/components/ui/Dialog'
 import { Input } from '@/components/ui/Input'
 import { RADIO_CONTROL_SX, RADIO_ROW_SX } from '@/components/ui/radio'
 import { Select } from '@/components/ui/Select'
-import { AuthError, isSuperAdmin, type Role } from '@/lib/auth'
+import { AuthError, isQaManager, isSuperAdmin, isTeamAdmin, type Role } from '@/lib/auth'
 import { newPasswordProblem } from '@/lib/passwords'
 import { withSession } from '@/lib/session'
 import type { Team } from '@/lib/teams'
@@ -30,6 +30,8 @@ import {
 const FIELD_COPY: Record<string, string> = {
   'user.already_exists': 'That email address is already in use.',
   'user.unknown_roles': 'That is not a role this console can assign.',
+  'user.team_required': 'Choose a team.',
+  'team.super_admin_forbidden': 'Super Admin accounts are not assigned to a team.',
 }
 
 /**
@@ -45,8 +47,14 @@ function bannerFor(err: AuthError): string {
   if (err.code === 'user.cannot_demote_self') {
     return 'You cannot remove your own elevated role or deactivate yourself.'
   }
+  if (err.code === 'user.grant_forbidden') {
+    return 'You cannot grant that role, or assign it on another team.'
+  }
   if (err.code === 'user.not_found') return 'That user no longer exists.'
   if (err.code === 'team.not_found') return 'That team no longer exists. Reload and try again.'
+  if (err.code === 'team.super_admin_forbidden') {
+    return 'Super Admin accounts are not assigned to a team.'
+  }
   if (err.status === 403) {
     return 'You cannot grant that role, or you no longer have access to user administration.'
   }
@@ -67,14 +75,14 @@ export function UserFormDialog({
 }: {
   /** The user being edited, or null to add one. */
   user: User | null
-  /** Signed-in roles — Super Admin and Team Admin get different grant ceilings. */
+  /** Signed-in roles — Super Admin, Team Admin and QA Manager get different ceilings. */
   actorRoles: Role[]
   /** This is the signed-in admin's own account. */
   isSelf: boolean
   /**
-   * Company team catalogue. Super Admin must pick one when creating and may
-   * change it when editing; Team Admin leaves `team_id` out and the API pins the
-   * account to their own team.
+   * Company team catalogue. Super Admin must pick one when creating (except for
+   * a super_admin account) and may change it when editing; Team Admin and QA
+   * Manager leave `team_id` out and the API pins the account to their own team.
    */
   teams: Team[]
   onClose: () => void
@@ -83,7 +91,6 @@ export function UserFormDialog({
   const formId = useId()
   const offerable = grantableRoles(actorRoles)
   const canPickTeam = isSuperAdmin(actorRoles)
-  const mustPickTeam = !user && canPickTeam
   const startingTeam = user?.team_id ?? ''
   const [name, setName] = useState(user?.name ?? '')
   const [email, setEmail] = useState(user?.email ?? '')
@@ -92,6 +99,10 @@ export function UserFormDialog({
   const [roles, setRoles] = useState<Role[]>(user?.roles ?? [])
   const [active, setActive] = useState(user?.active ?? true)
   const [teamId, setTeamId] = useState(startingTeam)
+  // SA: team required for every role except super_admin (API: team.super_admin_forbidden).
+  const creatingSuperAdmin = !user && roles.includes('super_admin')
+  const showTeamField = canPickTeam && !creatingSuperAdmin
+  const mustPickTeam = !user && showTeamField
   const [signIn, setSignIn] = useState<SignInMethod>('password')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -109,10 +120,11 @@ export function UserFormDialog({
   })
 
   function roleLocked(role: Role): boolean {
-    // Only lock the elevated role the actor themselves holds — SA ≠ Team Admin.
+    // Only lock the elevated role the actor themselves holds — SA ≠ Team Admin ≠ QA Manager.
     if (!isSelf) return false
-    // if (role === 'super_admin') return actorRoles.includes('super_admin')
-    if (role === 'administrator') return actorRoles.includes('administrator')
+    if (role === 'super_admin') return isSuperAdmin(actorRoles)
+    if (role === 'administrator') return isTeamAdmin(actorRoles)
+    if (role === 'qa_manager') return isQaManager(actorRoles)
     return false
   }
 
@@ -167,7 +179,7 @@ export function UserFormDialog({
         if (name !== user.name) patch.name = name
         if (!sameRoles(roles, user.roles)) patch.roles = roles
         if (active !== user.active) patch.active = active
-        if (canPickTeam && teamId && teamId !== startingTeam) patch.team_id = teamId
+        if (showTeamField && teamId && teamId !== startingTeam) patch.team_id = teamId
         if (Object.keys(patch).length > 0) {
           await withSession((token) => updateUser(user.id, patch, token))
         }
@@ -175,7 +187,8 @@ export function UserFormDialog({
         // The key is left out entirely for an invitation, never sent empty: the
         // API validates `password` whenever it is present at all, so `''` would
         // be a 422 rather than "no password given". Same for team_id: Team Admin
-        // omits it so the API pins their own team; Super Admin must send one.
+        // and QA Manager omit it so the API pins their own team; Super Admin
+        // must send one except when creating a super_admin (no team).
         await withSession((token) =>
           createUser(
             {
@@ -199,7 +212,19 @@ export function UserFormDialog({
 
   const toggleRole = (role: Role) => {
     if (!offerable.includes(role) || roleLocked(role)) return
-    setRoles((held) => (held.includes(role) ? held.filter((r) => r !== role) : [...held, role]))
+    setRoles((held) => {
+      const next = held.includes(role) ? held.filter((r) => r !== role) : [...held, role]
+      // Super Admin is company-wide: selecting it drops a team pin and any
+      // team-scoped roles that would otherwise demand one.
+      if (next.includes('super_admin') && role === 'super_admin') {
+        setTeamId('')
+        return ['super_admin']
+      }
+      if (role !== 'super_admin' && next.includes('super_admin')) {
+        return next.filter((r) => r !== 'super_admin')
+      }
+      return next
+    })
   }
 
   const movingTo =
@@ -280,7 +305,7 @@ export function UserFormDialog({
             }
           />
 
-          {canPickTeam && (
+          {showTeamField && (
             <div>
               <Select
                 label="Team"
@@ -313,6 +338,11 @@ export function UserFormDialog({
                 </p>
               )}
             </div>
+          )}
+          {canPickTeam && creatingSuperAdmin && (
+            <p className="text-xs leading-[150%] text-slate">
+              Super Admin accounts are not assigned to a team.
+            </p>
           )}
 
           {!user && (
@@ -393,18 +423,21 @@ export function UserFormDialog({
                 />
               ))}
             </div>
-            {actorRoles.includes('super_admin') && (
+            {isSelf && isTeamAdmin(actorRoles) && !isSuperAdmin(actorRoles) && (
               <p className="mt-2 text-xs leading-[150%] text-slate">
-                Super Admin cannot be granted from this console.
+                You cannot remove your own Team Admin role.
               </p>
             )}
-            {isSelf &&
-              actorRoles.includes('administrator') &&
-              !actorRoles.includes('super_admin') && (
-                <p className="mt-2 text-xs leading-[150%] text-slate">
-                  You cannot remove your own Team Admin role.
-                </p>
-              )}
+            {isSelf && isQaManager(actorRoles) && !isSuperAdmin(actorRoles) && (
+              <p className="mt-2 text-xs leading-[150%] text-slate">
+                You cannot remove your own QA Manager role.
+              </p>
+            )}
+            {isSelf && isSuperAdmin(actorRoles) && (
+              <p className="mt-2 text-xs leading-[150%] text-slate">
+                You cannot remove your own Super Admin role.
+              </p>
+            )}
             {problems.roles && (
               <p role="alert" className="mt-2 text-xs leading-[150%] text-status-red">
                 {problems.roles}

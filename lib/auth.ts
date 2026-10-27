@@ -30,6 +30,10 @@ const ROLE_LANDING: Record<Role, string> = {
   // Closer desk opens on Queue (pick/accept a transfer); Active Call is `/closer`.
   closer: '/closer/queue',
   administrator: '/admin',
+  // QA Manager modules are Users only — not the Team Admin dashboard or SA chrome.
+  qa_manager: '/admin/users',
+  // QA Agent desk is a later ticket; land somewhere gated until it ships.
+  qa_agent: '/qa',
   // Super Admin modules are Users / Teams / Campaigns — not the Team Admin dashboard.
   super_admin: '/admin/users',
 }
@@ -105,11 +109,19 @@ export async function requestPasswordChange(
 
 // The backend may grant more than one role; the primary role decides
 // where the user lands, in order of seniority.
-const ROLE_PRIORITY: Role[] = ['super_admin', 'administrator', 'closer', 'fronter']
+const ROLE_PRIORITY: Role[] = [
+  'super_admin',
+  'administrator',
+  'qa_manager',
+  'closer',
+  'fronter',
+  'qa_agent',
+]
 
 /**
  * Whether any held role meets a gate. Super Admin inherits every Team Admin
- * surface; every other requirement is an exact match.
+ * surface; QA Manager is never treated as Team Admin; every other requirement
+ * is an exact match.
  */
 export function roleSatisfies(held: readonly Role[], required: Role): boolean {
   if (required === 'administrator' && held.includes('super_admin')) return true
@@ -117,20 +129,32 @@ export function roleSatisfies(held: readonly Role[], required: Role): boolean {
 }
 
 /**
- * Which admin desk identity to show for `/admin`. Both roles share that
- * surface; prefer Super Admin when either (or somehow both) are held.
+ * Which admin desk identity to show for `/admin`. Super Admin, Team Admin and
+ * QA Manager share that segment; prefer the most senior when several are held.
+ * Never map qa_manager onto administrator.
  */
 export function adminDeskRole(
   roles: readonly Role[],
-): 'super_admin' | 'administrator' | null {
+): 'super_admin' | 'administrator' | 'qa_manager' | null {
   if (roles.includes('super_admin')) return 'super_admin'
   if (roles.includes('administrator')) return 'administrator'
+  if (roles.includes('qa_manager')) return 'qa_manager'
   return null
 }
 
 /** Super Admin has no team pin — never invent a fake membership in the UI. */
 export function isSuperAdmin(roles: readonly Role[]): boolean {
   return roles.includes('super_admin')
+}
+
+/** Team Admin role held as such — Super Admin and QA Manager are not this. */
+export function isTeamAdmin(roles: readonly Role[]): boolean {
+  return roles.includes('administrator')
+}
+
+/** QA Manager role held as such — not administrator, not Super Admin. */
+export function isQaManager(roles: readonly Role[]): boolean {
+  return roles.includes('qa_manager')
 }
 
 /** True when `/auth/me` (or a user row) carries a real team pin. */
@@ -142,6 +166,8 @@ const DESK_LABEL: Record<Role, string> = {
   fronter: 'CRM — Fronter',
   closer: 'CRM — Closer',
   administrator: 'CRM — Team Admin',
+  qa_manager: 'CRM — QA Manager',
+  qa_agent: 'CRM — QA Agent',
   super_admin: 'CRM — Super Admin',
 }
 
@@ -149,6 +175,8 @@ const ROLE_NAME: Record<Role, string> = {
   fronter: 'Fronter',
   closer: 'Closer',
   administrator: 'Team Admin',
+  qa_manager: 'QA Manager',
+  qa_agent: 'QA Agent',
   super_admin: 'Super Admin',
 }
 
@@ -169,6 +197,9 @@ export function heldDesks(roles: Role[]): Role[] {
   if (admin) desks.push(admin)
   if (roles.includes('closer')) desks.push('closer')
   if (roles.includes('fronter')) desks.push('fronter')
+  // QA Agent is its own desk once the workspace ships; until then it still
+  // needs a switcher entry when held alongside another role.
+  if (roles.includes('qa_agent') && !admin) desks.push('qa_agent')
   return desks
 }
 
@@ -187,6 +218,7 @@ export function deskRoleFromPath(pathname: string, roles?: readonly Role[]): Rol
     if (roles) return adminDeskRole(roles) ?? 'administrator'
     return 'administrator'
   }
+  if (pathname === '/qa' || pathname.startsWith('/qa/')) return 'qa_agent'
   if (pathname === '/closer' || pathname.startsWith('/closer/')) return 'closer'
   if (pathname === '/fronter' || pathname.startsWith('/fronter/')) return 'fronter'
   return null

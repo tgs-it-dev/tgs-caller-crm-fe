@@ -16,6 +16,8 @@ export type UserPatch = components['schemas']['UpdateUserRequest']
 const ROLE_LABELS: Record<Role, string> = {
   super_admin: 'Super Admin',
   administrator: 'Team Admin',
+  qa_manager: 'QA Manager',
+  qa_agent: 'QA Agent',
   closer: 'Closer',
   fronter: 'Fronter',
 }
@@ -28,15 +30,14 @@ export function roleLabel(role: Role): string {
 }
 
 /**
- * Roles the signed-in actor may grant. Super Admin and Team Admin are not the
- * same ceiling: Team Admin may only staff Fronter / Closer into their team.
- * Nobody may promote someone to Super Admin from this console (including SA).
+ * Roles the signed-in actor may grant. Ceilings match the API grant service:
+ * Super Admin → any role; Team Admin → fronter / closer on their team;
+ * QA Manager → qa_agent on their team. Team Admin cannot grant QA roles.
  */
 export function grantableRoles(actorRoles: readonly Role[]): Role[] {
-  if (actorRoles.includes('super_admin')) {
-    return ASSIGNABLE_ROLES.filter((role) => role !== 'super_admin')
-  }
+  if (actorRoles.includes('super_admin')) return [...ASSIGNABLE_ROLES]
   if (actorRoles.includes('administrator')) return ['closer', 'fronter']
+  if (actorRoles.includes('qa_manager')) return ['qa_agent']
   return []
 }
 
