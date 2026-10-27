@@ -13,11 +13,14 @@ import type {
   QualificationCustomer,
   QualificationResponse,
 } from '../lib/qualification'
-import { BUSINESS_TIMEZONE } from '../lib/format'
+import { BUSINESS_TIMEZONE, TIME_ZONES, type TimeZoneName } from '../lib/format'
 import type {
   FunnelInteractionList,
   FunnelStage,
   HistoricalFunnel,
+  TeamFigures,
+  TeamStats,
+  TeamStatsReport,
 } from '../lib/reporting'
 import type {
   AvailableCloserItem,
@@ -35,6 +38,8 @@ type MockUser = {
   created_at: string
   /** Super Admin has no team pin; everyone else belongs to the mock team. */
   team_id: string | null
+  /** The zone their times are drawn in; Eastern until they choose another. */
+  timezone?: TimeZoneName
 }
 
 const SEEDED_AT = new Date(Date.now() - 1000 * 60 * 60 * 24 * 30).toISOString()
@@ -281,6 +286,19 @@ function userBody(user: MockUser) {
     roles: user.roles,
     created_at: user.created_at,
     team_id: user.team_id,
+    timezone: user.timezone ?? BUSINESS_TIMEZONE,
+  }
+}
+
+/** The signed-in mock user behind an Authorization header, if any. */
+function mockActor(authorization: string | null): MockUser | undefined {
+  return MOCK_TOKENS.get((authorization || '').replace(/^Bearer\s+/i, ''))
+}
+
+/** Setting a password ends every refresh session the user has, as the API does. */
+function endMockSessions(user: MockUser) {
+  for (const [token, holder] of MOCK_REFRESH_TOKENS) {
+    if (holder.id === user.id) MOCK_REFRESH_TOKENS.delete(token)
   }
 }
 
@@ -349,21 +367,29 @@ function mockLiveStatus(): LiveStatus {
     }
   })
 
+  const today = {
+    leads: 26 + (tick % 20),
+    interactions: 30 + (tick % 20),
+    qualifications: 12 + (tick % 7),
+    transfers_offered: 8 + (tick % 5),
+    transfers_accepted: 5 + (tick % 3),
+    transfers_rejected: 1 + (tick % 2),
+    sales: 2 + (tick % 2),
+  }
+  // A Karachi day starts hours earlier, so it holds a different set of calls.
+  const karachi = { ...today, transfers_offered: today.transfers_offered + 3 }
+
   return {
     generated_at: new Date().toISOString(),
     timezone: BUSINESS_TIMEZONE,
     agents,
     active_calls: agents.filter((agent) => isBusy(agent.status)).length,
     pending_transfers: tick % 3,
-    funnel_today: {
-      leads: 26 + (tick % 20),
-      interactions: 30 + (tick % 20),
-      qualifications: 12 + (tick % 7),
-      transfers_offered: 8 + (tick % 5),
-      transfers_accepted: 5 + (tick % 3),
-      transfers_rejected: 1 + (tick % 2),
-      sales: 2 + (tick % 2),
-    },
+    funnel_today: today,
+    funnel_today_by_timezone: [
+      { timezone: 'America/New_York', funnel: today },
+      { timezone: 'Asia/Karachi', funnel: karachi },
+    ],
   }
 }
 
@@ -386,7 +412,7 @@ function adminRefusal(authorization: string | null) {
   return null
 }
 
-/** Team catalogue routes are Super Admin only (same as require_super_admin). */
+/** Why a Super Admin only route would turn this request away, or null. */
 function superAdminRefusal(authorization: string | null) {
   const user = MOCK_TOKENS.get((authorization || '').replace(/^Bearer\s+/i, ''))
   if (!user || !user.active) {
@@ -457,6 +483,73 @@ function mockFunnel(start: string, end: string, timezone?: string | null): Histo
     // the gap this bar exists to show.
     transferred: Math.round(qualified * 0.25),
   }
+}
+
+/**
+ * Every team's figures for a window, worked out from it the way `mockFunnel` is
+ * so other dates visibly move them. A team picked on its own keeps the figures it
+ * had among the others, converted never passes leads, and every row carries the
+ * same fronter outcomes, as the API's do.
+ */
+function mockTeamStats(
+  start: string,
+  end: string,
+  teamId: string | null,
+  timezone?: string | null
+): TeamStatsReport {
+  const funnel = mockFunnel(start, end, timezone)
+  const fronterOutcomes = MOCK_DISPOSITION_CATALOG.filter((row) => row.stage === 'fronter').sort(
+    (a, b) => a.label.localeCompare(b.label)
+  )
+  const withRates = (
+    counts: Omit<TeamFigures, 'conversion_rate' | 'outcomes'>,
+    outcomeCounts: number[]
+  ): TeamFigures => ({
+    ...counts,
+    conversion_rate: counts.leads ? counts.converted / counts.leads : null,
+    outcomes: fronterOutcomes.map((row, i) => ({
+      disposition_id: row.id,
+      label: row.label,
+      count: outcomeCounts[i] ?? 0,
+    })),
+  })
+
+  const teams: TeamStats[] = [...MOCK_TEAMS]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .flatMap((team, index) => {
+      // Inactive mock teams have no figures, so this is the API's listing rule.
+      if (teamId ? team.id !== teamId : !team.active) return []
+      const leads = team.active ? Math.round(funnel.attempts / (index + 2)) : 0
+      const qualified = Math.round(leads * 0.3)
+      const transferred = Math.round(qualified * 0.6)
+      const sales = Math.round(transferred * 0.5)
+      const counts = {
+        leads,
+        qualified,
+        transferred,
+        sales,
+        converted: Math.min(leads, Math.round(sales * 0.8)),
+      }
+      const outcomeCounts = fronterOutcomes.map((row, i) =>
+        row.counts_as_qualified ? qualified : Math.round((leads - qualified) / (i + 3))
+      )
+      return [{ team_id: team.id, team_name: team.name, ...withRates(counts, outcomeCounts) }]
+    })
+
+  const sum = (pick: (row: TeamStats) => number) =>
+    teams.reduce((total, row) => total + pick(row), 0)
+  const total = withRates(
+    {
+      leads: sum((row) => row.leads),
+      qualified: sum((row) => row.qualified),
+      transferred: sum((row) => row.transferred),
+      sales: sum((row) => row.sales),
+      converted: sum((row) => row.converted),
+    },
+    fronterOutcomes.map((_, i) => sum((row) => row.outcomes[i].count))
+  )
+
+  return { start: funnel.start, end: funnel.end, timezone: funnel.timezone, teams, total }
 }
 
 /**
@@ -1589,6 +1682,64 @@ export const handlers = [
     return res(ctx.status(200), ctx.json(userBody(user)))
   }),
 
+  rest.patch('/auth/me', async (req, res, ctx) => {
+    const user = mockActor(req.headers.get('authorization'))
+    if (!user || !user.active) {
+      return res(
+        ctx.status(401),
+        ctx.json(authErrorBody('Could not validate credentials', 'auth.not_authenticated'))
+      )
+    }
+    const body = (await req.json()) as { timezone?: string }
+    const zone = TIME_ZONES.find((option) => option.value === body.timezone)?.value
+    if (!zone) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody('not a time zone this CRM offers', 'validation_error', [
+            { field: 'timezone', in: 'body', message: 'not a time zone this CRM offers' },
+          ])
+        )
+      )
+    }
+    user.timezone = zone
+    return res(ctx.status(200), ctx.json(userBody(user)))
+  }),
+
+  rest.post('/auth/password/change', async (req, res, ctx) => {
+    const user = mockActor(req.headers.get('authorization'))
+    if (!user || !user.active) {
+      return res(
+        ctx.status(401),
+        ctx.json(authErrorBody('Could not validate credentials', 'auth.not_authenticated'))
+      )
+    }
+    const body = (await req.json()) as { current_password?: string; new_password?: string }
+    if (!body.new_password || body.new_password.length < 8) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody('String should have at least 8 characters', 'validation_error', [
+            { field: 'new_password', in: 'body', message: 'String should have at least 8 characters' },
+          ])
+        )
+      )
+    }
+    if (body.current_password !== user.password) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody('current password is incorrect', 'user.password_incorrect', [
+            { field: 'current_password', in: 'body', message: 'incorrect' },
+          ])
+        )
+      )
+    }
+    user.password = body.new_password
+    endMockSessions(user)
+    return res(ctx.status(200), ctx.json(issueMockTokens(user)))
+  }),
+
   rest.post('/auth/invitations/lookup', async (req, res, ctx) => {
     const { token } = (await req.json()) as { token?: string }
     const opened = openLink(String(token), 'invite')
@@ -1947,6 +2098,42 @@ export const handlers = [
     return res(ctx.status(201), ctx.json(userBody(created)))
   }),
 
+  rest.put('/auth/users/:userId/password', async (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = superAdminRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const user = MOCK_USERS.find((u) => u.id === req.params.userId)
+    if (!user) {
+      return res(ctx.status(404), ctx.json(authErrorBody('user not found', 'user.not_found')))
+    }
+    if (mockActor(authorization)?.id === user.id) {
+      return res(
+        ctx.status(400),
+        ctx.json(
+          authErrorBody(
+            'change your own password with /auth/password/change',
+            'user.cannot_reset_own_password'
+          )
+        )
+      )
+    }
+    const body = (await req.json()) as { password?: string }
+    if (!body.password || body.password.length < 8) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody('String should have at least 8 characters', 'validation_error', [
+            { field: 'password', in: 'body', message: 'String should have at least 8 characters' },
+          ])
+        )
+      )
+    }
+    user.password = body.password
+    endMockSessions(user)
+    return res(ctx.status(204))
+  }),
+
   rest.patch('/auth/users/:userId', async (req, res, ctx) => {
     const authorization = req.headers.get('authorization')
     const refused = adminRefusal(authorization)
@@ -2052,7 +2239,14 @@ export const handlers = [
 
     return res(
       ctx.status(200),
-      ctx.json(mockFunnel(start, end, req.url.searchParams.get('timezone')))
+      ctx.json(
+        mockFunnel(
+          start,
+          end,
+          req.url.searchParams.get('timezone') ??
+            mockActor(req.headers.get('authorization'))?.timezone
+        )
+      )
     )
   }),
 
@@ -2073,7 +2267,39 @@ export const handlers = [
     return res(
       ctx.status(200),
       ctx.json(
-        mockFunnelStage(stage, start, end, limit, offset, req.url.searchParams.get('timezone'))
+        mockFunnelStage(
+          stage,
+          start,
+          end,
+          limit,
+          offset,
+          req.url.searchParams.get('timezone') ??
+            mockActor(req.headers.get('authorization'))?.timezone
+        )
+      )
+    )
+  }),
+
+  rest.get('/reporting/teams', (req, res, ctx) => {
+    const refused = superAdminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const start = req.url.searchParams.get('start')
+    const end = req.url.searchParams.get('end')
+    if (!start || !end) {
+      return res(ctx.status(422), ctx.json(authErrorBody('Field required', 'validation_error')))
+    }
+
+    return res(
+      ctx.status(200),
+      ctx.json(
+        mockTeamStats(
+          start,
+          end,
+          req.url.searchParams.get('team_id'),
+          req.url.searchParams.get('timezone') ??
+            mockActor(req.headers.get('authorization'))?.timezone
+        )
       )
     )
   }),
@@ -2791,7 +3017,7 @@ export const handlers = [
   }),
 
   rest.get('/interactions/:interactionId/call-legs', (req, res, ctx) => {
-    const refused = adminRefusal(req.headers.get('authorization'))
+    const refused = superAdminRefusal(req.headers.get('authorization'))
     if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
 
     const interactionId = req.params.interactionId as string
@@ -2804,7 +3030,7 @@ export const handlers = [
   }),
 
   rest.get('/interactions/:interactionId/transfers', (req, res, ctx) => {
-    const refused = adminRefusal(req.headers.get('authorization'))
+    const refused = superAdminRefusal(req.headers.get('authorization'))
     if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
 
     const interactionId = req.params.interactionId as string
@@ -2815,7 +3041,7 @@ export const handlers = [
   }),
 
   rest.get('/interactions/:interactionId/events', (req, res, ctx) => {
-    const refused = adminRefusal(req.headers.get('authorization'))
+    const refused = superAdminRefusal(req.headers.get('authorization'))
     if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
 
     const interactionId = req.params.interactionId as string

@@ -71,7 +71,7 @@ export function LiveDashboard() {
       {latest && (
         <div className="space-y-3">
           <LiveCounters snapshot={latest.snapshot} />
-          <AgentStatusTable agents={latest.snapshot.agents} timeZone={latest.snapshot.timezone} />
+          <AgentStatusTable agents={latest.snapshot.agents} />
         </div>
       )}
     </PageShell>

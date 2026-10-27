@@ -18,6 +18,7 @@ import {
   Menu,
   Phone,
   PhoneIncoming,
+  Settings,
   Shield,
 } from 'lucide-react'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
@@ -60,6 +61,10 @@ function BellIcon() {
 
 function SignOutIcon() {
   return <LogOut {...NAV_ICON} />
+}
+
+function SettingsIcon() {
+  return <Settings {...NAV_ICON} />
 }
 
 function MenuIcon() {
@@ -204,7 +209,10 @@ const TEAM_ADMIN_NAV: NavItem[] = [
   // },
 ]
 
-/** Super Admin modules — Users / Teams / Campaigns only. */
+/**
+ * Super Admin modules: Users, Teams, Campaigns, Reports and Team stats. Reports
+ * is how they reach a lead's full view, through its drill-down.
+ */
 const SUPER_ADMIN_NAV: NavItem[] = [
   {
     href: '/admin/users',
@@ -223,6 +231,18 @@ const SUPER_ADMIN_NAV: NavItem[] = [
     label: 'Campaigns',
     icon: CampaignsIcon,
     isActive: (p) => p.startsWith('/admin/campaigns'),
+  },
+  {
+    href: '/admin/reports',
+    label: 'Reports',
+    icon: ReportsIcon,
+    isActive: (p) => p.startsWith('/admin/reports'),
+  },
+  {
+    href: '/admin/team-stats',
+    label: 'Team stats',
+    icon: StatsIcon,
+    isActive: (p) => p.startsWith('/admin/team-stats'),
   },
 ]
 
@@ -312,6 +332,8 @@ function SidebarInner() {
 
   const basePath = BASE_PATH[role]
   const workspacePathPrefix = `${basePath}/workspace`
+  const settingsHref = `${basePath}/settings`
+  const settingsActive = normalizePath(pathname) === settingsHref
 
   // Prefer ?id= (static-export safe). Path segments still resolve for CDN deep
   // links that rewrite /workspace/<id>/ onto the prebuilt shell.
@@ -542,6 +564,21 @@ function SidebarInner() {
               2
             </span>
           </div>
+
+          {/* Every desk has one, so it sits with the account rather than in a desk's nav. */}
+          <Link
+            href={settingsHref}
+            title={collapsed ? 'Settings' : undefined}
+            aria-label={collapsed ? 'Settings' : undefined}
+            className={`mt-1 flex items-center gap-3 rounded-lg py-2.5 text-sm font-medium transition ${
+              collapsed ? 'lg:justify-center lg:px-2 px-3' : 'px-3'
+            } ${settingsActive ? 'bg-nav-active text-navy' : 'text-ink hover:bg-slate/10'}`}
+          >
+            <span className="flex-shrink-0 p-1">
+              <SettingsIcon />
+            </span>
+            <span className={collapsed ? 'lg:hidden' : ''}>Settings</span>
+          </Link>
 
           <div
             className={`mt-2 flex items-center gap-3 rounded-lg py-2.5 ${

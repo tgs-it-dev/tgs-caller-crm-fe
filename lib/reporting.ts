@@ -1,7 +1,7 @@
 import type { components, paths } from '@/lib/generated/schema'
 import { apiUrl } from '@/lib/apiUrl'
 import { authError } from '@/lib/auth'
-import { BUSINESS_TIMEZONE } from '@/lib/format'
+import { displayTimeZone } from '@/lib/format'
 
 export type HistoricalFunnel = components['schemas']['HistoricalFunnel']
 
@@ -12,49 +12,21 @@ export type FunnelStage =
 export type FunnelInteraction = components['schemas']['FunnelInteraction']
 export type FunnelInteractionList = components['schemas']['FunnelInteractionListResponse']
 
+export type TeamStatsReport = components['schemas']['TeamStatsResponse']
+export type TeamStats = components['schemas']['TeamStats']
+export type TeamFigures = components['schemas']['TeamFigures']
+
 /** An inclusive range of business days, each as `YYYY-MM-DD`. */
 export type DateRange = { start: string; end: string }
 
 /**
- * Zones an administrator can ask the funnel to count in.
+ * Funnel counts for a range of days.
  *
- * Any IANA name the server knows is valid; this is only the menu. The reply's
- * zone is always offered too, so a configured business day outside the list
- * still appears as the current choice.
+ * No `timezone` is sent: the server counts in the signed-in user's own zone
+ * and names it in the reply.
  */
-export const REPORT_TIMEZONES = [
-  BUSINESS_TIMEZONE,
-  'America/Chicago',
-  'America/Denver',
-  'America/Los_Angeles',
-  'America/Phoenix',
-  'UTC',
-  'Europe/London',
-  'Asia/Karachi',
-] as const
-
-/** Menu options for a funnel reply — curated list plus the zone on screen. */
-export function reportTimezoneOptions(current: string): string[] {
-  if ((REPORT_TIMEZONES as readonly string[]).includes(current)) {
-    return [...REPORT_TIMEZONES]
-  }
-  return [current, ...REPORT_TIMEZONES]
-}
-
-/**
- * Funnel counts for a range of business days.
- *
- * Omit `timezone` on the first read so the server names the configured
- * business day. Pass one after that when someone deliberately picks another
- * region — the same dates mean a different cohort under a different zone.
- */
-export async function fetchFunnel(
-  range: DateRange,
-  token: string,
-  timezone?: string
-): Promise<HistoricalFunnel> {
+export async function fetchFunnel(range: DateRange, token: string): Promise<HistoricalFunnel> {
   const query = new URLSearchParams(range)
-  if (timezone) query.set('timezone', timezone)
   const res = await fetch(apiUrl(`/reporting/funnel?${query}`), {
     headers: { Authorization: `Bearer ${token}` },
   })
@@ -89,8 +61,28 @@ export async function fetchFunnelStage(
   return res.json() as Promise<FunnelInteractionList>
 }
 
-/** The calendar day `date` falls on in `timeZone` (Eastern when omitted). */
-export function businessDay(date: Date, timeZone: string = BUSINESS_TIMEZONE): string {
+/**
+ * Every team's figures for a range of days, or one team's when `teamId` is set.
+ *
+ * Super Admin only. Like `fetchFunnel`, no `timezone` is sent: the server
+ * counts in the user's own zone and names it in the reply.
+ */
+export async function fetchTeamStats(
+  range: DateRange,
+  teamId: string | null,
+  token: string
+): Promise<TeamStatsReport> {
+  const query = new URLSearchParams(range)
+  if (teamId) query.set('team_id', teamId)
+  const res = await fetch(apiUrl(`/reporting/teams?${query}`), {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) throw await authError(res)
+  return res.json() as Promise<TeamStatsReport>
+}
+
+/** The calendar day `date` falls on in `timeZone` (the user's zone when omitted). */
+export function businessDay(date: Date, timeZone: string = displayTimeZone()): string {
   // en-CA writes YYYY-MM-DD, which is what the API takes.
   return new Intl.DateTimeFormat('en-CA', { timeZone }).format(date)
 }
@@ -104,7 +96,13 @@ function dayBefore(isoDay: string): string {
 }
 
 /** Yesterday through today — the window the reports page opens on. */
-export function defaultRange(timeZone: string = BUSINESS_TIMEZONE): DateRange {
+export function defaultRange(timeZone: string = displayTimeZone()): DateRange {
   const today = businessDay(new Date(), timeZone)
   return { start: dayBefore(today), end: today }
+}
+
+/** The first of this month through today, the window team stats opens on. */
+export function monthToDate(timeZone: string = displayTimeZone()): DateRange {
+  const today = businessDay(new Date(), timeZone)
+  return { start: `${today.slice(0, 8)}01`, end: today }
 }

@@ -92,3 +92,13 @@ export function updateUser(id: string, patch: UserPatch, token: string): Promise
     body: JSON.stringify(patch),
   })
 }
+
+/** Super Admin sets someone else's password. A 204: there is nothing to read back. */
+export async function setUserPassword(id: string, password: string, token: string): Promise<void> {
+  const res = await fetch(apiUrl(`/auth/users/${id}/password`), {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  })
+  if (!res.ok) throw await authError(res)
+}

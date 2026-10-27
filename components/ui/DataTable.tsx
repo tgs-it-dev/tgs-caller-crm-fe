@@ -15,6 +15,8 @@ export type DataColumn<T> = {
   id: string
   header: ReactNode
   align?: 'left' | 'center' | 'right'
+  /** A share of the width, e.g. `'30%'`, so a short row's figures sit together. */
+  width?: string
   render: (row: T) => ReactNode
 }
 
@@ -48,6 +50,8 @@ type DataTableProps<T> = {
   /** `solid` = My Stats / closer cards; `live` = dashed Queue outline. */
   variant?: 'solid' | 'live'
   pageSize?: number
+  /** Off for a short list shown whole, such as one row per team: no pages, no footer. */
+  paginate?: boolean
   paging?: ServerPaging
   /**
    * A full-width row beneath the open one. The caller owns both the control
@@ -89,6 +93,7 @@ export function DataTable<T>({
   toolbar,
   variant = 'solid',
   pageSize = DEFAULT_PAGE_SIZE,
+  paginate = true,
   paging,
   expandedRowId = null,
   renderExpanded,
@@ -106,7 +111,7 @@ export function DataTable<T>({
   const totalPages = paging ? Math.max(1, Math.ceil(paging.total / paging.limit)) : localTotalPages
   const currentPage = paging ? Math.floor(paging.offset / paging.limit) + 1 : localPage
   const offset = paging ? paging.offset : localOffset
-  const visible = paging ? rows : rows.slice(localOffset, localOffset + pageSize)
+  const visible = paging || !paginate ? rows : rows.slice(localOffset, localOffset + pageSize)
 
   const goTo = (nextOffset: number) => {
     if (paging) paging.onOffsetChange(nextOffset)
@@ -150,7 +155,12 @@ export function DataTable<T>({
             <TableHead>
               <TableRow>
                 {columns.map((col) => (
-                  <TableCell key={col.id} scope="col" align={col.align}>
+                  <TableCell
+                    key={col.id}
+                    scope="col"
+                    align={col.align}
+                    sx={col.width ? { width: col.width } : undefined}
+                  >
                     {col.header}
                   </TableCell>
                 ))}
@@ -189,17 +199,21 @@ export function DataTable<T>({
           </Table>
         </div>
 
-        <div className="mt-auto flex h-[37px] shrink-0 items-center rounded-md bg-table-strip px-6">
-          <Pagination
-            className="w-full"
-            page={currentPage}
-            totalPages={totalPages}
-            rangeStart={offset + 1}
-            rangeEnd={offset + visible.length}
-            onPrevious={() => goTo(Math.max(0, offset - (paging?.limit ?? pageSize)))}
-            onNext={() => goTo(offset + (paging?.limit ?? pageSize))}
-          />
-        </div>
+        {(paging || paginate) && (
+          <div
+            className="mt-auto flex h-[37px] shrink-0 items-center rounded-md bg-table-strip px-6"
+          >
+            <Pagination
+              className="w-full"
+              page={currentPage}
+              totalPages={totalPages}
+              rangeStart={offset + 1}
+              rangeEnd={offset + visible.length}
+              onPrevious={() => goTo(Math.max(0, offset - (paging?.limit ?? pageSize)))}
+              onNext={() => goTo(offset + (paging?.limit ?? pageSize))}
+            />
+          </div>
+        )}
       </>
     )
 

@@ -99,7 +99,11 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Change your own settings
+         * @description Change the signed-in user's own time zone.
+         */
+        patch: operations["update_me_auth_me_patch"];
         trace?: never;
     };
     "/auth/password/change": {
@@ -256,6 +260,30 @@ export interface paths {
          *     carrying it has not gone out yet.
          */
         post: operations["invite_user_auth_users__user_id__invite_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/users/{user_id}/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set a user's password (Super Admin only)
+         * @description Replace someone's password so the Super Admin can tell them the new one.
+         *
+         *     Every session they have ends, as with any reset. Not for your own account:
+         *     `/auth/password/change` asks for the current password, so a borrowed session
+         *     cannot take the account over.
+         */
+        put: operations["set_user_password_auth_users__user_id__password_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -536,13 +564,12 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Call legs recorded for an interaction
-         * @description Administrator-only, like the rest of the review view.
+         * Call legs recorded for an interaction (Super Admin only)
+         * @description Super Admin only, like the rest of the review view.
          *
          *     An empty list is the expected answer today and not an error: nothing
          *     populates call_legs while the dialer's push carries no call id, so this
-         *     reads empty until that mapping lands. See ADR 0004. Team-scoped for Team
-         *     Admin; Super Admin may open any interaction.
+         *     reads empty until that mapping lands. See ADR 0004.
          */
         get: operations["list_call_legs_interactions__interaction_id__call_legs_get"];
         put?: never;
@@ -592,13 +619,12 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Raw inbound events recorded against an interaction
+         * Raw inbound events recorded against an interaction (Super Admin only)
          * @description The payloads this interaction was derived from, newest first.
          *
          *     Only events the worker linked. One stored before the link existed, one still
          *     unprocessed, and one identifying no interaction all read as absent, so an
          *     empty list means none were recorded rather than none arrived.
-         *     Team-scoped for Team Admin.
          */
         get: operations["list_events_interactions__interaction_id__events_get"];
         put?: never;
@@ -617,12 +643,11 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Transfer history for an interaction
+         * Transfer history for an interaction (Super Admin only)
          * @description Every attempt, not just the live one.
          *
          *     A rejected or timed-out transfer releases the interaction to be retried, so
          *     the attempts are the history somebody reviewing this came to see.
-         *     Team-scoped for Team Admin.
          */
         get: operations["list_transfers_interactions__interaction_id__transfers_get"];
         put?: never;
@@ -754,10 +779,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * This agent's dispositions and transfers for today's business day
+         * This agent's dispositions and transfers for today, in their time zone
          * @description My Stats for the signed-in fronter or closer.
          *
-         *     Scoped to the caller and to the configured business day — never another
+         *     Scoped to the caller and to today in their own time zone: never another
          *     agent's rows, never yesterday's. An empty day is empty arrays and zero
          *     counts, not 404. Includes summary integers for the My Stats cards
          *     (``calls_today``, ``sales``, ``calls_transferred``). Fronter: dispositions
@@ -980,6 +1005,31 @@ export interface paths {
          *     0002 lists which.
          */
         get: operations["live_status_reporting_live_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reporting/teams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Each team's figures for a range of business days (Super Admin only)
+         * @description Leads, outcomes, transfers and sales side by side, with each team's conversion.
+         *
+         *     Each count is what happened in the window: a sale counts on the day it was
+         *     made, whenever its lead came in. Conversion is the share of the window's own
+         *     leads that have been sold, at any time. An inactive team is listed only when
+         *     it has figures or is asked for.
+         */
+        get: operations["team_figures_reporting_teams_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2186,6 +2236,11 @@ export interface components {
             agents: components["schemas"]["AgentLiveStatus"][];
             funnel_today: components["schemas"]["FunnelCounts"];
             /**
+             * Funnel Today By Timezone
+             * @description Today in each zone a user can choose, so every viewer reads their own day.
+             */
+            funnel_today_by_timezone: components["schemas"]["ZoneFunnelCounts"][];
+            /**
              * Generated At
              * Format: date-time
              */
@@ -2197,7 +2252,7 @@ export interface components {
             pending_transfers: number;
             /**
              * Timezone
-             * @description The business time zone. funnel_today is its day; show times in it too, so the page reads as one day.
+             * @description The business time zone. funnel_today is its day.
              */
             timezone: string;
         };
@@ -2210,6 +2265,21 @@ export interface components {
             email: string;
             /** Password */
             password: string;
+        };
+        /**
+         * OutcomeCount
+         * @description How many leads one fronter outcome is the latest word on.
+         */
+        OutcomeCount: {
+            /** Count */
+            count: number;
+            /**
+             * Disposition Id
+             * Format: uuid
+             */
+            disposition_id: string;
+            /** Label */
+            label: string;
         };
         /** QualificationCreateRequest */
         QualificationCreateRequest: {
@@ -2367,6 +2437,14 @@ export interface components {
             /** Resolved */
             resolved: boolean;
         };
+        /**
+         * SetUserPasswordRequest
+         * @description A Super Admin choosing someone else's password, to tell them in person.
+         */
+        SetUserPasswordRequest: {
+            /** Password */
+            password: string;
+        };
         /** TeamCreateRequest */
         TeamCreateRequest: {
             /**
@@ -2396,6 +2474,29 @@ export interface components {
              */
             team_id: string;
         };
+        /**
+         * TeamFigures
+         * @description One team's figures for a window, or every team's added up.
+         *
+         *     Each count is what happened in the window, whenever the lead came in.
+         *     ``converted`` and ``conversion_rate`` follow the window's own leads instead.
+         */
+        TeamFigures: {
+            /** Conversion Rate */
+            conversion_rate: number | null;
+            /** Converted */
+            converted: number;
+            /** Leads */
+            leads: number;
+            /** Outcomes */
+            outcomes: components["schemas"]["OutcomeCount"][];
+            /** Qualified */
+            qualified: number;
+            /** Sales */
+            sales: number;
+            /** Transferred */
+            transferred: number;
+        };
         /** TeamListResponse */
         TeamListResponse: {
             /** Items */
@@ -2422,6 +2523,48 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /** TeamStats */
+        TeamStats: {
+            /** Conversion Rate */
+            conversion_rate: number | null;
+            /** Converted */
+            converted: number;
+            /** Leads */
+            leads: number;
+            /** Outcomes */
+            outcomes: components["schemas"]["OutcomeCount"][];
+            /** Qualified */
+            qualified: number;
+            /** Sales */
+            sales: number;
+            /**
+             * Team Id
+             * Format: uuid
+             */
+            team_id: string;
+            /** Team Name */
+            team_name: string;
+            /** Transferred */
+            transferred: number;
+        };
+        /** TeamStatsResponse */
+        TeamStatsResponse: {
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /** Teams */
+            teams: components["schemas"]["TeamStats"][];
+            /** Timezone */
+            timezone: string;
+            total: components["schemas"]["TeamFigures"];
         };
         /**
          * TeamUpdateRequest
@@ -2596,6 +2739,18 @@ export interface components {
              */
             updated_at: string;
         };
+        /**
+         * UpdateMeRequest
+         * @description What a signed-in user may change about their own account.
+         */
+        UpdateMeRequest: {
+            /**
+             * Timezone
+             * @description The zone their times are shown in and their days are counted in.
+             * @enum {string}
+             */
+            timezone: "America/New_York" | "Asia/Karachi";
+        };
         /** UpdateUserRequest */
         UpdateUserRequest: {
             /** Active */
@@ -2649,6 +2804,21 @@ export interface components {
             roles: ("fronter" | "closer" | "administrator" | "super_admin")[];
             /** Team Id */
             team_id?: string | null;
+            /**
+             * Timezone
+             * @description The zone this user's times are shown in and their days are counted in.
+             * @enum {string}
+             */
+            timezone: "America/New_York" | "Asia/Karachi";
+        };
+        /** ZoneFunnelCounts */
+        ZoneFunnelCounts: {
+            funnel: components["schemas"]["FunnelCounts"];
+            /**
+             * Timezone
+             * @enum {string}
+             */
+            timezone: "America/New_York" | "Asia/Karachi";
         };
     };
     responses: never;
@@ -2833,6 +3003,48 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    update_me_auth_me_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateMeRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -3217,6 +3429,48 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    set_user_password_auth_users__user_id__password_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetUserPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4587,7 +4841,7 @@ export interface operations {
             query: {
                 start: string;
                 end: string;
-                /** @description IANA name deciding which day the dates mean, e.g. America/New_York. Defaults to the configured business day, so figures stay comparable between people unless someone deliberately asks for another region's. */
+                /** @description IANA name deciding which day the dates mean, e.g. America/New_York. Defaults to the caller's own time zone, so people who share a zone see the same figures for the same dates. */
                 timezone?: string | null;
                 /** @description A Super Admin names one team, or leaves it out for the whole company. Anyone else always gets their own team; naming another is refused with 403 team.forbidden. */
                 team_id?: string | null;
@@ -4632,7 +4886,7 @@ export interface operations {
             query: {
                 start: string;
                 end: string;
-                /** @description IANA name deciding which day the dates mean, e.g. America/New_York. Defaults to the configured business day, so figures stay comparable between people unless someone deliberately asks for another region's. */
+                /** @description IANA name deciding which day the dates mean, e.g. America/New_York. Defaults to the caller's own time zone, so people who share a zone see the same figures for the same dates. */
                 timezone?: string | null;
                 /** @description A Super Admin names one team, or leaves it out for the whole company. Anyone else always gets their own team; naming another is refused with 403 team.forbidden. */
                 team_id?: string | null;
@@ -4695,6 +4949,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LiveStatusResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    team_figures_reporting_teams_get: {
+        parameters: {
+            query: {
+                start: string;
+                end: string;
+                /** @description IANA name deciding which day the dates mean, e.g. America/New_York. Defaults to the caller's own time zone, so people who share a zone see the same figures for the same dates. */
+                timezone?: string | null;
+                /** @description One team's figures, or every team's when left out. */
+                team_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamStatsResponse"];
                 };
             };
             /** @description Client Error */

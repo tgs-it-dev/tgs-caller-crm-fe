@@ -125,6 +125,9 @@ Frontend pieces:
   fronters and closers, `ADMIN_NAV` for administrators. Each item carries its
   own `isActive(pathname)`. A new page goes under its role's segment and into
   that role's list.
+- **A Super Admin's list is `SUPER_ADMIN_NAV`**: Users, Teams, Campaigns,
+  Reports and Team stats. Reports is there because its drill-down is how they
+  reach a lead's full view. Exceptions stays out: without the dialer it is empty.
 - **Somebody may hold more than one role**, and the nav only ever shows the desk
   they are on, so the sidebar identity doubles as a desk menu — `heldDesks()` in
   `lib/auth.ts` lists every desk held, the current one ticked. A single-role
@@ -155,8 +158,9 @@ The administrator dashboard (`/admin`) is fed by `lib/liveStatus.ts`:
 - Under MSW there's no socket to mock, so it polls the snapshot every 15s.
 - "Live" means the newest snapshot arrived within three push intervals,
   timed by arrival — a socket kept open by pings can still carry stale figures.
-- Times show in the business time zone the snapshot names (`timezone`), with its
-  abbreviation, so they read in the same day as the counts.
+- Times show in the user's own zone, with its abbreviation. The counters read
+  `funnel_today_by_timezone`, which carries today in every zone a user can
+  choose, so one push gives each viewer their own day.
 
 ## Fronter Active Call
 
@@ -199,13 +203,13 @@ disposition picker and the transfer panel.
 inclusive range of business days — Attempts, Connects, Qualified, Transfer
 Attempts.
 
-- **No `timezone` is sent.** A business day is the server's to define; the reply
-  names the zone it counted in, and the page shows it beside the window as the
-  abbreviation ("EDT"), the way the live dashboard writes times. The page opens
-  on today in that zone — except on the very first request, where nothing has
-  named the zone yet, so it uses the browser's day and corrects itself if the
-  reply disagrees, staying on the loading state so a day nobody asked for is
-  never drawn. A window the user picked is never corrected.
+- **No `timezone` is sent.** The server counts in the signed-in user's own zone
+  (see Settings) and names it in the reply, and the page shows it beside the
+  window as the abbreviation ("EDT", "PKT"). The page opens on today in the
+  user's zone. If a reply ever names another zone and those days disagree, it
+  corrects itself, staying on the loading state so a day nobody asked for is
+  never drawn. A window the user picked is never corrected. There is no zone
+  picker on this page: the user's setting is the only one.
 - **The bars needn't narrow.** All four counts share one cohort, so Attempts
   bounds the rest, but Qualified doesn't require a call leg — with the dialer
   events unmapped, Connects sits at 0 under a non-zero Qualified. Bars measure
@@ -274,21 +278,15 @@ Attempts.
   reads them in a zone, and the same days under another one are a different
   cohort (`2026-09-23` is 25 interactions in `America/New_York` and 39 in
   `Asia/Karachi`). The aggregate asks without one so the server picks and
-  *names* the business zone; the list passes that name back, which is the only
+  *names* the user's zone; the list passes that name back, which is the only
   thing making its `total` the same figure as the bar above it. So the list is
   handed the funnel that came back, never the range that was asked for — on the
   first read those disagree, and only the reply carries a zone.
-- **The list's times are drawn in the business zone, not the reader's.** The
-  exception to the rule under "Exceptions and interaction detail" below, and for
-  that rule's own reason: it says interaction timestamps use the local zone
-  *because those answers carry no business zone the way `/reporting/*` does* —
-  and this one does, in `timezone`. Drawn locally instead, a row's date is
-  simply the wrong day: from `Asia/Karachi`, 209 of 670 rows carry a different
-  date from the business day the figure above them counted, and near the edge a
-  row can show a date outside the window in the card's own heading. A list of
-  the records behind a number must not disagree with it about when. So
-  `formatDateTimeIn(created_at, list.timezone)`, and the caption is
-  `formatZone()` — the same abbreviation the window above the chart carries.
+- **The list's times are drawn in the zone the reply counted in.** That is the
+  user's own zone, but the list reads it from `timezone` rather than assuming
+  it, because a list of the records behind a number must not disagree with it
+  about when. So `formatDateTimeIn(created_at, list.timezone)`, and the caption
+  is `formatZone()`, the same abbreviation the window above the chart carries.
 - **A row carries the lead's phone because nothing else on it is human.**
   `FunnelInteraction` is `id`, `lead_id`, `created_at` plus `lead_phone` and
   `lead_source`, the last two joined on in the backend. A page of uuids and
@@ -298,11 +296,42 @@ Attempts.
   nothing renders it yet: the join that carries the phone carries it for free,
   so the contract only had to change once.
 
+## Team stats
+
+`/admin/team-stats` reads `GET /reporting/teams` through `fetchTeamStats()` in
+`lib/reporting.ts`: every team side by side for a range of business days, with
+an "All teams" row under them. Super Admin only, in all three places: the
+sidebar item, `RequireRole role="super_admin"`, and the API's 403.
+
+- **Counts are what happened during the dates**, whenever the lead came in.
+  Leads by when they were created, Qualified and each fronter outcome by when
+  the latest outcome was recorded, Transferred by when a closer accepted, Sales
+  by when the sale was recorded. Near the edges of a range they can differ from
+  the funnel, which credits everything to the day the lead came in.
+- **Conversion is worked out of the range's own leads**: of the leads created
+  during the dates, the share sold at any time. A cell shows the rate, a bar to
+  compare teams by eye, then "8 of 100". It cannot pass 100%, and it rises as
+  those leads close. "n/a" means no leads.
+- **Fronter outcomes are each lead's latest**, one column per catalogue row in
+  the reply, so No answer and Callback need no label matching. Every row carries
+  the same outcomes in the same order, and the columns are keyed by
+  `disposition_id`. An outcome nobody recorded during the dates gets no column.
+- **The page opens on this month so far** (`monthToDate()`) and, like Reports,
+  sends no `timezone`. It needs no correction step, because the user's zone is
+  set before the page renders.
+- **The filters have a card of their own at the top**, outside both tables, so
+  the sales report can share them when it lands. Tiles carry the totals. Both
+  tables are shown whole (`paginate={false}`), the Team column takes the slack
+  (`width` on its column), the "All teams" row is shaded and bold, and a team
+  with nothing in the range is drawn in grey.
+- The sales list with amounts, and its agent filter, come with the closer's cart.
+
 ## Exceptions and interaction detail
 
 `/admin/exceptions` works the reconciliation queue through `lib/exceptions.ts`;
 `/admin/interactions/[interactionId]` is the record behind a row, read through
-`lib/interactionDetail.ts`. Administrator-only, like the rest of `/admin`.
+`lib/interactionDetail.ts`. Exceptions is open to every administrator; the
+detail screen is Super Admin only.
 
 - **Reconciliation makes no call to VICIdial.** It is a self-consistency audit of
   the CRM's own tables against the raw event inbox, swept every five minutes by
@@ -343,6 +372,12 @@ Attempts.
   today; a new caller adds its entry and passes the param. An unrecognised or
   absent `from` falls back to the dashboard, which is what a bookmarked link
   gets.
+- **It is a lead's full view, so it is the Super Admin's alone.** The API
+  refuses a Team Admin the interaction, its dispositions, its qualification, a
+  single transfer and the three panels, and the page sits behind
+  `RequireRole role="super_admin"`.
+  Its two ways in, "Open interaction detail" on an exception and the drill-down's
+  Detail column, show for Super Admins only; a Team Admin keeps the rows.
 - **It lights no sidebar item**, because it now has two ways in and lighting
   either one would be wrong half the time. `isActive` for Exceptions matches
   `/admin/exceptions` only. The back link is what says where the reader came
@@ -403,6 +438,31 @@ state or team. Administrator-only, like the rest of `/admin`.
 - Failures land on the input they name: the API's `fields` array is mapped onto
   the matching control (a duplicate address shows under Email), and anything
   unnamed falls back to the dialog's `<Alert>`.
+- **A Super Admin can reset someone's password** from Edit User's Password
+  section, which switches the same dialog to a reset step (Back keeps any unsaved
+  edits): `PUT /auth/users/{id}/password` with a password they type and tell the
+  person. Every session that person has ends, so they are signed out within the
+  15-minute access token. Super Admin only, and never your own account
+  (`user.cannot_reset_own_password`); your own goes through Settings.
+
+## Settings
+
+`/admin/settings`, `/fronter/settings` and `/closer/settings` all render one
+`SettingsScreen`, so each desk keeps its own nav around it. The Settings row in
+the sidebar's bottom section links to the current desk's page.
+
+- **Time zone.** Eastern (`America/New_York`) or Pakistan (`Asia/Karachi`),
+  saved with `PATCH /auth/me`. Every formatter in `lib/format.ts` draws in it,
+  and the server counts "today" and report days in it. `CurrentUserProvider`
+  sets it before rendering and keys its children by it, so saving a new zone
+  redraws every screen. Eastern shows as EDT or EST on its own; Karachi is
+  labelled "PKT" by `zoneAbbreviation`, because Intl calls it "GMT+5".
+- **Password.** `POST /auth/password/change` with the current one. The API ends
+  every session and hands this device a new pair, which `changePassword` in
+  `lib/session.ts` stores while holding the refresh lock, so no renewal can
+  send the old token in the meantime. Another signed-in device still holds an
+  ended token, and its next refresh makes the API end every session, this one
+  included: the success message says the user may need to sign in again here.
 
 ## Campaigns
 
