@@ -197,6 +197,27 @@ disposition picker and the transfer panel.
   since un-ticking a suppression the fronter just asserted is the one direction
   that loses something.
 
+## Closer cart
+
+`components/closer/CartPaymentCard.tsx`, above the closer's disposition card;
+the API calls and rules are in `lib/cart.ts`.
+
+- **Unlocks once the transfer is accepted.** Before that the API would refuse
+  the save: only the closer who accepted the call may write its cart.
+- **Account, routing and CVV show only while focused**, and read `•••• 1234`
+  (or `•••`) once the closer leaves the field. They live in component state
+  alone, never storage or logs.
+- **The full numbers never come back.** `GET /interactions/{id}/cart` gives at
+  most the last four digits. A saved cart shows read-only, masked, with an
+  **Edit cart** button. In the form, a saved number shows as its placeholder
+  (`•••• 4242`); left blank it is kept (the request leaves it out), and typing
+  replaces it. The CVV is checked by the API and discarded.
+- **Money goes as strings** (`"1800.00"`), formatted on blur and shown through
+  `formatMoney`. `CURRENCY` in `lib/format.ts` is the one place the currency is
+  set: the API stores amounts without one.
+- `checkCart` mirrors the API's rules so most mistakes show inline before a
+  save; the mock handler reuses it, so the two cannot drift.
+
 ## Reporting
 
 `/admin/reports` reads `GET /reporting/funnel` through `lib/reporting.ts` for an

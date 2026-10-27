@@ -75,7 +75,10 @@ function WorkspaceContent({ interactionId }: { interactionId: string }) {
         if (cancelled) return
 
         if (qualification) {
-          setSnapshot(qualification.snapshot_json)
+          setSnapshot({
+            ...EMPTY_SNAPSHOT,
+            ...(qualification.snapshot_json as Partial<QualificationSnapshot>),
+          })
           setConsent(qualification.consent_dnc)
           setVersion(qualification.version)
         }

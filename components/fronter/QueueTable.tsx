@@ -1,2 +1,2 @@
-/** Re-export so existing `@/components/fronter/QueueTable` imports keep working. */
+/** @deprecated Fronter dialer queue is gone — use Callbacks on FronterDeskScreen. */
 export { QueueTable } from '@/components/queue/QueueTable'

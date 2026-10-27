@@ -11,6 +11,7 @@ import {
   ChartLine,
   Check,
   ChevronDown,
+  ClipboardCheck,
   Contact,
   Headset,
   ListOrdered,
@@ -95,6 +96,10 @@ function AdminDeskIcon() {
   return <Shield {...DESK_ICON_PROPS} />
 }
 
+function QaDeskIcon() {
+  return <ClipboardCheck {...DESK_ICON_PROPS} />
+}
+
 function DashboardIcon() {
   return (
     <OutlineIcon>
@@ -166,6 +171,8 @@ const BASE_PATH: Record<Role, string> = {
   fronter: '/fronter',
   closer: '/closer',
   administrator: '/admin',
+  qa_manager: '/admin',
+  qa_agent: '/qa',
   super_admin: '/admin',
 }
 
@@ -174,6 +181,8 @@ const DESK_ICON: Record<Role, ComponentType> = {
   fronter: FronterDeskIcon,
   closer: CloserDeskIcon,
   administrator: AdminDeskIcon,
+  qa_manager: AdminDeskIcon,
+  qa_agent: QaDeskIcon,
   super_admin: AdminDeskIcon,
 }
 
@@ -186,27 +195,27 @@ const TEAM_ADMIN_NAV: NavItem[] = [
     icon: ReportsIcon,
     isActive: (p) => p.startsWith('/admin/reports'),
   },
-  {
-    href: '/admin/exceptions',
-    label: 'Exceptions',
-    icon: ExceptionsIcon,
-    // Not /admin/interactions: that screen is reached from here and from the
-    // reports funnel, so lighting either one is wrong half the time. It lights
-    // nothing, and its back link says which way the reader came in.
-    isActive: (p) => p.startsWith('/admin/exceptions'),
-  },
+  // {
+  //   href: '/admin/exceptions',
+  //   label: 'Exceptions',
+  //   icon: ExceptionsIcon,
+  //   // Not /admin/interactions: that screen is reached from here and from the
+  //   // reports funnel, so lighting either one is wrong half the time. It lights
+  //   // nothing, and its back link says which way the reader came in.
+  //   isActive: (p) => p.startsWith('/admin/exceptions'),
+  // },
   {
     href: '/admin/users',
     label: 'Users',
     icon: UsersIcon,
     isActive: (p) => p.startsWith('/admin/users'),
   },
-  {
-    href: '/admin/leads',
-    label: 'Leads',
-    icon: LeadsIcon,
-    isActive: (p) => p.startsWith('/admin/leads'),
-  },
+  // {
+  //   href: '/admin/leads',
+  //   label: 'Leads',
+  //   icon: LeadsIcon,
+  //   isActive: (p) => p.startsWith('/admin/leads'),
+  // },
 ]
 
 /**
@@ -246,8 +255,32 @@ const SUPER_ADMIN_NAV: NavItem[] = [
   },
 ]
 
+/** QA Manager: Users only — no Teams / Campaigns / company reporting. */
+const QA_MANAGER_NAV: NavItem[] = [
+  {
+    href: '/admin/users',
+    label: 'Users',
+    icon: UsersIcon,
+    isActive: (p) => p.startsWith('/admin/users'),
+  },
+]
+
 function adminNavFor(role: Role): NavItem[] {
-  return role === 'super_admin' ? SUPER_ADMIN_NAV : TEAM_ADMIN_NAV
+  if (role === 'super_admin') return SUPER_ADMIN_NAV
+  if (role === 'qa_manager') return QA_MANAGER_NAV
+  return TEAM_ADMIN_NAV
+}
+
+/** Placeholder desk until the QA Agent workspace ships. */
+function qaAgentNav(): NavItem[] {
+  return [
+    {
+      href: '/qa',
+      label: 'QA',
+      icon: QaDeskIcon,
+      isActive: (p) => p === '/qa',
+    },
+  ]
 }
 
 /** `trailingSlash: true` makes usePathname() return `/fronter/`; nav hrefs stay `/fronter`. */
@@ -258,16 +291,22 @@ function normalizePath(pathname: string): string {
 function deskNav(role: 'fronter' | 'closer', activeCallHref: string): NavItem[] {
   const base = BASE_PATH[role]
   const workspace = `${base}/workspace`
-  const queue = role === 'closer' ? `${base}/queue` : base
+  // Fronter home is lead create + callbacks (no dialer queue). Closer keeps /closer/queue.
+  const listHref = role === 'closer' ? `${base}/queue` : base
+  const listLabel = role === 'closer' ? 'Queue' : 'Leads'
+  // Kept for when Active Call returns to the nav (see commented item below).
+  void activeCallHref
+  void workspace
   return [
-    {
-      href: activeCallHref,
-      label: 'Active Call',
-      icon: PhoneIcon,
-      // A closer's Active Call is the desk itself; a fronter's is always a workspace.
-      isActive: (p) => p.startsWith(workspace) || (role === 'closer' && p === base),
-    },
-    { href: queue, label: 'Queue', icon: QueueIcon, isActive: (p) => p === queue },
+    // Active Call — not shown while fronters work from Leads / create form only.
+    // {
+    //   href: activeCallHref,
+    //   label: 'Active Call',
+    //   icon: PhoneIcon,
+    //   // A closer's Active Call is the desk itself; a fronter's is always a workspace.
+    //   isActive: (p) => p.startsWith(workspace) || (role === 'closer' && p === base),
+    // },
+    { href: listHref, label: listLabel, icon: QueueIcon, isActive: (p) => p === listHref },
     {
       href: `${base}/stats`,
       label: 'My Stats',
@@ -353,11 +392,14 @@ function SidebarInner() {
       : `${workspacePathPrefix}/?id=${encodeURIComponent(workspaceIdFromUrl)}`
     : basePath
 
-  // Team Admin vs Super Admin get different /admin modules.
+  // Team Admin / Super Admin / QA Manager share /admin with different modules;
+  // QA Agent has a stub desk until its workspace ships.
   const navItems =
-    role === 'administrator' || role === 'super_admin'
+    role === 'administrator' || role === 'super_admin' || role === 'qa_manager'
       ? adminNavFor(role)
-      : deskNav(role, activeCallHref)
+      : role === 'qa_agent'
+        ? qaAgentNav()
+        : deskNav(role, activeCallHref)
 
   // Somebody may hold more than one role, and the nav only ever shows the desk
   // they are on — so without a way across, the others are unreachable. One role

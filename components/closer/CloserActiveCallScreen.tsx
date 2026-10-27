@@ -4,6 +4,7 @@ import { useCallback, useEffect, useReducer, useState, type ReactNode } from 're
 import { usePathname } from 'next/navigation'
 import { RequireRole } from '@/components/auth/RequireRole'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
+import { CartPaymentCard } from '@/components/closer/CartPaymentCard'
 import { CloserDispositionCard } from '@/components/closer/CloserDispositionCard'
 import { QualificationSnapshot } from '@/components/closer/QualificationSnapshot'
 import { TodaysDispositionTable } from '@/components/closer/TodaysDispositionTable'
@@ -403,7 +404,11 @@ function CloserActiveCallWorkspace({
           <QualificationSnapshot snapshot={snapshot} isLoading={isLoading} />
           {todaysTable}
         </div>
-        <div className="lg:col-span-5">
+        <div className="flex flex-col gap-4 lg:col-span-5">
+          <CartPaymentCard
+            interactionId={interactionId}
+            enabled={!isLoading && transferStatus === 'accepted'}
+          />
           <CloserDispositionCard
             options={options}
             dispositionId={dispositionId}
