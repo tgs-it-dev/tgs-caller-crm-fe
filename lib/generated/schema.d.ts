@@ -203,10 +203,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List users (administrators only) */
+        /** List users (administrators and QA Managers) */
         get: operations["list_users_auth_users_get"];
         put?: never;
-        /** Create a user (administrators only) */
+        /** Create a user (administrators and QA Managers) */
         post: operations["create_user_auth_users_post"];
         delete?: never;
         options?: never;
@@ -221,7 +221,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get a user (administrators only) */
+        /** Get a user (administrators and QA Managers) */
         get: operations["get_user_auth_users__user_id__get"];
         put?: never;
         post?: never;
@@ -229,7 +229,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Update a user (administrators only)
+         * Update a user (administrators and QA Managers)
          * @description Patch name, roles, active and/or team.
          *
          *     Changing the team is Super Admin only, follows the same rules as
@@ -253,7 +253,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Send a fresh invitation (administrators only)
+         * Send a fresh invitation (administrators and QA Managers)
          * @description Issue another invitation, superseding any the user has not used.
          *
          *     202 rather than 204: the link exists the moment this returns, but the email
@@ -1244,7 +1244,7 @@ export interface components {
              * Role
              * @enum {string}
              */
-            role: "fronter" | "closer" | "administrator" | "super_admin";
+            role: "fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "super_admin";
             /**
              * Since
              * Format: date-time
@@ -1570,10 +1570,10 @@ export interface components {
             /** Password */
             password?: string | null;
             /** Roles */
-            roles: ("fronter" | "closer" | "administrator" | "super_admin")[];
+            roles: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "super_admin")[];
             /**
              * Team Id
-             * @description Team the account joins: a Team Admin's own team, which they may leave out. A Super Admin must name one, except for a super_admin account.
+             * @description Team the account joins: a Team Admin or QA Manager's own team, which they may leave out. A Super Admin must name one, except for a super_admin account. qa_manager and qa_agent are team-scoped and always need a team.
              */
             team_id?: string | null;
         };
@@ -2854,7 +2854,7 @@ export interface components {
             /** Name */
             name?: string | null;
             /** Roles */
-            roles?: ("fronter" | "closer" | "administrator" | "super_admin")[] | null;
+            roles?: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "super_admin")[] | null;
             /**
              * Team Id
              * @description Super Admin only: moves the user to this team, saved with the rest of the change. Leave it out to keep their team.
@@ -2897,7 +2897,7 @@ export interface components {
             /** Name */
             name: string;
             /** Roles */
-            roles: ("fronter" | "closer" | "administrator" | "super_admin")[];
+            roles: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "super_admin")[];
             /** Team Id */
             team_id?: string | null;
             /**
@@ -3345,7 +3345,7 @@ export interface operations {
                 /** @description Filter by account state */
                 active?: boolean | null;
                 /** @description Filter by role held */
-                role?: ("fronter" | "closer" | "administrator" | "super_admin") | null;
+                role?: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "super_admin") | null;
                 /** @description Members of this team only (Super Admins never match) */
                 team_id?: string | null;
                 /** @description Substring of email or name */

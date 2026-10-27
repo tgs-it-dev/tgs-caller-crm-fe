@@ -169,9 +169,24 @@ const MOCK_USERS: MockUser[] = [
   { id: '7', email: 'both@tgs.com', password: 'password1', name: 'Bea Both', roles: ['fronter', 'closer'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_WEST },
   // Company-wide admin — no team pin; inherits every Team Admin surface.
   { id: '8', email: 'super@tgs.com', password: 'password1', name: 'Sam Super', roles: ['super_admin'], active: true, created_at: SEEDED_AT, team_id: null },
+  // QA desk demos — Default Team, matching backend seed (quinn.qa / aria.agent).
+  { id: '9', email: 'quinn.qa@tgs.com', password: 'password1', name: 'Quinn QA', roles: ['qa_manager'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_DEFAULT },
+  { id: '10', email: 'aria.agent@tgs.com', password: 'password1', name: 'Aria Agent', roles: ['qa_agent'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_DEFAULT },
 ]
 
-const KNOWN_ROLES: Role[] = ['fronter', 'closer', 'administrator', 'super_admin']
+const KNOWN_ROLES: Role[] = [
+  'fronter',
+  'closer',
+  'administrator',
+  'qa_manager',
+  'qa_agent',
+  'super_admin',
+]
+
+/** Dialer agents a Team Admin may manage (besides self). */
+const AGENT_ROLES: readonly Role[] = ['fronter', 'closer']
+/** QA agents a QA Manager may manage (besides self). */
+const QA_AGENT_ROLES: readonly Role[] = ['qa_agent']
 
 type MockLink = { token: string; userId: string; purpose: 'invite' | 'reset'; state: 'live' | 'used' | 'superseded' | 'expired' }
 
@@ -410,7 +425,32 @@ function adminRefusal(authorization: string | null) {
     }
   }
   // Super Admin inherits every Team Admin surface (same rule as RequireRole).
+  // QA Manager is not Team Admin — user-admin routes use userAdminRefusal.
   if (!roleSatisfies(user.roles, 'administrator')) {
+    return {
+      status: 403,
+      body: authErrorBody('Insufficient role for this operation', 'auth.forbidden'),
+    }
+  }
+  return null
+}
+
+/**
+ * User administration: Team Admin (SA inherits) or QA Manager.
+ * Does not open reporting / campaigns / teams chrome to a QA Manager.
+ */
+function userAdminRefusal(authorization: string | null) {
+  const user = MOCK_TOKENS.get((authorization || '').replace(/^Bearer\s+/i, ''))
+  if (!user || !user.active) {
+    return {
+      status: 401,
+      body: authErrorBody('Could not validate credentials', 'auth.not_authenticated'),
+    }
+  }
+  if (
+    !roleSatisfies(user.roles, 'administrator') &&
+    !user.roles.includes('qa_manager')
+  ) {
     return {
       status: 403,
       body: authErrorBody('Insufficient role for this operation', 'auth.forbidden'),
@@ -438,26 +478,69 @@ function superAdminRefusal(authorization: string | null) {
 }
 
 /**
- * Roles this actor may assign. Super Admin ≠ Team Admin: the latter may only
- * staff Fronter / Closer. Neither may promote someone to Super Admin here.
+ * Roles this actor may assign. Matches lib/users grantableRoles / BE grants:
+ * Super Admin → any; Team Admin → fronter/closer; QA Manager → qa_agent.
  */
 function grantableBy(actor: MockUser): Role[] {
-  if (actor.roles.includes('super_admin')) {
-    return KNOWN_ROLES.filter((role) => role !== 'super_admin')
-  }
-  if (actor.roles.includes('administrator')) return ['fronter', 'closer']
+  if (actor.roles.includes('super_admin')) return [...KNOWN_ROLES]
+  if (actor.roles.includes('administrator')) return [...AGENT_ROLES]
+  if (actor.roles.includes('qa_manager')) return [...QA_AGENT_ROLES]
   return []
 }
 
-/** 403 when the actor tries to grant above their ceiling. */
-function grantCeilingRefusal(actor: MockUser, roles: Role[]) {
-  const allowed = grantableBy(actor)
-  const forbidden = roles.filter((role) => !allowed.includes(role))
-  if (forbidden.length === 0) return null
-  return {
-    status: 403,
-    body: authErrorBody('cannot grant roles above your ceiling', 'auth.forbidden'),
+/**
+ * Roles whose holders this actor may manage (besides self).
+ * `null` = everyone (Super Admin).
+ */
+function managedRolesBy(actor: MockUser): ReadonlySet<Role> | null {
+  if (actor.roles.includes('super_admin')) return null
+  const managed = new Set<Role>()
+  if (actor.roles.includes('administrator')) {
+    for (const role of AGENT_ROLES) managed.add(role)
   }
+  if (actor.roles.includes('qa_manager')) {
+    for (const role of QA_AGENT_ROLES) managed.add(role)
+  }
+  return managed
+}
+
+/** Whether this row is in the actor's Users list (self + managed roles on own team). */
+function isManageableBy(actor: MockUser, target: MockUser): boolean {
+  if (actor.id === target.id) return true
+  const managed = managedRolesBy(actor)
+  if (managed === null) return true
+  if (managed.size === 0) return false
+  if (!actor.team_id || target.team_id !== actor.team_id) return false
+  return target.roles.every((role) => managed.has(role))
+}
+
+/**
+ * 403 when the actor tries to grant above their ceiling, or onto another team.
+ * Only roles the target lacks count as granted (self may keep an elevated role).
+ */
+function grantCeilingRefusal(
+  actor: MockUser,
+  roles: Role[],
+  teamId: string | null,
+  target: MockUser | null = null,
+) {
+  if (actor.roles.includes('super_admin')) return null
+  const allowed = new Set(grantableBy(actor))
+  const current = new Set(target?.roles ?? [])
+  const newlyGranted = roles.filter((role) => !current.has(role))
+  if (newlyGranted.some((role) => !allowed.has(role))) {
+    return {
+      status: 403,
+      body: authErrorBody('cannot grant roles above your ceiling', 'user.grant_forbidden'),
+    }
+  }
+  if (!actor.team_id || teamId !== actor.team_id) {
+    return {
+      status: 403,
+      body: authErrorBody('cannot grant roles above your ceiling', 'user.grant_forbidden'),
+    }
+  }
+  return null
 }
 
 /** Default business day when the client leaves `timezone` off, matching the API. */
@@ -2005,9 +2088,11 @@ export const handlers = [
   }),
 
   rest.get('/auth/users', (req, res, ctx) => {
-    const refused = adminRefusal(req.headers.get('authorization'))
+    const authorization = req.headers.get('authorization')
+    const refused = userAdminRefusal(authorization)
     if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
 
+    const actor = MOCK_TOKENS.get((authorization || '').replace(/^Bearer\s+/i, ''))!
     const params = req.url.searchParams
     const limit = Number(params.get('limit') ?? 50)
     const offset = Number(params.get('offset') ?? 0)
@@ -2019,6 +2104,7 @@ export const handlers = [
     const matching = MOCK_USERS.filter((user) => {
       // Super Admin accounts stay off the Users tab (and any team-scoped list).
       if (user.roles.includes('super_admin')) return false
+      if (!isManageableBy(actor, user)) return false
       if (teamId && user.team_id !== teamId) return false
       if (active !== null && user.active !== (active === 'true')) return false
       if (role && !user.roles.includes(role as Role)) return false
@@ -2040,7 +2126,8 @@ export const handlers = [
   }),
 
   rest.post('/auth/users', async (req, res, ctx) => {
-    const refused = adminRefusal(req.headers.get('authorization'))
+    const authorization = req.headers.get('authorization')
+    const refused = userAdminRefusal(authorization)
     if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
 
     const body = (await req.json()) as {
@@ -2054,13 +2141,43 @@ export const handlers = [
     const invalid = describeUser(body)
     if (invalid) return res(ctx.status(invalid.status), ctx.json(invalid.body))
 
-    const actor = MOCK_TOKENS.get(
-      (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '')
-    )
+    const actor = MOCK_TOKENS.get((authorization || '').replace(/^Bearer\s+/i, ''))!
     const roles = body.roles as Role[]
-    if (actor) {
-      const ceiling = grantCeilingRefusal(actor, roles)
-      if (ceiling) return res(ctx.status(ceiling.status), ctx.json(ceiling.body))
+
+    const knownTeamIds = new Set(MOCK_TEAMS.map((team) => team.id))
+    const requestedTeam =
+      typeof body.team_id === 'string' && knownTeamIds.has(body.team_id) ? body.team_id : null
+    // Non-SA omit team_id; the API pins their own team.
+    const teamId = roles.includes('super_admin')
+      ? null
+      : (requestedTeam ?? actor.team_id)
+
+    const ceiling = grantCeilingRefusal(actor, roles, teamId)
+    if (ceiling) return res(ctx.status(ceiling.status), ctx.json(ceiling.body))
+
+    if (roles.includes('super_admin') && requestedTeam) {
+      return res(
+        ctx.status(403),
+        ctx.json(
+          authErrorBody(
+            'super_admin accounts cannot be assigned to a team',
+            'team.super_admin_forbidden'
+          )
+        )
+      )
+    }
+    if (!roles.includes('super_admin') && !teamId) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody('a team is required for this role', 'user.team_required', [
+            { field: 'team_id', in: 'body', message: 'a team is required for this role' },
+          ])
+        )
+      )
+    }
+    if (teamId && !knownTeamIds.has(teamId)) {
+      return res(ctx.status(404), ctx.json(authErrorBody('team not found', 'team.not_found')))
     }
 
     const email = normalizeEmail(body.email)
@@ -2075,22 +2192,6 @@ export const handlers = [
       )
     }
 
-    // Super Admin has no team pin. Everyone else: SA must name a team; TA falls
-    // back to the mock default (the API would use the actor's own team).
-    const knownTeamIds = new Set(MOCK_TEAMS.map((team) => team.id))
-    const requestedTeam =
-      typeof body.team_id === 'string' && knownTeamIds.has(body.team_id) ? body.team_id : null
-    if (actor?.roles.includes('super_admin') && !roles.includes('super_admin') && !requestedTeam) {
-      return res(
-        ctx.status(422),
-        ctx.json(
-          authErrorBody('team_id is required', 'validation_error', [
-            { field: 'team_id', in: 'body', message: 'required' },
-          ])
-        )
-      )
-    }
-
     const created: MockUser = {
       id: String(++userSeq),
       email,
@@ -2100,7 +2201,7 @@ export const handlers = [
       roles,
       active: true,
       created_at: new Date().toISOString(),
-      team_id: roles.includes('super_admin') ? null : (requestedTeam ?? MOCK_TEAM_ID),
+      team_id: teamId,
     }
     MOCK_USERS.push(created)
     if (!body.password) issueMockLink(created.id, 'invite')
@@ -2145,12 +2246,12 @@ export const handlers = [
 
   rest.patch('/auth/users/:userId', async (req, res, ctx) => {
     const authorization = req.headers.get('authorization')
-    const refused = adminRefusal(authorization)
+    const refused = userAdminRefusal(authorization)
     if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
 
-    const actor = MOCK_TOKENS.get((authorization || '').replace(/^Bearer\s+/i, ''))
+    const actor = MOCK_TOKENS.get((authorization || '').replace(/^Bearer\s+/i, ''))!
     const user = MOCK_USERS.find((u) => u.id === req.params.userId)
-    if (!user) {
+    if (!user || !isManageableBy(actor, user)) {
       return res(ctx.status(404), ctx.json(authErrorBody('user not found', 'user.not_found')))
     }
 
@@ -2173,19 +2274,20 @@ export const handlers = [
           )
         )
       }
-      if (actor) {
-        const ceiling = grantCeilingRefusal(actor, body.roles)
-        if (ceiling) return res(ctx.status(ceiling.status), ctx.json(ceiling.body))
-      }
+      const teamForGrant =
+        typeof body.team_id === 'string' ? body.team_id : user.team_id
+      const ceiling = grantCeilingRefusal(actor, body.roles, teamForGrant, user)
+      if (ceiling) return res(ctx.status(ceiling.status), ctx.json(ceiling.body))
     }
 
-    // The API refuses to let an admin lock themselves out of their elevated role.
-    // Super Admin and Team Admin are separate locks — each only protects its own.
-    const losingOwnAdmin =
+    // The API refuses to let someone lock themselves out of their elevated role.
+    // Super Admin, Team Admin and QA Manager are separate locks — each only protects its own.
+    const losingOwnElevated =
       body.roles &&
       ((user.roles.includes('administrator') && !body.roles.includes('administrator')) ||
+        (user.roles.includes('qa_manager') && !body.roles.includes('qa_manager')) ||
         (user.roles.includes('super_admin') && !body.roles.includes('super_admin')))
-    if (actor?.id === user.id && (body.active === false || losingOwnAdmin)) {
+    if (actor.id === user.id && (body.active === false || losingOwnElevated)) {
       return res(
         ctx.status(400),
         ctx.json(
@@ -2199,13 +2301,13 @@ export const handlers = [
 
     // Same rules as PUT /auth/users/{id}/team, checked before anything changes.
     if (typeof body.team_id === 'string') {
-      if (!actor?.roles.includes('super_admin')) {
+      if (!actor.roles.includes('super_admin')) {
         return res(
           ctx.status(403),
           ctx.json(authErrorBody("only a Super Admin can change a user's team", 'auth.forbidden'))
         )
       }
-      if (user.roles.includes('super_admin')) {
+      if (user.roles.includes('super_admin') || body.roles?.includes('super_admin')) {
         return res(
           ctx.status(403),
           ctx.json(

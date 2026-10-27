@@ -11,6 +11,7 @@ import {
   ChartLine,
   Check,
   ChevronDown,
+  ClipboardCheck,
   Contact,
   Headset,
   ListOrdered,
@@ -95,6 +96,10 @@ function AdminDeskIcon() {
   return <Shield {...DESK_ICON_PROPS} />
 }
 
+function QaDeskIcon() {
+  return <ClipboardCheck {...DESK_ICON_PROPS} />
+}
+
 function DashboardIcon() {
   return (
     <OutlineIcon>
@@ -166,6 +171,8 @@ const BASE_PATH: Record<Role, string> = {
   fronter: '/fronter',
   closer: '/closer',
   administrator: '/admin',
+  qa_manager: '/admin',
+  qa_agent: '/qa',
   super_admin: '/admin',
 }
 
@@ -174,6 +181,8 @@ const DESK_ICON: Record<Role, ComponentType> = {
   fronter: FronterDeskIcon,
   closer: CloserDeskIcon,
   administrator: AdminDeskIcon,
+  qa_manager: AdminDeskIcon,
+  qa_agent: QaDeskIcon,
   super_admin: AdminDeskIcon,
 }
 
@@ -246,8 +255,32 @@ const SUPER_ADMIN_NAV: NavItem[] = [
   },
 ]
 
+/** QA Manager: Users only — no Teams / Campaigns / company reporting. */
+const QA_MANAGER_NAV: NavItem[] = [
+  {
+    href: '/admin/users',
+    label: 'Users',
+    icon: UsersIcon,
+    isActive: (p) => p.startsWith('/admin/users'),
+  },
+]
+
 function adminNavFor(role: Role): NavItem[] {
-  return role === 'super_admin' ? SUPER_ADMIN_NAV : TEAM_ADMIN_NAV
+  if (role === 'super_admin') return SUPER_ADMIN_NAV
+  if (role === 'qa_manager') return QA_MANAGER_NAV
+  return TEAM_ADMIN_NAV
+}
+
+/** Placeholder desk until the QA Agent workspace ships. */
+function qaAgentNav(): NavItem[] {
+  return [
+    {
+      href: '/qa',
+      label: 'QA',
+      icon: QaDeskIcon,
+      isActive: (p) => p === '/qa',
+    },
+  ]
 }
 
 /** `trailingSlash: true` makes usePathname() return `/fronter/`; nav hrefs stay `/fronter`. */
@@ -359,11 +392,14 @@ function SidebarInner() {
       : `${workspacePathPrefix}/?id=${encodeURIComponent(workspaceIdFromUrl)}`
     : basePath
 
-  // Team Admin vs Super Admin get different /admin modules.
+  // Team Admin / Super Admin / QA Manager share /admin with different modules;
+  // QA Agent has a stub desk until its workspace ships.
   const navItems =
-    role === 'administrator' || role === 'super_admin'
+    role === 'administrator' || role === 'super_admin' || role === 'qa_manager'
       ? adminNavFor(role)
-      : deskNav(role, activeCallHref)
+      : role === 'qa_agent'
+        ? qaAgentNav()
+        : deskNav(role, activeCallHref)
 
   // Somebody may hold more than one role, and the nav only ever shows the desk
   // they are on — so without a way across, the others are unreachable. One role
