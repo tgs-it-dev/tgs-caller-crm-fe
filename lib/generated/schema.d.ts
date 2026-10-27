@@ -580,6 +580,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/interactions/{interaction_id}/cart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fetch the cart for a call, masked
+         * @description The closer who accepted the call, or a Super Admin. Null before anything is saved.
+         */
+        get: operations["read_cart_interactions__interaction_id__cart_get"];
+        /**
+         * Save the cart for a call (its closer)
+         * @description Create or update the cart, for the closer who accepted the call.
+         *
+         *     The account and routing numbers are encrypted before they are stored, and
+         *     the response carries at most their last four digits. Either one left out
+         *     keeps the number already saved, so a change to the amounts need not retype
+         *     them. A CVV is checked, then discarded.
+         */
+        put: operations["save_cart_interactions__interaction_id__cart_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/interactions/{interaction_id}/dispositions": {
         parameters: {
             query?: never;
@@ -670,23 +699,18 @@ export interface paths {
         put?: never;
         /**
          * Create a lead
-         * @description Create or fill a lead from the fronter form.
+         * @description Create a lead from the fronter form, or return the existing phone match.
          *
          *     Body: ``phone_no``, first/last name, vehicle make/year/model, and VIN
-         *     and/or license plate. ``source`` is always ``manual`` on insert. ``team_id``
-         *     comes from the caller's ``user_teams`` row (not the body). ``fronter_id`` is
-         *     the caller.
+         *     and/or license plate. ``source`` is always ``manual``. ``team_id`` comes
+         *     from the caller's ``user_teams`` row (not the body). ``fronter_id`` is the
+         *     caller.
          *
-         *     On **new** phone: inserts the lead, mints one ``interaction``, returns its
-         *     id. On **existing** phone: writes the submitted form fields onto that lead
-         *     (so a prior phone-only / dialer row is filled in), keeps or mints an
-         *     interaction, and returns ``interaction_id``. Disposition stays separate —
-         *     Callback → fronter queue; Qualified (+ transfer) → closer queue.
-         *
-         *     ``phone_no`` is stored as submitted (not rewritten to E.164). Matching
-         *     still accepts the E.164 form so a dialer row for the same number is found.
+         *     ``phone_no`` may be any common format; it is matched and stored as E.164.
          *     Responds 201 in both cases — compare ``created_at`` to tell a new lead from
-         *     a returning caller.
+         *     a returning caller. Form fields are stored only on insert; use PATCH to
+         *     update. Always opens an ``Interaction`` and returns ``interaction_id`` so
+         *     the fronter can disposition or transfer without a dialer event.
          */
         post: operations["create_lead_leads_post"];
         delete?: never;
@@ -814,6 +838,9 @@ export interface paths {
          *     There is no update endpoint by design: a correction is another version, so
          *     what a closer was shown stays readable afterwards. Once a transfer is in
          *     flight the interaction is frozen and this returns 409.
+         *
+         *     Response includes ``customer`` (lead personal / vehicle / identity) and
+         *     merges those fields into ``snapshot_json`` on write.
          */
         post: operations["create_qualification_post"];
         delete?: never;
@@ -833,8 +860,8 @@ export interface paths {
          * Fetch the current qualification for an interaction
          * @description The highest version — earlier ones stay on record but are not the answer.
          *
-         *     Includes ``customer`` (lead personal / vehicle / identity) so the closer
-         *     form does not need a second lead fetch.
+         *     Includes ``customer`` so the closer card can render Personal / Vehicle /
+         *     Identity without a separate lead fetch.
          */
         get: operations["get_latest_qualification__interaction_id__get"];
         put?: never;
@@ -1404,6 +1431,75 @@ export interface components {
              * @description Replaces the campaign's whole team set; [] unlinks every team. Left out, the teams stay as they are.
              */
             team_ids?: string[] | null;
+        };
+        /**
+         * CartResponse
+         * @description A saved cart, masked: at most the last four digits of each number.
+         */
+        CartResponse: {
+            /** Account Last4 */
+            account_last4: string;
+            /** Down Payment */
+            down_payment: string;
+            /** Expiry */
+            expiry: string | null;
+            /**
+             * Interaction Id
+             * Format: uuid
+             */
+            interaction_id: string;
+            /** Monthly Payment */
+            monthly_payment: string;
+            /** Policy Number */
+            policy_number: string | null;
+            /** Routing Last4 */
+            routing_last4: string | null;
+            /**
+             * Saved By User Id
+             * Format: uuid
+             */
+            saved_by_user_id: string;
+            /** Total Payment */
+            total_payment: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * CartSaveRequest
+         * @description Leave out the account or routing number to keep the one already saved.
+         */
+        CartSaveRequest: {
+            /**
+             * Account Number
+             * @description 4 to 19 digits; spaces and dashes are ignored. Required on the first save; left out later, the saved one is kept
+             */
+            account_number?: string | null;
+            /**
+             * Cvv
+             * @description 3 or 4 digits. Checked, then discarded: never stored
+             */
+            cvv?: string | null;
+            /** Down Payment */
+            down_payment: number | string;
+            /**
+             * Expiry
+             * @description MM/YY, not in the past
+             */
+            expiry?: string | null;
+            /** Monthly Payment */
+            monthly_payment: number | string;
+            /** Policy Number */
+            policy_number?: string | null;
+            /**
+             * Routing Number
+             * @description 9 digits. Left out, the saved one is kept; null removes it
+             */
+            routing_number?: string | null;
+            /** Total Payment */
+            total_payment: number | string;
         };
         /**
          * ChangePasswordRequest
@@ -2121,7 +2217,7 @@ export interface components {
             license_plate?: string | null;
             /**
              * Phone No
-             * @description Phone as entered; stored as submitted (not rewritten to E.164).
+             * @description Phone as entered; stored as E.164 in ``phone_no``.
              */
             phone_no: string;
             /** Vehicle Make */
@@ -2132,7 +2228,7 @@ export interface components {
             vehicle_year: number;
             /**
              * Vin
-             * @description VIN identifier. Required when license_plate is omitted.
+             * @description VIN. Required when license_plate is omitted.
              */
             vin?: string | null;
         };
@@ -2168,7 +2264,7 @@ export interface components {
             id: string;
             /**
              * Interaction Id
-             * @description Interaction for this lead when known. Set on form create (new insert); on phone re-match, the latest interaction if one exists. Null for bulk/VICIdial rows that never opened an interaction. Use for ``POST /interactions/{id}/dispositions``.
+             * @description Interaction opened for this form create so the fronter can disposition or transfer. Null on list/get and bulk.
              */
             interaction_id?: string | null;
             /** Last Name */
@@ -2177,7 +2273,7 @@ export interface components {
             license_plate?: string | null;
             /**
              * Phone No
-             * @description Lead phone as stored (as entered on form create; E.164 for dialer/bulk).
+             * @description Lead phone in E.164.
              */
             phone_no: string;
             /**
@@ -2221,7 +2317,7 @@ export interface components {
             vehicle_year: number;
             /**
              * Vin
-             * @description VIN identifier. Required when license_plate is omitted.
+             * @description VIN. Required when license_plate is omitted.
              */
             vin?: string | null;
         };
@@ -2291,7 +2387,7 @@ export interface components {
             interaction_id: string;
             /**
              * Snapshot Json
-             * @description The fronter's answers. Frozen once the transfer occurs.
+             * @description The fronter's answers. Personal / vehicle / identity from the lead are merged in on capture. Frozen once the transfer occurs.
              */
             snapshot_json: {
                 [key: string]: unknown;
@@ -4121,6 +4217,90 @@ export interface operations {
             };
         };
     };
+    read_cart_interactions__interaction_id__cart_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CartResponse"] | null;
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    save_cart_interactions__interaction_id__cart_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CartSaveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CartResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     list_dispositions_interactions__interaction_id__dispositions_get: {
         parameters: {
             query?: never;
@@ -4293,7 +4473,7 @@ export interface operations {
             query?: {
                 limit?: number;
                 offset?: number;
-                /** @description Filter by phone (exact or E.164 of the same number) */
+                /** @description Filter by phone (any format; matched as E.164) */
                 phone_no?: string | null;
                 /** @description A Super Admin names one team's leads, or leaves it out for every team; anyone else may only name their own team. */
                 team_id?: string | null;

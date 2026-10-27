@@ -8,6 +8,13 @@ import type { InteractionDetailResponse } from '../lib/interactions'
 import type { LeadBulkRow, LeadResponse } from '../lib/leads'
 import { PUSH_INTERVAL_MS, type AgentStatus, type LiveStatus } from '../lib/liveStatus'
 import type { CloserQueueEntry, FronterQueueEntry } from '../lib/queue'
+import {
+  checkCart,
+  digitsOf,
+  visibleTail,
+  type CartResponse,
+  type CartSaveRequest,
+} from '../lib/cart'
 import type {
   QualificationCreateRequest,
   QualificationCustomer,
@@ -1237,6 +1244,8 @@ function mockFunnelDispositions(stage: FunnelStage, nth: number): {
 }
 
 const MOCK_INTERACTION_DISPOSITIONS = new Map<string, MockInteractionDisposition[]>()
+// Only what the API keeps: last digits, never a full number or a CVV.
+const MOCK_CARTS = new Map<string, CartResponse>()
 let interactionDispositionSeq = 0
 
 /** FE-08 My Stats — `/me/stats/today` seed, keyed by actor user id. */
@@ -2894,6 +2903,65 @@ export const handlers = [
     const interactionId = req.params.interactionId as string
     const items = MOCK_INTERACTION_DISPOSITIONS.get(interactionId) ?? []
     return res(ctx.status(200), ctx.json({ items }))
+  }),
+
+  rest.get('/interactions/:interactionId/cart', (req, res, ctx) => {
+    const actor = mockActor(req.headers.get('authorization'))
+    if (!actor) return res(ctx.status(401), ctx.json({ detail: 'Not authenticated.' }))
+    return res(ctx.status(200), ctx.json(MOCK_CARTS.get(req.params.interactionId as string) ?? null))
+  }),
+
+  rest.put('/interactions/:interactionId/cart', async (req, res, ctx) => {
+    const actor = mockActor(req.headers.get('authorization'))
+    if (!actor) return res(ctx.status(401), ctx.json({ detail: 'Not authenticated.' }))
+    const body = (await req.json()) as CartSaveRequest
+    const interactionId = req.params.interactionId as string
+    const before = MOCK_CARTS.get(interactionId)
+    const found = checkCart(
+      {
+        account_number: body.account_number ?? '',
+        routing_number: body.routing_number ?? '',
+        expiry: body.expiry ?? '',
+        cvv: body.cvv ?? '',
+        policy_number: body.policy_number ?? '',
+        total_payment: String(body.total_payment ?? ''),
+        down_payment: String(body.down_payment ?? ''),
+        monthly_payment: String(body.monthly_payment ?? ''),
+      },
+      { saved: Boolean(before) }
+    )
+    const fields = Object.entries(found)
+      .filter(([, message]) => message)
+      .map(([field, message]) => ({ field, in: 'body', message: message as string }))
+    if (fields.length > 0) {
+      return res(
+        ctx.status(422),
+        ctx.json({ detail: fields[0].message, code: 'validation_error', fields })
+      )
+    }
+    // A number left out keeps the saved one; a null routing number removes it.
+    const routingLast4 =
+      'routing_number' in body
+        ? body.routing_number
+          ? visibleTail(digitsOf(body.routing_number))
+          : null
+        : (before?.routing_last4 ?? null)
+    const cart: CartResponse = {
+      interaction_id: interactionId,
+      account_last4: body.account_number
+        ? visibleTail(digitsOf(body.account_number))
+        : (before?.account_last4 ?? ''),
+      routing_last4: routingLast4,
+      expiry: body.expiry ?? null,
+      policy_number: body.policy_number ?? null,
+      total_payment: Number(body.total_payment).toFixed(2),
+      down_payment: Number(body.down_payment).toFixed(2),
+      monthly_payment: Number(body.monthly_payment).toFixed(2),
+      saved_by_user_id: actor.id,
+      updated_at: new Date().toISOString(),
+    }
+    MOCK_CARTS.set(interactionId, cart)
+    return res(ctx.status(200), ctx.json(cart))
   }),
 
   rest.post('/interactions/:interactionId/dispositions', async (req, res, ctx) => {

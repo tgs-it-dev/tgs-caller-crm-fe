@@ -156,6 +156,23 @@ export function formatPercent(rate: number | null) {
   return rate === null ? 'n/a' : `${(rate * 100).toFixed(1)}%`
 }
 
+/**
+ * Every amount the CRM shows. The API stores amounts without a currency, so
+ * this is the one place to change it.
+ */
+export const CURRENCY = 'USD'
+
+const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: CURRENCY })
+
+/** The currency's symbol, for an amount field's prefix. */
+export const CURRENCY_SYMBOL =
+  money.formatToParts(0).find((part) => part.type === 'currency')?.value ?? CURRENCY
+
+/** An amount as the API sends it, such as "1800.00", shown as "$1,800.00". */
+export function formatMoney(amount: string) {
+  return money.format(Number(amount))
+}
+
 function elapsedParts(sinceIso: string, nowMs: number) {
   const duration = moment.duration(Math.max(0, nowMs - moment(sinceIso).valueOf()))
   return {
