@@ -405,7 +405,7 @@ function adminRefusal(authorization: string | null) {
   return null
 }
 
-/** Team catalogue routes are Super Admin only (same as require_super_admin). */
+/** Why a Super Admin only route would turn this request away, or null. */
 function superAdminRefusal(authorization: string | null) {
   const user = MOCK_TOKENS.get((authorization || '').replace(/^Bearer\s+/i, ''))
   if (!user || !user.active) {
@@ -2720,7 +2720,7 @@ export const handlers = [
   }),
 
   rest.get('/interactions/:interactionId/call-legs', (req, res, ctx) => {
-    const refused = adminRefusal(req.headers.get('authorization'))
+    const refused = superAdminRefusal(req.headers.get('authorization'))
     if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
 
     const interactionId = req.params.interactionId as string
@@ -2733,7 +2733,7 @@ export const handlers = [
   }),
 
   rest.get('/interactions/:interactionId/transfers', (req, res, ctx) => {
-    const refused = adminRefusal(req.headers.get('authorization'))
+    const refused = superAdminRefusal(req.headers.get('authorization'))
     if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
 
     const interactionId = req.params.interactionId as string
@@ -2744,7 +2744,7 @@ export const handlers = [
   }),
 
   rest.get('/interactions/:interactionId/events', (req, res, ctx) => {
-    const refused = adminRefusal(req.headers.get('authorization'))
+    const refused = superAdminRefusal(req.headers.get('authorization'))
     if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
 
     const interactionId = req.params.interactionId as string
