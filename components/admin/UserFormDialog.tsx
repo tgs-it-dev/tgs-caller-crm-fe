@@ -91,12 +91,16 @@ export function UserFormDialog({
   const formId = useId()
   const offerable = grantableRoles(actorRoles)
   const canPickTeam = isSuperAdmin(actorRoles)
+  const qaManagerOnly = isQaManager(actorRoles) && !isSuperAdmin(actorRoles) && !isTeamAdmin(actorRoles)
   const startingTeam = user?.team_id ?? ''
   const [name, setName] = useState(user?.name ?? '')
   const [email, setEmail] = useState(user?.email ?? '')
   // Keep the full set so an edit cannot strip roles the actor is not allowed
-  // to grant (those checkboxes are simply not offered).
-  const [roles, setRoles] = useState<Role[]>(user?.roles ?? [])
+  // to grant (those checkboxes are simply not offered). QA Manager create
+  // defaults to qa_agent — that is the only role they may grant.
+  const [roles, setRoles] = useState<Role[]>(
+    user?.roles ?? (qaManagerOnly ? ['qa_agent'] : []),
+  )
   const [active, setActive] = useState(user?.active ?? true)
   const [teamId, setTeamId] = useState(startingTeam)
   // SA: team required for every role except super_admin (API: team.super_admin_forbidden).
@@ -423,6 +427,17 @@ export function UserFormDialog({
                 />
               ))}
             </div>
+            {isSuperAdmin(actorRoles) && !user && (
+              <p className="mt-2 text-xs leading-[150%] text-slate">
+                Only Super Admin can create a QA Manager. QA Managers create QA Agents on
+                their own team.
+              </p>
+            )}
+            {qaManagerOnly && (
+              <p className="mt-2 text-xs leading-[150%] text-slate">
+                You can only create QA Agents on your own team.
+              </p>
+            )}
             {isSelf && isTeamAdmin(actorRoles) && !isSuperAdmin(actorRoles) && (
               <p className="mt-2 text-xs leading-[150%] text-slate">
                 You cannot remove your own Team Admin role.

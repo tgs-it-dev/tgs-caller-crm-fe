@@ -31,11 +31,15 @@ export function roleLabel(role: Role): string {
 
 /**
  * Roles the signed-in actor may grant. Ceilings match the API grant service:
- * Super Admin → any role; Team Admin → fronter / closer on their team;
- * QA Manager → qa_agent on their team. Team Admin cannot grant QA roles.
+ *
+ * - Super Admin — any role, including `qa_manager` (only SA may grant that).
+ * - QA Manager — `qa_agent` only (never `qa_manager` or dialer/admin roles).
+ * - Team Admin — `fronter` / `closer` only (cannot grant any QA role).
  */
 export function grantableRoles(actorRoles: readonly Role[]): Role[] {
   if (actorRoles.includes('super_admin')) return [...ASSIGNABLE_ROLES]
+  // Team Admin checked before QA Manager so a dual-role account cannot escalate
+  // into granting qa_manager — only Super Admin may create QA Managers.
   if (actorRoles.includes('administrator')) return ['closer', 'fronter']
   if (actorRoles.includes('qa_manager')) return ['qa_agent']
   return []
