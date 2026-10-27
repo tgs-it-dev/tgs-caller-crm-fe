@@ -162,6 +162,11 @@ export function LeadCreateDialog({
     const year = Number(values.vehicle_year.trim())
     const make = values.vehicle_make.trim()
     const model = values.vehicle_model.trim()
+    const firstName = values.first_name.trim()
+    const lastName = values.last_name.trim()
+    const vin = values.identity_kind === 'vin' ? values.vin.trim() : ''
+    const licensePlate =
+      values.identity_kind === 'license_plate' ? values.license_plate.trim() : ''
     const vehicleLine = [year, make, model].filter(Boolean).join(' ')
     const now = new Date().toISOString()
 
@@ -170,10 +175,15 @@ export function LeadCreateDialog({
         {
           interaction_id: interactionId,
           snapshot_json: {
+            first_name: firstName,
+            last_name: lastName,
+            phone_no: lead.phone_no,
             vehicle: vehicleLine,
             vehicle_year: String(year),
             vehicle_make: make,
             vehicle_model: model,
+            ...(vin ? { vin } : {}),
+            ...(licensePlate ? { license_plate: licensePlate } : {}),
           },
           consent_dnc: {
             consent_given: true,
