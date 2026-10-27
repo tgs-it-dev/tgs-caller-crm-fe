@@ -8,10 +8,13 @@ import type { ReactNode } from 'react'
 export function StatTile({
   label,
   value,
+  detail,
   icon,
 }: {
   label: string
-  value: number
+  value: number | string
+  /** A note on the figure's own line, such as what a rate was worked out of. */
+  detail?: string
   icon: ReactNode
 }) {
   return (
@@ -22,7 +25,10 @@ export function StatTile({
         </span>
         <p className="text-sm leading-[150%] text-body-text">{label}</p>
       </div>
-      <p className="text-[32px] font-semibold leading-[120%] text-ink">{value}</p>
+      <p className="flex flex-wrap items-baseline gap-x-2">
+        <span className="text-[32px] font-semibold leading-[120%] text-ink">{value}</span>
+        {detail && <span className="text-sm leading-[150%] text-body-text">{detail}</span>}
+      </p>
     </div>
   )
 }

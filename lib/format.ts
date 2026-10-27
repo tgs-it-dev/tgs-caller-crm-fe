@@ -151,6 +151,11 @@ export function formatZone(day: string, timeZone: string) {
   return zoneAbbreviation(timeZone, asUtcDay(day))
 }
 
+/** A 0 to 1 ratio as "12.5%", or "n/a" when there was nothing to divide by. */
+export function formatPercent(rate: number | null) {
+  return rate === null ? 'n/a' : `${(rate * 100).toFixed(1)}%`
+}
+
 function elapsedParts(sinceIso: string, nowMs: number) {
   const duration = moment.duration(Math.max(0, nowMs - moment(sinceIso).valueOf()))
   return {

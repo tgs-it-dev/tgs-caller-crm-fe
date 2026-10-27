@@ -14,6 +14,9 @@ import type {
   FunnelInteractionList,
   FunnelStage,
   HistoricalFunnel,
+  TeamFigures,
+  TeamStats,
+  TeamStatsReport,
 } from '../lib/reporting'
 import type {
   AvailableCloserItem,
@@ -476,6 +479,73 @@ function mockFunnel(start: string, end: string, timezone?: string | null): Histo
     // the gap this bar exists to show.
     transferred: Math.round(qualified * 0.25),
   }
+}
+
+/**
+ * Every team's figures for a window, worked out from it the way `mockFunnel` is
+ * so other dates visibly move them. A team picked on its own keeps the figures it
+ * had among the others, converted never passes leads, and every row carries the
+ * same fronter outcomes, as the API's do.
+ */
+function mockTeamStats(
+  start: string,
+  end: string,
+  teamId: string | null,
+  timezone?: string | null
+): TeamStatsReport {
+  const funnel = mockFunnel(start, end, timezone)
+  const fronterOutcomes = MOCK_DISPOSITION_CATALOG.filter((row) => row.stage === 'fronter').sort(
+    (a, b) => a.label.localeCompare(b.label)
+  )
+  const withRates = (
+    counts: Omit<TeamFigures, 'conversion_rate' | 'outcomes'>,
+    outcomeCounts: number[]
+  ): TeamFigures => ({
+    ...counts,
+    conversion_rate: counts.leads ? counts.converted / counts.leads : null,
+    outcomes: fronterOutcomes.map((row, i) => ({
+      disposition_id: row.id,
+      label: row.label,
+      count: outcomeCounts[i] ?? 0,
+    })),
+  })
+
+  const teams: TeamStats[] = [...MOCK_TEAMS]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .flatMap((team, index) => {
+      // Inactive mock teams have no figures, so this is the API's listing rule.
+      if (teamId ? team.id !== teamId : !team.active) return []
+      const leads = team.active ? Math.round(funnel.attempts / (index + 2)) : 0
+      const qualified = Math.round(leads * 0.3)
+      const transferred = Math.round(qualified * 0.6)
+      const sales = Math.round(transferred * 0.5)
+      const counts = {
+        leads,
+        qualified,
+        transferred,
+        sales,
+        converted: Math.min(leads, Math.round(sales * 0.8)),
+      }
+      const outcomeCounts = fronterOutcomes.map((row, i) =>
+        row.counts_as_qualified ? qualified : Math.round((leads - qualified) / (i + 3))
+      )
+      return [{ team_id: team.id, team_name: team.name, ...withRates(counts, outcomeCounts) }]
+    })
+
+  const sum = (pick: (row: TeamStats) => number) =>
+    teams.reduce((total, row) => total + pick(row), 0)
+  const total = withRates(
+    {
+      leads: sum((row) => row.leads),
+      qualified: sum((row) => row.qualified),
+      transferred: sum((row) => row.transferred),
+      sales: sum((row) => row.sales),
+      converted: sum((row) => row.converted),
+    },
+    fronterOutcomes.map((_, i) => sum((row) => row.outcomes[i].count))
+  )
+
+  return { start: funnel.start, end: funnel.end, timezone: funnel.timezone, teams, total }
 }
 
 /**
@@ -2021,6 +2091,30 @@ export const handlers = [
           end,
           limit,
           offset,
+          req.url.searchParams.get('timezone') ??
+            mockActor(req.headers.get('authorization'))?.timezone
+        )
+      )
+    )
+  }),
+
+  rest.get('/reporting/teams', (req, res, ctx) => {
+    const refused = superAdminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const start = req.url.searchParams.get('start')
+    const end = req.url.searchParams.get('end')
+    if (!start || !end) {
+      return res(ctx.status(422), ctx.json(authErrorBody('Field required', 'validation_error')))
+    }
+
+    return res(
+      ctx.status(200),
+      ctx.json(
+        mockTeamStats(
+          start,
+          end,
+          req.url.searchParams.get('team_id'),
           req.url.searchParams.get('timezone') ??
             mockActor(req.headers.get('authorization'))?.timezone
         )

@@ -125,6 +125,9 @@ Frontend pieces:
   fronters and closers, `ADMIN_NAV` for administrators. Each item carries its
   own `isActive(pathname)`. A new page goes under its role's segment and into
   that role's list.
+- **A Super Admin's list is `SUPER_ADMIN_NAV`**: Users, Teams, Campaigns,
+  Reports and Team stats. Reports is there because its drill-down is how they
+  reach a lead's full view. Exceptions stays out: without the dialer it is empty.
 - **Somebody may hold more than one role**, and the nav only ever shows the desk
   they are on, so the sidebar identity doubles as a desk menu — `heldDesks()` in
   `lib/auth.ts` lists every desk held, the current one ticked. A single-role
@@ -292,6 +295,36 @@ Attempts.
   requests to fill a page against one. `lead_source` rides the same join and
   nothing renders it yet: the join that carries the phone carries it for free,
   so the contract only had to change once.
+
+## Team stats
+
+`/admin/team-stats` reads `GET /reporting/teams` through `fetchTeamStats()` in
+`lib/reporting.ts`: every team side by side for a range of business days, with
+an "All teams" row under them. Super Admin only, in all three places: the
+sidebar item, `RequireRole role="super_admin"`, and the API's 403.
+
+- **Counts are what happened during the dates**, whenever the lead came in.
+  Leads by when they were created, Qualified and each fronter outcome by when
+  the latest outcome was recorded, Transferred by when a closer accepted, Sales
+  by when the sale was recorded. Near the edges of a range they can differ from
+  the funnel, which credits everything to the day the lead came in.
+- **Conversion is worked out of the range's own leads**: of the leads created
+  during the dates, the share sold at any time. A cell shows the rate, a bar to
+  compare teams by eye, then "8 of 100". It cannot pass 100%, and it rises as
+  those leads close. "n/a" means no leads.
+- **Fronter outcomes are each lead's latest**, one column per catalogue row in
+  the reply, so No answer and Callback need no label matching. Every row carries
+  the same outcomes in the same order, and the columns are keyed by
+  `disposition_id`. An outcome nobody recorded during the dates gets no column.
+- **The page opens on this month so far** (`monthToDate()`) and, like Reports,
+  sends no `timezone`. It needs no correction step, because the user's zone is
+  set before the page renders.
+- **The filters have a card of their own at the top**, outside both tables, so
+  the sales report can share them when it lands. Tiles carry the totals. Both
+  tables are shown whole (`paginate={false}`), the Team column takes the slack
+  (`width` on its column), the "All teams" row is shaded and bold, and a team
+  with nothing in the range is drawn in grey.
+- The sales list with amounts, and its agent filter, come with the closer's cart.
 
 ## Exceptions and interaction detail
 

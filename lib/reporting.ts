@@ -12,6 +12,10 @@ export type FunnelStage =
 export type FunnelInteraction = components['schemas']['FunnelInteraction']
 export type FunnelInteractionList = components['schemas']['FunnelInteractionListResponse']
 
+export type TeamStatsReport = components['schemas']['TeamStatsResponse']
+export type TeamStats = components['schemas']['TeamStats']
+export type TeamFigures = components['schemas']['TeamFigures']
+
 /** An inclusive range of business days, each as `YYYY-MM-DD`. */
 export type DateRange = { start: string; end: string }
 
@@ -57,6 +61,26 @@ export async function fetchFunnelStage(
   return res.json() as Promise<FunnelInteractionList>
 }
 
+/**
+ * Every team's figures for a range of days, or one team's when `teamId` is set.
+ *
+ * Super Admin only. Like `fetchFunnel`, no `timezone` is sent: the server
+ * counts in the user's own zone and names it in the reply.
+ */
+export async function fetchTeamStats(
+  range: DateRange,
+  teamId: string | null,
+  token: string
+): Promise<TeamStatsReport> {
+  const query = new URLSearchParams(range)
+  if (teamId) query.set('team_id', teamId)
+  const res = await fetch(apiUrl(`/reporting/teams?${query}`), {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) throw await authError(res)
+  return res.json() as Promise<TeamStatsReport>
+}
+
 /** The calendar day `date` falls on in `timeZone` (the user's zone when omitted). */
 export function businessDay(date: Date, timeZone: string = displayTimeZone()): string {
   // en-CA writes YYYY-MM-DD, which is what the API takes.
@@ -75,4 +99,10 @@ function dayBefore(isoDay: string): string {
 export function defaultRange(timeZone: string = displayTimeZone()): DateRange {
   const today = businessDay(new Date(), timeZone)
   return { start: dayBefore(today), end: today }
+}
+
+/** The first of this month through today, the window team stats opens on. */
+export function monthToDate(timeZone: string = displayTimeZone()): DateRange {
+  const today = businessDay(new Date(), timeZone)
+  return { start: `${today.slice(0, 8)}01`, end: today }
 }

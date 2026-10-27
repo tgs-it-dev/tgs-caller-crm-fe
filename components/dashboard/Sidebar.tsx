@@ -209,7 +209,10 @@ const TEAM_ADMIN_NAV: NavItem[] = [
   },
 ]
 
-/** Super Admin modules — Users / Teams / Campaigns only. */
+/**
+ * Super Admin modules: Users, Teams, Campaigns, Reports and Team stats. Reports
+ * is how they reach a lead's full view, through its drill-down.
+ */
 const SUPER_ADMIN_NAV: NavItem[] = [
   {
     href: '/admin/users',
@@ -228,6 +231,18 @@ const SUPER_ADMIN_NAV: NavItem[] = [
     label: 'Campaigns',
     icon: CampaignsIcon,
     isActive: (p) => p.startsWith('/admin/campaigns'),
+  },
+  {
+    href: '/admin/reports',
+    label: 'Reports',
+    icon: ReportsIcon,
+    isActive: (p) => p.startsWith('/admin/reports'),
+  },
+  {
+    href: '/admin/team-stats',
+    label: 'Team stats',
+    icon: StatsIcon,
+    isActive: (p) => p.startsWith('/admin/team-stats'),
   },
 ]
 

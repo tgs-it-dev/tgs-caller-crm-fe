@@ -1046,6 +1046,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reporting/teams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Each team's figures for a range of business days (Super Admin only)
+         * @description Leads, outcomes, transfers and sales side by side, with each team's conversion.
+         *
+         *     Each count is what happened in the window: a sale counts on the day it was
+         *     made, whenever its lead came in. Conversion is the share of the window's own
+         *     leads that have been sold, at any time. An inactive team is listed only when
+         *     it has figures or is asked for.
+         */
+        get: operations["team_figures_reporting_teams_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/teams": {
         parameters: {
             query?: never;
@@ -2220,6 +2245,21 @@ export interface components {
             /** Password */
             password: string;
         };
+        /**
+         * OutcomeCount
+         * @description How many leads one fronter outcome is the latest word on.
+         */
+        OutcomeCount: {
+            /** Count */
+            count: number;
+            /**
+             * Disposition Id
+             * Format: uuid
+             */
+            disposition_id: string;
+            /** Label */
+            label: string;
+        };
         /** QualificationCreateRequest */
         QualificationCreateRequest: {
             consent_dnc: components["schemas"]["ConsentDnc"];
@@ -2382,6 +2422,29 @@ export interface components {
              */
             team_id: string;
         };
+        /**
+         * TeamFigures
+         * @description One team's figures for a window, or every team's added up.
+         *
+         *     Each count is what happened in the window, whenever the lead came in.
+         *     ``converted`` and ``conversion_rate`` follow the window's own leads instead.
+         */
+        TeamFigures: {
+            /** Conversion Rate */
+            conversion_rate: number | null;
+            /** Converted */
+            converted: number;
+            /** Leads */
+            leads: number;
+            /** Outcomes */
+            outcomes: components["schemas"]["OutcomeCount"][];
+            /** Qualified */
+            qualified: number;
+            /** Sales */
+            sales: number;
+            /** Transferred */
+            transferred: number;
+        };
         /** TeamListResponse */
         TeamListResponse: {
             /** Items */
@@ -2408,6 +2471,48 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /** TeamStats */
+        TeamStats: {
+            /** Conversion Rate */
+            conversion_rate: number | null;
+            /** Converted */
+            converted: number;
+            /** Leads */
+            leads: number;
+            /** Outcomes */
+            outcomes: components["schemas"]["OutcomeCount"][];
+            /** Qualified */
+            qualified: number;
+            /** Sales */
+            sales: number;
+            /**
+             * Team Id
+             * Format: uuid
+             */
+            team_id: string;
+            /** Team Name */
+            team_name: string;
+            /** Transferred */
+            transferred: number;
+        };
+        /** TeamStatsResponse */
+        TeamStatsResponse: {
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /** Teams */
+            teams: components["schemas"]["TeamStats"][];
+            /** Timezone */
+            timezone: string;
+            total: components["schemas"]["TeamFigures"];
         };
         /**
          * TeamUpdateRequest
@@ -4856,6 +4961,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LiveStatusResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    team_figures_reporting_teams_get: {
+        parameters: {
+            query: {
+                start: string;
+                end: string;
+                /** @description IANA name deciding which day the dates mean, e.g. America/New_York. Defaults to the caller's own time zone, so people who share a zone see the same figures for the same dates. */
+                timezone?: string | null;
+                /** @description One team's figures, or every team's when left out. */
+                team_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamStatsResponse"];
                 };
             };
             /** @description Client Error */
