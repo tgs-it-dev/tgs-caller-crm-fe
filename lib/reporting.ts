@@ -9,8 +9,8 @@ export type HistoricalFunnel = components['schemas']['HistoricalFunnel']
 export type FunnelStage =
   paths['/reporting/funnel/{stage}']['get']['parameters']['path']['stage']
 
-export type FunnelInteraction = components['schemas']['FunnelInteraction']
-export type FunnelInteractionList = components['schemas']['FunnelInteractionListResponse']
+export type FunnelLead = components['schemas']['FunnelLead']
+export type FunnelLeadList = components['schemas']['FunnelLeadListResponse']
 
 export type TeamStatsReport = components['schemas']['TeamStatsResponse']
 export type TeamStats = components['schemas']['TeamStats']
@@ -32,13 +32,19 @@ export type SalesQuery = {
 export type DateRange = { start: string; end: string }
 
 /**
- * Funnel counts for a range of days.
+ * The leads added in a range of days, by the furthest stage each reached. A
+ * Super Admin may name one team; anyone else always gets their own.
  *
  * No `timezone` is sent: the server counts in the signed-in user's own zone
  * and names it in the reply.
  */
-export async function fetchFunnel(range: DateRange, token: string): Promise<HistoricalFunnel> {
+export async function fetchFunnel(
+  range: DateRange,
+  teamId: string | null,
+  token: string
+): Promise<HistoricalFunnel> {
   const query = new URLSearchParams(range)
+  if (teamId) query.set('team_id', teamId)
   const res = await fetch(apiUrl(`/reporting/funnel?${query}`), {
     headers: { Authorization: `Bearer ${token}` },
   })
@@ -47,18 +53,19 @@ export async function fetchFunnel(range: DateRange, token: string): Promise<Hist
 }
 
 /**
- * One page of the interactions behind a funnel number.
+ * One page of the leads behind a funnel number.
  *
  * Takes the funnel rather than its dates, and unlike `fetchFunnel` does send
  * `timezone`: the aggregate names the zone it counted in, and only sending that
- * back keeps `total` equal to the figure on screen.
+ * back, with the same team, keeps `total` equal to the figure on screen.
  */
 export async function fetchFunnelStage(
   stage: FunnelStage,
   funnel: HistoricalFunnel,
+  teamId: string | null,
   page: { limit: number; offset: number },
   token: string
-): Promise<FunnelInteractionList> {
+): Promise<FunnelLeadList> {
   const query = new URLSearchParams({
     start: funnel.start,
     end: funnel.end,
@@ -66,11 +73,12 @@ export async function fetchFunnelStage(
     limit: String(page.limit),
     offset: String(page.offset),
   })
+  if (teamId) query.set('team_id', teamId)
   const res = await fetch(apiUrl(`/reporting/funnel/${stage}?${query}`), {
     headers: { Authorization: `Bearer ${token}` },
   })
   if (!res.ok) throw await authError(res)
-  return res.json() as Promise<FunnelInteractionList>
+  return res.json() as Promise<FunnelLeadList>
 }
 
 /**

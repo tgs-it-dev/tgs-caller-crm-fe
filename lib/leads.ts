@@ -9,6 +9,8 @@ export type NewLead = components['schemas']['LeadCreateRequest']
 export type LeadUpdate = components['schemas']['LeadUpdateRequest']
 export type LeadBulkUpload = components['schemas']['LeadBulkUploadResponse']
 export type LeadBulkRow = components['schemas']['LeadBulkRowResult']
+export type LeadHistory = components['schemas']['LeadHistoryResponse']
+export type LeadHistoryEvent = components['schemas']['LeadHistoryEvent']
 
 /** Matches BE LeadFormFields / LeadCreateRequest hard caps. */
 export const LEAD_NAME_MAX = 255
@@ -43,6 +45,11 @@ export async function getLead(leadId: string, token: string): Promise<LeadRespon
   })
   if (!res.ok) throw await authError(res)
   return res.json() as Promise<LeadResponse>
+}
+
+/** A lead's details and everything that happened to it, oldest first. Super Admin only. */
+export function fetchLeadHistory(leadId: string, token: string): Promise<LeadHistory> {
+  return json<LeadHistory>(`/leads/${encodeURIComponent(leadId)}/history`, token)
 }
 
 /** Narrow `AuthError` so callers can distinguish a missing lead from other failures. */

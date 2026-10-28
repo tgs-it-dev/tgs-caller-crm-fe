@@ -220,102 +220,91 @@ the API calls and rules are in `lib/cart.ts`.
 
 ## Reporting
 
-`/admin/reports` reads `GET /reporting/funnel` through `lib/reporting.ts` for an
-inclusive range of business days — Attempts, Connects, Qualified, Transfer
-Attempts.
+`/admin/reports` reads `GET /reporting/funnel` through `fetchFunnel()` in
+`lib/reporting.ts` for an inclusive range of business days: Leads, Qualified,
+Transferred and Sold, counting the **leads added in the dates, each at the
+furthest stage it has reached**.
 
+- **It counts leads, not interactions.** Each fronter form save opens another
+  interaction and an uploaded lead has none, so interactions stopped matching
+  leads; Attempts and Connects are gone. A lead counts once: Sold when any call's
+  own latest closer outcome is a sale, Transferred when a closer accepted any of
+  its calls (or it is sold), Qualified when its latest fronter outcome across all
+  calls qualifies it (or it got further). So each bar sits inside the one before,
+  and each is drawn as a share of Leads, with that share printed beside the
+  count. ADR 0003 in the backend defines it all.
+- **Qualified can read higher than Team stats' Qualified, and that is correct.**
+  Team stats files a lead under its latest fronter outcome, so a transferred lead
+  called back later sits under Callback there; here it has still reached
+  Qualified. Transferred and Sold always match Team stats for the same dates.
+- **Transferred doesn't claim the closer reached the lead.** The dialer bridge
+  isn't recorded. The page says what each bar means in a line under the chart
+  rather than in hover text, which a screen reader never reads.
 - **No `timezone` is sent.** The server counts in the signed-in user's own zone
   (see Settings) and names it in the reply, and the page shows it beside the
   window as the abbreviation ("EDT", "PKT"). The page opens on today in the
   user's zone. If a reply ever names another zone and those days disagree, it
   corrects itself, staying on the loading state so a day nobody asked for is
-  never drawn. A window the user picked is never corrected. There is no zone
-  picker on this page: the user's setting is the only one.
-- **The bars needn't narrow.** All four counts share one cohort, so Attempts
-  bounds the rest, but Qualified doesn't require a call leg — with the dialer
-  events unmapped, Connects sits at 0 under a non-zero Qualified. Bars measure
-  against the largest count and the page prints what the server sent; never
-  reshape a figure to keep a funnel silhouette.
-- **Transferred is the last bar — one word from the API key to the column
-  heading.** The stage key, the bar label and the drill-down header are all
-  "transferred"; only the database underneath speaks of the transfer being
-  *accepted*, because `status` has six values and `accepted` is one of them.
-  The bar does **not** claim the closer *reached* the lead — the dialer bridge
-  isn't recorded, and that is the PRD's separate "closer connected" stage. Its
-  `event_at` is `Transfer.answered_at`, deliberately not an `accepted_at`: the
-  column is stamped on a rejection too, and the stage's status filter is what
-  narrows it. Connects is a stand-in too, and the page says all of this in a
-  line under the chart rather than in hover text, which a screen reader never
-  reads.
-- **There is no Transfer Attempts bar, and re-adding one needs a reason.** It
-  counted every offer including the ones nobody took, and over all seeded
-  history it never once diverged from Qualified — the only outcome the transfer
-  gate accepts is the only one that counts as qualified, so the two measured the
-  same set. What it hid was the gap that matters: roughly half of all offers are
-  rejected or time out, which is what Transferred now exposes. The offered count
-  still exists — `transfer_attempts()` in the backend feeds the dashboard's
-  "Transfers Offered/Rejected" counter, read from `transfers_offered` — it is
-  just not a funnel stage. That field used to be `transfers_initiated`, which
-  named one of the six transfer statuses while counting offers of every status.
-- **Qualified is the fronter's verdict, not the presence of a form.** It counts
-  interactions whose latest *fronter* disposition carries `counts_as_qualified`
-  on the catalogue row. It used to count `exists(Qualification)`, which answered
-  a different question — what the fronter *captured* — and so counted a form
-  filled in for a lead who plainly didn't qualify. A `Qualification` row is
-  still that record, and is written whenever anything was captured; the
-  disposition is what says the lead passed.
-- **`counts_as_qualified` and `allows_transfer` are two columns on purpose.**
-  One catalogue row carries both today, so the two bars will read close
-  together — in this business a qualified lead is handed over at once. That is
-  not a reason to collapse them: the client may yet say "Callback Requested is
-  transferable but unproven", or the reverse, and the funnel must not move
-  because a gating decision changed. Never read `allows_transfer` for a metric,
-  or `counts_as_qualified` for a gate.
-- **Which other dispositions carry either flag is the client's to decide.** Only
-  "Qualified - Transferred" is confirmed. Don't set a flag to make the funnel's
-  shape look better — the business semantics settle the flags, then the seed is
-  generated to obey them. Same open question ADR 0003 records for
-  `counts_as_sale`.
-- **Every bar opens onto its own records.** The bars are buttons; the selected
-  one scopes the list beneath the chart, which reads
-  `GET /reporting/funnel/{stage}` through `fetchFunnelStage()`. Attempts is the
-  default because it is the cohort the other three narrow, so the page opens on
-  everything in the window. A bar reading zero stays clickable — opening it and
-  finding nothing is how a zero gets confirmed instead of wondered about. An
-  empty window renders no list card at all, because the chart already says the
-  range is empty.
-- **The list is ordered by the stage's own event, not by the interaction's
-  creation** — rows behind Transferred sorted by when the *call* started answer
-  a question that bar didn't ask. `event_at` carries that instant: creation for
-  Attempts, the earliest call leg for Connects, the qualifying disposition for
-  Qualified, the accepted transfer's `answered_at` for Transferred. A second
-  column headed from `STAGE_TIME_LABEL` shows it, except on Attempts where
-  creation *is* the event. `created_at` stays beside it as the cohort key, so
-  the two columns disagreeing is correct rather than a bug: a handoff can
-  outlive the day of the call that made it. Ordering is fixed per stage; there
-  is no sort control.
-- **The drill-down sends `timezone`; the aggregate deliberately doesn't.** Not
-  an inconsistency. Dates alone don't say which 24 hours they mean: the server
-  reads them in a zone, and the same days under another one are a different
-  cohort (`2026-09-23` is 25 interactions in `America/New_York` and 39 in
-  `Asia/Karachi`). The aggregate asks without one so the server picks and
-  *names* the user's zone; the list passes that name back, which is the only
-  thing making its `total` the same figure as the bar above it. So the list is
-  handed the funnel that came back, never the range that was asked for — on the
-  first read those disagree, and only the reply carries a zone.
-- **The list's times are drawn in the zone the reply counted in.** That is the
-  user's own zone, but the list reads it from `timezone` rather than assuming
-  it, because a list of the records behind a number must not disagree with it
-  about when. So `formatDateTimeIn(created_at, list.timezone)`, and the caption
-  is `formatZone()`, the same abbreviation the window above the chart carries.
-- **A row carries the lead's phone because nothing else on it is human.**
-  `FunnelInteraction` is `id`, `lead_id`, `created_at` plus `lead_phone` and
-  `lead_source`, the last two joined on in the backend. A page of uuids and
-  timestamps identifies nothing to a reader, and leads have no name column to
-  offer instead. The alternative was one `GET /leads/{id}` per row — eleven
-  requests to fill a page against one. `lead_source` rides the same join and
-  nothing renders it yet: the join that carries the phone carries it for free,
-  so the contract only had to change once.
+  never drawn. A window the user picked is never corrected.
+- **A Super Admin picks a team, or All teams; a Team Admin gets no picker.** The
+  server keeps a Team Admin to their own team, so a picker would only offer a
+  choice that 403s. The team list is `listTeams()`, read only for a Super Admin.
+- **Every bar opens onto its own leads.** The bars are buttons; the selected one
+  scopes the list beneath the chart, `FunnelLeads`, which reads
+  `GET /reporting/funnel/{stage}` through `fetchFunnelStage()`. Leads is the
+  default. A bar reading zero stays clickable, so a zero gets confirmed instead
+  of wondered about. An empty window renders no list card at all, because the
+  chart already says the range is empty.
+- **The list is the funnel that came back, with the same team.** It sends the
+  reply's `timezone` and the page's team, which is the only thing making its
+  `total` the same figure as the bar above it; so it is handed the funnel that
+  came back, never the range that was asked for. Its times are drawn in that
+  zone too, with `formatZone()` as the caption.
+- **A row is a lead:** name (the phone when there is none) and phone, team, date
+  added, stage reached ("Added" for a lead that got no further), and its latest
+  fronter and closer outcomes, `-` when there are none. Newest added first.
+- **Only a Super Admin can open a lead.** The Open action is dropped from the
+  columns for anyone else, and goes to `/admin/reports/lead/?id=…`.
+
+## Lead detail
+
+`/admin/reports/lead/?id=…` reads `GET /leads/{id}/history` through
+`fetchLeadHistory()` in `lib/leads.ts`: everything recorded on one lead, on one
+page.
+
+- **Super Admin only, twice:** `RequireRole role="super_admin"` and the API's 403.
+- **Under `/admin/reports`, not `/admin/leads`,** so the sidebar's Reports item
+  stays lit; Reports is its only way in, so the back link always goes there.
+  `?id=` rather than a path segment, because the static export can't prerender
+  one page per lead.
+- **Top to bottom:** the lead card (two thirds) beside Where it stands, then the
+  fronter's form beside each call's cart, then History. Lead information comes
+  first because it is what a reader opened the page for; History is the long
+  part, so it is last and paged.
+- **Labels sit beside their values** (`Pairs` / `Pair`), never at the far ends
+  of a wide card, and two pairs share a row where there is room.
+- **Where it stands is the API's status, shown, not worked out here:** the
+  callback list and the closer-on-a-call rule are the backend's own, so this page
+  and the queues can't disagree. Waiting for a closer and On a call show only
+  when they are true.
+- **The form card shows what the lead card doesn't:** consent, DNC and any other
+  answers, through the same `snapshotExtras()` and `snapshotValue()` as the
+  interaction screen's Qualification panel, minus the lead's own fields
+  (`ON_THE_LEAD`), which the form also carries.
+- **A cart is masked, and a Super Admin can ask to see its full numbers.** Show
+  full numbers calls `POST /interactions/{id}/cart/reveal` through
+  `revealCartNumbers()` in `lib/cart.ts`, which the API records in the audit
+  trail every time, so it is asked only on a click and never on load. The numbers
+  swap in on the same rows and Hide numbers puts the mask back; a reload starts
+  masked. There is no CVV to show: it is never stored.
+- **History is a table, oldest first, ten to a page.** One line per event: time,
+  the call when there is more than one, what happened with its pills, the detail,
+  and who. An outcome that replaced an earlier one on the same call says
+  "Changed from …" rather than "Corrected": a worked callback is saved as the
+  call's next version just like a correction, and the API can't tell them apart.
+- **Not here, because nothing records it:** a callback's time or owner (callbacks
+  go to the whole team), and dialer data such as call legs and raw events, which
+  stay on the interaction detail screen. Reports no longer links there.
 
 ## Team stats
 
@@ -388,22 +377,19 @@ detail screen is Super Admin only.
   panel is empty and explains itself. This is the screen an administrator opens
   precisely because they do not trust the data; invented rows with plausible
   timestamps would be indistinguishable from real ones.
-- **The detail screen is shared, and carries no exception chrome.** No reason
-  badge, no resolve control — a reader arriving from the reports funnel has no
-  exception and must not see gaps where one would have been. The back link is
-  driven by `?from=`, mapped in one `ORIGINS` record in
-  `components/admin/InteractionDetailScreen.tsx` — `exceptions` and `funnel`
-  today; a new caller adds its entry and passes the param. An unrecognised or
-  absent `from` falls back to the dashboard, which is what a bookmarked link
-  gets.
+- **The detail screen carries no exception chrome.** No reason badge, no
+  resolve control. The back link is driven by `?from=`, mapped in one `ORIGINS`
+  record in `components/admin/InteractionDetailScreen.tsx`, `exceptions` only
+  since Reports opens leads instead; a new caller adds its entry and passes the
+  param. An unrecognised or absent `from` falls back to the dashboard, which is
+  what a bookmarked link gets.
 - **It is a lead's full view, so it is the Super Admin's alone.** The API
   refuses a Team Admin the interaction, its dispositions, its qualification, a
   single transfer and the three panels, and the page sits behind
   `RequireRole role="super_admin"`.
-  Its two ways in, "Open interaction detail" on an exception and the drill-down's
-  Detail column, show for Super Admins only; a Team Admin keeps the rows.
-- **It lights no sidebar item**, because it now has two ways in and lighting
-  either one would be wrong half the time. `isActive` for Exceptions matches
+  Its way in, "Open interaction detail" on an exception, shows for Super Admins
+  only; a Team Admin keeps the rows.
+- **It lights no sidebar item.** `isActive` for Exceptions matches
   `/admin/exceptions` only. The back link is what says where the reader came
   from, which is the same `?from=` the heading is built out of.
 - **Times here name the zone they are drawn in**, because these answers carry

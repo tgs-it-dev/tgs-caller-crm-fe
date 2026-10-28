@@ -51,6 +51,21 @@ export function fetchCart(interactionId: string, token: string): Promise<CartRes
   return json<CartResponse | null>(`/interactions/${interactionId}/cart`, token)
 }
 
+export type CartNumbers = components['schemas']['CartNumbersResponse']
+
+/**
+ * The cart's full account and routing numbers, Super Admin only. Each call is
+ * recorded in the audit trail, so ask only when someone clicks to see them.
+ */
+export function revealCartNumbers(
+  interactionId: string,
+  token: string
+): Promise<CartNumbers | null> {
+  return json<CartNumbers | null>(`/interactions/${interactionId}/cart/reveal`, token, {
+    method: 'POST',
+  })
+}
+
 export function saveCart(
   interactionId: string,
   body: CartSaveRequest,

@@ -36,10 +36,10 @@ module.exports = {
         },
         // Reports funnel bar fills, one per stage — see tokens.funnel.
         funnel: {
-          attempts: "#3E7CB1",
-          connects: "#4F8A5B",
+          leads: "#3E7CB1",
           qualified: "#7A5FA3",
-          transferred: "#C99A3E"
+          transferred: "#C99A3E",
+          sold: "#4F8A5B"
         }
       },
       fontFamily: {

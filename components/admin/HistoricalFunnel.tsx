@@ -3,10 +3,12 @@
 import { useEffect, useState } from 'react'
 import { DateRangePicker } from '@/components/admin/DateRangePicker'
 import { FunnelChart } from '@/components/admin/FunnelChart'
-import { FunnelInteractions } from '@/components/admin/FunnelInteractions'
+import { FunnelLeads } from '@/components/admin/FunnelLeads'
+import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import { Alert } from '@/components/ui/Alert'
 import { PageShell } from '@/components/ui/PageShell'
-import { AuthError } from '@/lib/auth'
+import { Select } from '@/components/ui/Select'
+import { AuthError, isSuperAdmin } from '@/lib/auth'
 import { formatDayRange, formatZone } from '@/lib/format'
 import { waitForMocking } from '@/lib/mockReady'
 import {
@@ -18,15 +20,17 @@ import {
   type HistoricalFunnel as Funnel,
 } from '@/lib/reporting'
 import { withSession } from '@/lib/session'
+import { listTeams, type Team } from '@/lib/teams'
 
 /** The list the bars scope; both sides of `aria-controls` read it from here. */
-const LIST_ID = 'funnel-interactions'
+const LIST_ID = 'funnel-leads'
 
 /**
- * A window, and whether the page chose it rather than the user, and so may
- * still correct it. No zone: the server counts in the user's own.
+ * A window, whether the page chose it rather than the user (and so may still
+ * correct it), and the team, empty for all of them. No zone: the server counts
+ * in the user's own.
  */
-type Selection = { range: DateRange; auto: boolean }
+type Selection = { range: DateRange; auto: boolean; teamId: string }
 
 type LoadState =
   | { status: 'loading' }
@@ -44,6 +48,7 @@ export function HistoricalFunnel() {
   const [selected, setSelected] = useState<Selection>(() => ({
     range: defaultRange(),
     auto: true,
+    teamId: '',
   }))
   const [load, setLoad] = useState<LoadState>({ status: 'loading' })
   // Bumped only when the page moves the window itself, to start the date fields
@@ -54,7 +59,11 @@ export function HistoricalFunnel() {
   const [zone, setZone] = useState<string | undefined>(undefined)
   // Which bar the list below is showing. A new window doesn't reset it: someone
   // reading Qualified who moves the dates still wants Qualified.
-  const [stage, setStage] = useState<FunnelStage>('attempts')
+  const [stage, setStage] = useState<FunnelStage>('leads')
+  const [teams, setTeams] = useState<Team[]>([])
+  // A Team Admin has no choice to make: the server keeps them to their own team.
+  const { user } = useCurrentUser()
+  const picksTeam = Boolean(user && isSuperAdmin(user.roles))
 
   /** Read a different window. The figures on screen answered the old one. */
   const select = (next: Selection) => {
@@ -63,10 +72,31 @@ export function HistoricalFunnel() {
   }
 
   useEffect(() => {
+    if (!picksTeam) return
     let cancelled = false
 
     waitForMocking()
-      .then(() => withSession((token) => fetchFunnel(selected.range, token)))
+      .then(() => withSession((token) => listTeams(token)))
+      .then((list) => {
+        if (!cancelled) setTeams([...list.items].sort((a, b) => a.name.localeCompare(b.name)))
+      })
+      // Without the list the filter offers all teams only, and the page still works.
+      .catch(() => {
+        if (!cancelled) setTeams([])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [picksTeam])
+
+  useEffect(() => {
+    let cancelled = false
+
+    waitForMocking()
+      .then(() =>
+        withSession((token) => fetchFunnel(selected.range, selected.teamId || null, token))
+      )
       .then((funnel) => {
         if (cancelled) return
         setZone(funnel.timezone)
@@ -79,7 +109,7 @@ export function HistoricalFunnel() {
           const corrected = defaultRange(funnel.timezone)
           if (corrected.start !== selected.range.start || corrected.end !== selected.range.end) {
             setPageMoved((moved) => moved + 1)
-            select({ range: corrected, auto: true })
+            select({ ...selected, range: corrected, auto: true })
             return
           }
         }
@@ -112,12 +142,30 @@ export function HistoricalFunnel() {
               )}
             </div>
 
-            <DateRangePicker
-              key={pageMoved}
-              range={selected.range}
-              max={businessDay(new Date(), zone)}
-              onChange={(range) => select({ range, auto: false })}
-            />
+            <div className="flex flex-wrap items-end gap-3">
+              {picksTeam && (
+                <div className="w-[200px]">
+                  <Select
+                    label="Team"
+                    value={selected.teamId}
+                    onChange={(event) => select({ ...selected, teamId: event.target.value })}
+                  >
+                    <option value="">All teams</option>
+                    {teams.map((team) => (
+                      <option key={team.id} value={team.id}>
+                        {team.name}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              )}
+              <DateRangePicker
+                key={pageMoved}
+                range={selected.range}
+                max={businessDay(new Date(), zone)}
+                onChange={(range) => select({ ...selected, range, auto: false })}
+              />
+            </div>
           </header>
 
           {load.status === 'loading' && (
@@ -131,21 +179,22 @@ export function HistoricalFunnel() {
               onStageChange={setStage}
               // Only while the list is on screen: an aria-controls pointing at
               // an id that isn't rendered is worse than none.
-              listId={load.funnel.attempts > 0 ? LIST_ID : undefined}
+              listId={load.funnel.leads > 0 ? LIST_ID : undefined}
             />
           )}
         </section>
 
-        {/* Keyed by stage + window so another bar or zone remounts at the first
-            page, rather than resetting the offset in an effect. Hidden on an
-            empty window because every stage is then empty and the chart already
-            says so. */}
-        {load.status === 'ready' && load.funnel.attempts > 0 && (
-          <FunnelInteractions
-            key={`${stage}-${load.funnel.start}-${load.funnel.end}-${load.funnel.timezone}`}
+        {/* Keyed by stage, window and team so another bar or filter remounts at
+            the first page, rather than resetting the offset in an effect. Hidden
+            on an empty window because every stage is then empty and the chart
+            already says so. */}
+        {load.status === 'ready' && load.funnel.leads > 0 && (
+          <FunnelLeads
+            key={`${stage}-${load.funnel.start}-${load.funnel.end}-${load.funnel.timezone}-${selected.teamId}`}
             id={LIST_ID}
             stage={stage}
             funnel={load.funnel}
+            teamId={selected.teamId || null}
           />
         )}
       </div>

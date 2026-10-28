@@ -183,8 +183,13 @@ function preferField(...values: unknown[]): string {
   return ''
 }
 
+/** The answers on a form beyond the named fields, minus the ones this card has retired. */
+export function snapshotExtras(snapshot: Record<string, unknown>): string[] {
+  return Object.keys(snapshot).filter((key) => !HIDDEN_SNAPSHOT_KEYS.has(key))
+}
+
 /** Whatever is in the JSON, readable — objects as JSON rather than "[object Object]". */
-function snapshotValue(value: unknown): ReactNode {
+export function snapshotValue(value: unknown): ReactNode {
   if (value === null || value === undefined || value === '') return NOT_RECORDED
   if (typeof value === 'boolean') return value ? 'Yes' : 'No'
   if (typeof value === 'string' || typeof value === 'number') return String(value)
@@ -352,7 +357,7 @@ export function QualificationPanel({ record }: { record: QualificationRecord | n
   // Listed rather than dropped: snapshot_json is free-form, and a screen for
   // auditing a record should not decide half of it is not worth showing —
   // except the fields the product has retired from this card.
-  const extras = Object.keys(snapshot).filter((key) => !HIDDEN_SNAPSHOT_KEYS.has(key))
+  const extras = snapshotExtras(snapshot)
 
   const firstName = preferField(customer?.first_name)
   const lastName = preferField(customer?.last_name)
