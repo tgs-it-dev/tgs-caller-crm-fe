@@ -162,7 +162,41 @@ The administrator dashboard (`/admin`) is fed by `lib/liveStatus.ts`:
   `funnel_today_by_timezone`, which carries today in every zone a user can
   choose, so one push gives each viewer their own day.
 
+## Fronter desk
+
+`/fronter` (`components/fronter/FronterDeskScreen.tsx`) is where a fronter works
+leads by hand: New lead, and one Leads table, read from `GET /leads/search`
+through `searchLeads()` in `lib/leads.ts`.
+
+- **The list is the team's leads not yet with a closer.** A lead leaves it once
+  a closer accepts it or it is sold, by the same per-lead stage Reports counts.
+  Longest waiting first: since the latest fronter disposition, or since the lead
+  was added.
+- **It opens on Callback,** so the desk still starts as the callback list did.
+  The Disposition select also offers All, No disposition yet (uploaded and
+  untouched leads) and each fronter disposition, matched against the lead's
+  latest one. It applies as soon as it changes.
+- **No Search button.** The box searches 300ms after typing stops, from the
+  first character, and matches part of the name, and part of the phone too when
+  it is a number: one digit already searches phones, one letter names. A search
+  with a letter in it stays on names, or its stray digits would match nearly
+  every phone. Any filter change goes back to page one, and only the newest
+  reply is drawn, so a slow one can't replace it. The table reloads every 30
+  seconds: each load is a full query on a busy team.
+- **The table's heading names what it shows** (Scheduled callbacks, All leads,
+  Leads with no disposition yet, Marked No Answer), so it never repeats the
+  page's own "Leads".
+- **Opening a lead creates nothing.** `LeadEditDialog` asks for a call through
+  `openLeadCall()` (`POST /leads/{id}/calls`) only when a save records a
+  disposition or a transfer. The backend answers with the lead's latest call
+  while nothing is recorded on it or it waits on a callback, and a new call
+  otherwise; New lead follows the same rule for a phone already on the team.
+  A save that only edits the lead is a PATCH and nothing more, which is why the
+  dialog starts with no disposition picked unless the lead is a callback.
+
 ## Fronter Active Call
+
+Not linked from the desk or the sidebar since the dialer queue was removed.
 
 `/fronter/workspace/?id=<interactionId>` is where a fronter works a call —
 `components/workspace/ActiveCallScreen.tsx`, composing the checklist, the
