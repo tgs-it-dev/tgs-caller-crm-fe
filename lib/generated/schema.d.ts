@@ -732,8 +732,9 @@ export interface paths {
          *     ``phone_no`` may be any common format; it is matched and stored as E.164.
          *     Responds 201 in both cases — compare ``created_at`` to tell a new lead from
          *     a returning caller. Form fields are stored only on insert; use PATCH to
-         *     update. Always opens an ``Interaction`` and returns ``interaction_id`` so
-         *     the fronter can disposition or transfer without a dialer event.
+         *     update. Returns the ``interaction_id`` to disposition or transfer on: the
+         *     lead's latest call while nothing is recorded on it or it waits on a callback,
+         *     otherwise a new one.
          */
         post: operations["create_lead_leads_post"];
         delete?: never;
@@ -797,6 +798,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/leads/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The team's leads not yet with a closer, by phone, name and disposition
+         * @description Longest waiting first: since the latest fronter disposition, or since the
+         *     lead was added. A lead leaves the list once a closer accepts it or it is sold.
+         *     Summary fields only.
+         */
+        get: operations["search_leads_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/leads/{lead_id}": {
         parameters: {
             query?: never;
@@ -816,6 +839,27 @@ export interface paths {
          * @description Overwrite personal, vehicle, and VIN / license-plate fields.
          */
         patch: operations["patch_lead_leads__lead_id__patch"];
+        trace?: never;
+    };
+    "/leads/{lead_id}/calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * The call to record a disposition or transfer for this lead on
+         * @description The lead's latest call while nothing is recorded on it or it waits on a
+         *     callback; otherwise a new one. The same rule ``POST /leads`` follows.
+         */
+        post: operations["open_lead_call_leads__lead_id__calls_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/leads/{lead_id}/history": {
@@ -2252,6 +2296,17 @@ export interface components {
             failed: number;
         };
         /**
+         * LeadCallResponse
+         * @description The call to record this lead's next disposition or transfer on.
+         */
+        LeadCallResponse: {
+            /**
+             * Interaction Id
+             * Format: uuid
+             */
+            interaction_id: string;
+        };
+        /**
          * LeadCreateRequest
          * @description Fronter (or admin) lead-form create body.
          *
@@ -2559,6 +2614,41 @@ export interface components {
             vehicle_year?: number | null;
             /** Vin */
             vin?: string | null;
+        };
+        /**
+         * LeadSearchItem
+         * @description A lead in the fronter's list: who it is and its latest fronter disposition.
+         */
+        LeadSearchItem: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Latest Disposition */
+            latest_disposition: string | null;
+            /** Latest Disposition At */
+            latest_disposition_at: string | null;
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
+            /** Lead Name */
+            lead_name: string;
+            /** Phone No */
+            phone_no: string;
+        };
+        /** LeadSearchResponse */
+        LeadSearchResponse: {
+            /** Items */
+            items: components["schemas"]["LeadSearchItem"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
         };
         /**
          * LeadUpdateRequest
@@ -5011,6 +5101,51 @@ export interface operations {
             };
         };
     };
+    search_leads_search_get: {
+        parameters: {
+            query?: {
+                /** @description Part of the name, and of the phone too when it is a number. */
+                q?: string | null;
+                /** @description A fronter disposition the lead's latest one must be, or none for a lead nobody has given one. */
+                disposition?: string | "none" | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSearchResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_lead_leads__lead_id__get: {
         parameters: {
             query?: never;
@@ -5073,6 +5208,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeadResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    open_lead_call_leads__lead_id__calls_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadCallResponse"];
                 };
             };
             /** @description Client Error */

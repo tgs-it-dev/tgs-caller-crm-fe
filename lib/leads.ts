@@ -11,6 +11,11 @@ export type LeadBulkUpload = components['schemas']['LeadBulkUploadResponse']
 export type LeadBulkRow = components['schemas']['LeadBulkRowResult']
 export type LeadHistory = components['schemas']['LeadHistoryResponse']
 export type LeadHistoryEvent = components['schemas']['LeadHistoryEvent']
+export type LeadSearch = components['schemas']['LeadSearchResponse']
+export type LeadSearchItem = components['schemas']['LeadSearchItem']
+
+/** A fronter disposition id, `none` for leads nobody has given one, or null for all. */
+export type DispositionFilter = string | null
 
 /** Matches BE LeadFormFields / LeadCreateRequest hard caps. */
 export const LEAD_NAME_MAX = 255
@@ -50,6 +55,39 @@ export async function getLead(leadId: string, token: string): Promise<LeadRespon
 /** A lead's details and everything that happened to it, oldest first. Super Admin only. */
 export function fetchLeadHistory(leadId: string, token: string): Promise<LeadHistory> {
   return json<LeadHistory>(`/leads/${encodeURIComponent(leadId)}/history`, token)
+}
+
+/**
+ * One page of the team's leads not yet with a closer, longest waiting first.
+ * `q` is part of a name, or of a phone when it is a number; sent from one character.
+ */
+export function searchLeads(
+  {
+    q,
+    disposition,
+    limit,
+    offset,
+  }: { q: string; disposition: DispositionFilter; limit: number; offset: number },
+  token: string
+): Promise<LeadSearch> {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+  if (q.trim()) params.set('q', q.trim())
+  if (disposition) params.set('disposition', disposition)
+  return json<LeadSearch>(`/leads/search?${params}`, token)
+}
+
+/**
+ * The call to record this lead's disposition or transfer on: its latest call
+ * while nothing is recorded on it or it waits on a callback, otherwise a new
+ * one. Ask only when saving one, never on opening the lead.
+ */
+export async function openLeadCall(leadId: string, token: string): Promise<string> {
+  const call = await json<{ interaction_id: string }>(
+    `/leads/${encodeURIComponent(leadId)}/calls`,
+    token,
+    { method: 'POST' }
+  )
+  return call.interaction_id
 }
 
 /** Narrow `AuthError` so callers can distinguish a missing lead from other failures. */

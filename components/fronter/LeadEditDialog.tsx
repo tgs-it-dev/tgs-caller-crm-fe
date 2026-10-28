@@ -16,10 +16,15 @@ import { Dialog } from '@/components/ui/Dialog'
 import { AuthError } from '@/lib/auth'
 import { captureDisposition, listDispositions, type DispositionResponse } from '@/lib/dispositions'
 import { CALLBACK_DISPOSITION_LABEL } from '@/lib/leadFormDraft'
-import { getLead, updateLead, type LeadResponse } from '@/lib/leads'
+import {
+  getLead,
+  openLeadCall,
+  updateLead,
+  type LeadResponse,
+  type LeadSearchItem,
+} from '@/lib/leads'
 import { waitForMocking } from '@/lib/mockReady'
 import { submitQualification } from '@/lib/qualification'
-import type { FronterQueueEntry } from '@/lib/queue'
 import { withSession } from '@/lib/session'
 import {
   createTransfer,
@@ -56,15 +61,16 @@ const FIELD_KEYS = [
 ] as const
 
 /**
- * Edit a callback-list lead: PATCH form fields, optionally change disposition,
- * and transfer when the outcome allows it. Interaction id comes from the queue row.
+ * Edit a lead from the fronter's list: PATCH form fields, optionally record a
+ * disposition, and transfer when it allows one. The call is asked for only when
+ * a disposition or transfer is saved, so opening a lead never starts one.
  */
 export function LeadEditDialog({
   entry,
   onClose,
   onSaved,
 }: {
-  entry: FronterQueueEntry
+  entry: LeadSearchItem
   onClose: () => void
   onSaved: (result: LeadCreateResult) => void
 }) {
@@ -97,10 +103,12 @@ export function LeadEditDialog({
       .then(({ lead, disp, available }) => {
         if (cancelled) return
         const form = leadFormValuesFromLead(lead)
-        // Queue row already carries the outcome that put this lead on the list.
+        // A callback starts on Callback, as it did on the callback list. Anything
+        // else starts empty, so saving an edit to the lead records nothing.
         const current =
-          disp.find((row) => row.label === entry.disposition_label) ??
-          disp.find((row) => row.label === CALLBACK_DISPOSITION_LABEL)
+          entry.latest_disposition === CALLBACK_DISPOSITION_LABEL
+            ? disp.find((row) => row.label === CALLBACK_DISPOSITION_LABEL)
+            : undefined
         if (current) form.disposition_id = current.id
         setValues(form)
         setDispositions(disp)
@@ -117,7 +125,7 @@ export function LeadEditDialog({
     return () => {
       cancelled = true
     }
-  }, [entry.lead_id, entry.disposition_label])
+  }, [entry.lead_id, entry.latest_disposition])
 
   function patch(next: Partial<LeadCreateFormValues>) {
     setValues((prev) => ({ ...prev, ...next }))
@@ -146,9 +154,9 @@ export function LeadEditDialog({
   async function transferLead(
     lead: LeadResponse,
     disposition: DispositionResponse,
-    fronterUserId: string
+    fronterUserId: string,
+    interactionId: string
   ): Promise<LeadCreateResult> {
-    const interactionId = entry.id
     const year = Number(values.vehicle_year.trim())
     const make = values.vehicle_make.trim()
     const model = values.vehicle_model.trim()
@@ -167,7 +175,7 @@ export function LeadEditDialog({
           snapshot_json: {
             first_name: firstName,
             last_name: lastName,
-            phone_no: entry.lead_phone,
+            phone_no: entry.phone_no,
             vehicle: vehicleLine,
             vehicle_year: String(year),
             vehicle_make: make,
@@ -238,23 +246,28 @@ export function LeadEditDialog({
       const lead = await withSession((token) =>
         updateLead(entry.lead_id, leadUpdatePayload(values), token)
       )
-      const withInteraction: LeadResponse = { ...lead, interaction_id: entry.id }
+      if (!selected || !(finishOnDesk || transferNow)) {
+        onSaved({ next: 'saved', lead })
+        return
+      }
 
-      if (finishOnDesk && selected) {
+      const interactionId = await withSession((token) => openLeadCall(entry.lead_id, token))
+      const withInteraction: LeadResponse = { ...lead, interaction_id: interactionId }
+      if (finishOnDesk) {
         await withSession((token) =>
-          captureDisposition(entry.id, { disposition_id: selected.id }, token)
+          captureDisposition(interactionId, { disposition_id: selected.id }, token)
         )
         onSaved({ next: 'desk', lead: withInteraction, disposition: selected })
         return
       }
 
-      if (transferNow && selected) {
-        const result = await transferLead(withInteraction, selected, currentUser.user.id)
-        onSaved(result)
-        return
-      }
-
-      onSaved({ next: 'saved', lead: withInteraction })
+      const result = await transferLead(
+        withInteraction,
+        selected,
+        currentUser.user.id,
+        interactionId
+      )
+      onSaved(result)
     } catch (err) {
       showFailure(err)
       setSaving(false)

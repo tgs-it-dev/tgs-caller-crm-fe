@@ -821,6 +821,98 @@ function mockFunnelStage(
   }
 }
 
+let issuedCalls = 0
+
+/** The leads a mock fronter can work: their team's, plus the seeded callbacks. */
+function mockWorkableLeads(teamId: string | null): LeadResponse[] {
+  const team = MOCK_TEAM_LEADS.filter((lead) => teamId === null || lead.team_id === teamId)
+  const callbacks = MOCK_FRONTER_CALLBACKS.map((row) => MOCK_LEADS[row.lead_id]).filter(Boolean)
+  const seen = new Set<string>()
+  return [...team.map(leadBody), ...callbacks].filter((lead) => {
+    if (seen.has(lead.id)) return false
+    seen.add(lead.id)
+    return true
+  })
+}
+
+/** A mock lead's calls, oldest first, with when each began. */
+function mockCallsOf(leadId: string): { id: string; at: string }[] {
+  const calls = new Map<string, string>()
+  for (const interaction of Object.values(MOCK_INTERACTIONS)) {
+    if (interaction.lead_id === leadId) calls.set(interaction.id, interaction.created_at)
+  }
+  for (const row of MOCK_FRONTER_CALLBACKS) {
+    if (row.lead_id === leadId && !calls.has(row.id)) calls.set(row.id, row.dispositioned_at)
+  }
+  return [...calls].map(([id, at]) => ({ id, at })).sort((a, b) => a.at.localeCompare(b.at))
+}
+
+/** A call's fronter dispositions, oldest first; a seeded callback counts as one. */
+function mockFronterDispositionsOn(callId: string): { id: string; label: string; at: string }[] {
+  const recorded = (MOCK_INTERACTION_DISPOSITIONS.get(callId) ?? []).filter(
+    (row) => row.stage === 'fronter'
+  )
+  if (recorded.length > 0) {
+    return [...recorded]
+      .sort((a, b) => a.version - b.version)
+      .map((row) => ({ id: row.disposition_id, label: row.label, at: row.created_at }))
+  }
+  const seeded = MOCK_FRONTER_CALLBACKS.find((row) => row.id === callId)
+  const callback = MOCK_DISPOSITION_CATALOG.find(
+    (row) => row.stage === 'fronter' && row.label === 'Callback'
+  )
+  return seeded && callback
+    ? [{ id: callback.id, label: seeded.disposition_label, at: seeded.dispositioned_at }]
+    : []
+}
+
+/** The latest fronter disposition across a mock lead's calls, as the API reads it. */
+function mockLatestDisposition(leadId: string) {
+  let latest: { id: string; label: string; at: string } | null = null
+  for (const call of mockCallsOf(leadId)) {
+    for (const row of mockFronterDispositionsOn(call.id)) {
+      if (!latest || row.at >= latest.at) latest = row
+    }
+  }
+  return latest
+}
+
+/** Accepted by a closer, or sold, on any of its calls: no longer the fronter's to work. */
+function mockWithACloser(leadId: string): boolean {
+  const calls = new Set(mockCallsOf(leadId).map((call) => call.id))
+  const accepted = [...MOCK_TRANSFERS.values()].some(
+    (row) => row.status === 'accepted' && calls.has(row.interaction_id)
+  )
+  const sold = [...calls].some((id) => {
+    const closer = (MOCK_INTERACTION_DISPOSITIONS.get(id) ?? []).filter((row) => row.stage === 'closer')
+    return closer.sort((a, b) => b.version - a.version)[0]?.label === 'Sale'
+  })
+  return accepted || sold
+}
+
+/** The fronter roles and the team they read, or why the request is refused. */
+function mockLeadWorker(authorization: string | null) {
+  const actor = mockActor(authorization)
+  if (!actor || !actor.active) {
+    return {
+      refused: {
+        status: 401,
+        body: authErrorBody('Could not validate credentials', 'auth.not_authenticated'),
+      },
+    }
+  }
+  const allowed = ['fronter', 'administrator', 'super_admin'] as const
+  if (!actor.roles.some((role) => (allowed as readonly string[]).includes(role))) {
+    return {
+      refused: {
+        status: 403,
+        body: authErrorBody('Insufficient role for this operation', 'auth.forbidden'),
+      },
+    }
+  }
+  return { teamId: actor.roles.includes('super_admin') ? null : (actor.team_id ?? 'no-team') }
+}
+
 const MOCK_STAGE_ORDER: FunnelStage[] = ['leads', 'qualified', 'transferred', 'sold']
 
 /**
@@ -2915,6 +3007,90 @@ export const handlers = [
         rows,
       })
     )
+  }),
+
+  // Before /leads/:leadId, which would otherwise read "search" as a lead id.
+  rest.get('/leads/search', (req, res, ctx) => {
+    const worker = mockLeadWorker(req.headers.get('authorization'))
+    if ('refused' in worker && worker.refused) {
+      return res(ctx.status(worker.refused.status), ctx.json(worker.refused.body))
+    }
+    const params = req.url.searchParams
+    const q = (params.get('q') ?? '').trim()
+    const disposition = params.get('disposition')
+    const limit = Number(params.get('limit') ?? 20)
+    const offset = Number(params.get('offset') ?? 0)
+    const digits = q.replace(/\D/g, '')
+
+    const rows = mockWorkableLeads(worker.teamId ?? null)
+      .filter((lead) => !mockWithACloser(lead.id))
+      .map((lead) => ({
+        lead,
+        name: [lead.first_name, lead.last_name].filter(Boolean).join(' ').trim() || lead.phone_no,
+        latest: mockLatestDisposition(lead.id),
+      }))
+      .filter(({ lead, name }) => {
+        if (!q) return true
+        // Names always, and phones too when the search is a number.
+        const byName = name.toLowerCase().includes(q.toLowerCase())
+        const byPhone = digits !== '' && !/\p{L}/u.test(q) && lead.phone_no.includes(digits)
+        return byName || byPhone
+      })
+      .filter(({ latest }) => {
+        if (!disposition) return true
+        return disposition === 'none' ? latest === null : latest?.id === disposition
+      })
+      .sort((a, b) =>
+        (a.latest?.at ?? a.lead.created_at).localeCompare(b.latest?.at ?? b.lead.created_at)
+      )
+
+    return res(
+      ctx.status(200),
+      ctx.json({
+        items: rows.slice(offset, offset + limit).map(({ lead, name, latest }) => ({
+          lead_id: lead.id,
+          lead_name: name,
+          phone_no: lead.phone_no,
+          created_at: lead.created_at,
+          latest_disposition: latest?.label ?? null,
+          latest_disposition_at: latest?.at ?? null,
+        })),
+        total: rows.length,
+        limit,
+        offset,
+      })
+    )
+  }),
+
+  // The API's rule: the latest call while nothing is on it or it waits on a
+  // callback, otherwise a new one.
+  rest.post('/leads/:leadId/calls', (req, res, ctx) => {
+    const worker = mockLeadWorker(req.headers.get('authorization'))
+    if ('refused' in worker && worker.refused) {
+      return res(ctx.status(worker.refused.status), ctx.json(worker.refused.body))
+    }
+    const leadId = String(req.params.leadId)
+    if (!mockWorkableLeads(worker.teamId ?? null).some((lead) => lead.id === leadId)) {
+      return res(ctx.status(404), ctx.json(authErrorBody('lead not found', 'lead.not_found')))
+    }
+
+    const latest = mockCallsOf(leadId).at(-1)
+    if (latest) {
+      const fronter = mockFronterDispositionsOn(latest.id).at(-1)
+      const anything =
+        (MOCK_INTERACTION_DISPOSITIONS.get(latest.id) ?? []).length > 0 ||
+        fronter !== undefined ||
+        [...MOCK_TRANSFERS.values()].some((row) => row.interaction_id === latest.id)
+      if (fronter?.label === 'Callback' || !anything) {
+        return res(ctx.status(200), ctx.json({ interaction_id: latest.id }))
+      }
+    }
+
+    issuedCalls += 1
+    const id = `int-call-${issuedCalls}`
+    const now = new Date().toISOString()
+    MOCK_INTERACTIONS[id] = { id, lead_id: leadId, created_at: now, updated_at: now, qualification: null }
+    return res(ctx.status(200), ctx.json({ interaction_id: id }))
   }),
 
   rest.get('/leads/:leadId/history', (req, res, ctx) => {
