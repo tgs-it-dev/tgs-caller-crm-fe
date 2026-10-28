@@ -5,7 +5,7 @@ import { CLOSER_DESK_SEEDS } from '../lib/closer'
 import type { ReconciliationException } from '../lib/exceptions'
 import type { CallLeg, InteractionEvent, InteractionTransfer } from '../lib/interactionDetail'
 import type { InteractionDetailResponse } from '../lib/interactions'
-import type { LeadBulkRow, LeadResponse } from '../lib/leads'
+import type { LeadBulkRow, LeadHistory, LeadHistoryEvent, LeadResponse } from '../lib/leads'
 import { PUSH_INTERVAL_MS, type AgentStatus, type LiveStatus } from '../lib/liveStatus'
 import type { CloserQueueEntry, FronterQueueEntry } from '../lib/queue'
 import {
@@ -22,7 +22,7 @@ import type {
 } from '../lib/qualification'
 import { BUSINESS_TIMEZONE, TIME_ZONES, type TimeZoneName } from '../lib/format'
 import type {
-  FunnelInteractionList,
+  FunnelLeadList,
   FunnelStage,
   HistoricalFunnel,
   SaleItem,
@@ -549,36 +549,46 @@ function grantCeilingRefusal(
 const MOCK_BUSINESS_TIMEZONE = BUSINESS_TIMEZONE
 
 /**
- * Funnel counts for a window, worked out from the window itself so the same
- * dates always answer the same figures and a different range visibly moves them.
+ * How many leads came in over a window, worked out from the window itself so the
+ * same dates always answer the same figures and a different range visibly moves
+ * them.
  *
  * `timezone` is echoed so a deliberate region pick shows on the chart and list;
- * a different zone also nudges the figures so mock mode can't hide a client
- * that forgot to pass the choice through.
+ * a different zone also nudges the count so mock mode can't hide a client that
+ * forgot to pass the choice through.
  */
-function mockFunnel(start: string, end: string, timezone?: string | null): HistoricalFunnel {
+function mockWindow(start: string, end: string, timezone?: string | null) {
   const zone = timezone || MOCK_BUSINESS_TIMEZONE
   const days = Math.max(1, Math.round((Date.parse(end) - Date.parse(start)) / 86_400_000) + 1)
   const zoneBias = zone.split('').reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % 11
-  const attempts = days * 40 + (Number(start.replace(/-/g, '')) % 97) + zoneBias
-  const connects = Math.round(attempts * 0.67)
-  const qualified = Math.round(connects * 0.62)
+  const leads = days * 40 + (Number(start.replace(/-/g, '')) % 97) + zoneBias
+  return { start, end, timezone: zone, leads }
+}
 
+/**
+ * The Reports funnel for a window and team, null for every team. Read off Team
+ * stats' own total, so the two pages agree in mock mode.
+ */
+function mockFunnel(
+  start: string,
+  end: string,
+  teamId: string | null,
+  timezone?: string | null
+): HistoricalFunnel {
+  const { total, ...stats } = mockTeamStats(start, end, teamId, timezone)
   return {
-    start,
-    end,
-    timezone: zone,
-    attempts,
-    connects,
-    qualified,
-    // Well under Qualified: roughly half of all offers go unanswered, which is
-    // the gap this bar exists to show.
-    transferred: Math.round(qualified * 0.25),
+    start: stats.start,
+    end: stats.end,
+    timezone: stats.timezone,
+    leads: total.leads,
+    qualified: total.qualified,
+    transferred: total.transferred,
+    sold: total.sold,
   }
 }
 
 /**
- * Every team's figures for a window, worked out from it the way `mockFunnel` is
+ * Every team's figures for a window, worked out from it the way `mockWindow` is
  * so other dates visibly move them. A team picked on its own keeps the figures it
  * had among the others. No answer, Callback and Qualified never add up past Leads,
  * and Sold sits inside Transferred inside Qualified, as the API's usually do.
@@ -589,7 +599,7 @@ function mockTeamStats(
   teamId: string | null,
   timezone?: string | null
 ): TeamStatsReport {
-  const funnel = mockFunnel(start, end, timezone)
+  const base = mockWindow(start, end, timezone)
   const withRate = (counts: Omit<TeamFigures, 'conversion_rate'>): TeamFigures => ({
     ...counts,
     conversion_rate: counts.leads ? counts.sold / counts.leads : null,
@@ -600,7 +610,7 @@ function mockTeamStats(
     .flatMap((team, index) => {
       // Inactive mock teams have no figures, so this is the API's listing rule.
       if (teamId ? team.id !== teamId : !team.active) return []
-      const leads = team.active ? Math.round(funnel.attempts / (index + 2)) : 0
+      const leads = team.active ? Math.round(base.leads / (index + 2)) : 0
       const qualified = Math.round(leads * 0.3)
       const transferred = Math.round(qualified * 0.6)
       const counts = {
@@ -625,7 +635,7 @@ function mockTeamStats(
     sold: sum((row) => row.sold),
   })
 
-  return { start: funnel.start, end: funnel.end, timezone: funnel.timezone, teams, total }
+  return { start: base.start, end: base.end, timezone: base.timezone, teams, total }
 }
 
 const MOCK_SALE_LEADS = [
@@ -719,53 +729,89 @@ function mockSales(
   }
 }
 
+/** How far the nth newest lead of a funnel got. The newest are the furthest along. */
+function mockReached(funnel: HistoricalFunnel, nth: number): FunnelStage {
+  if (nth < funnel.sold) return 'sold'
+  if (nth < funnel.transferred) return 'transferred'
+  if (nth < funnel.qualified) return 'qualified'
+  return 'leads'
+}
+
+function mockLeadPhone(nth: number) {
+  return `+1555${String(2_000_000 + nth).slice(-7)}`
+}
+
+/** Every fourth lead has no name, so the phone stands in, as the API's does. */
+function mockLeadName(nth: number) {
+  return nth % 4 === 3 ? mockLeadPhone(nth) : QUEUE_LEAD_NAMES[nth % QUEUE_LEAD_NAMES.length]
+}
+
+/** A mock lead's id, carrying what its history needs to tell the same story. */
+function mockLeadId(stage: FunnelStage, nth: number, addedAt: number, teamId: string) {
+  return `mock-lead-${stage}-${nth}-${addedAt}-${teamId}`
+}
+
+/** The latest fronter and closer outcome of a lead that got this far. */
+function mockLeadOutcomes(reached: FunnelStage, nth: number) {
+  const label = (id: string) => MOCK_DISPOSITION_CATALOG.find((row) => row.id === id)?.label ?? null
+  const handedOver = label('disp-fronter-qualified')
+  if (reached === 'sold') return { fronter_outcome: handedOver, closer_outcome: label('disp-closer-sale') }
+  if (reached === 'transferred') {
+    return {
+      // Called back after the handoff, which doesn't undo it.
+      fronter_outcome: nth % 3 === 0 ? label('disp-fronter-callback') : handedOver,
+      closer_outcome: nth % 2 === 0 ? label('disp-closer-callback') : null,
+    }
+  }
+  if (reached === 'qualified') return { fronter_outcome: handedOver, closer_outcome: null }
+  const unworked = ['disp-fronter-callback', 'disp-fronter-not-interested', 'disp-fronter-invalid']
+  return {
+    fronter_outcome: nth % 4 === 0 ? null : label(unworked[nth % unworked.length]),
+    closer_outcome: null,
+  }
+}
+
 /**
- * One page of the interactions behind a funnel number.
+ * One page of the leads behind a funnel number, newest first.
  *
- * `total` comes off `mockFunnel` so the footer count equals the bar above it;
- * a fixture that drifted from its own aggregate would make a real disagreement
- * look normal. Rows follow the offset, so paging never repeats a row.
- *
- * Rows are newest-first by `event_at`, the way the real drill-down orders them.
- * Disposition scalars come from `mockFunnelDispositions` (defined with the
- * catalogue below).
+ * `total` comes off `mockFunnel` so the footer count equals the bar above it,
+ * and the nth lead is the same lead, at the same stage, in every list it is in.
+ * Rows follow the offset, so paging never repeats a row.
  */
 function mockFunnelStage(
   stage: FunnelStage,
   start: string,
   end: string,
+  teamId: string | null,
   limit: number,
   offset: number,
   timezone?: string | null
-): FunnelInteractionList {
-  const funnel = mockFunnel(start, end, timezone)
+): FunnelLeadList {
+  const funnel = mockFunnel(start, end, teamId, timezone)
+  const teams = [...MOCK_TEAMS]
+    .filter((team) => (teamId ? team.id === teamId : team.active))
+    .sort((a, b) => a.name.localeCompare(b.name))
   const total = funnel[stage]
   // Mid-afternoon on the window's last day, walked backwards, so rows read
   // newest first and stay inside the range in any plausible business zone.
   const latest = Date.parse(`${end}T17:00:00.000Z`)
   const span = Math.max(1, Date.parse(end) - Date.parse(start) + 86_400_000)
-  // Non-zero off attempts, so the event column shows something the created_at
-  // one doesn't and mock mode can't hide a client reading the wrong field.
-  const eventDelayMs = stage === 'attempts' ? 0 : 4 * 60_000
 
   return {
     items: Array.from({ length: Math.max(0, Math.min(limit, total - offset)) }, (_, index) => {
       const nth = offset + index
-      const createdAt = new Date(latest - ((nth * 7 * 60_000) % span))
+      const reached = mockReached(funnel, nth)
+      const addedAt = latest - ((nth * 7 * 60_000) % span)
+      const team = teams[nth % teams.length]
       return {
-        id: `int-${stage}-${nth}`,
-        lead_id: `lead-${stage}-${nth}`,
-        // coalesce(dialer_queue_entries.lead_name, phone): every fourth row has
-        // no queue row behind it, which is what the fallback is for.
-        lead_name:
-          nth % 4 === 3
-            ? `+1555${String(2_000_000 + nth).slice(-7)}`
-            : QUEUE_LEAD_NAMES[nth % QUEUE_LEAD_NAMES.length],
-        lead_phone: `+1555${String(2_000_000 + nth).slice(-7)}`,
-        lead_source: nth % 5 === 0 ? ('ghl' as const) : ('vicidial' as const),
-        created_at: createdAt.toISOString(),
-        event_at: new Date(createdAt.getTime() + eventDelayMs).toISOString(),
-        ...mockFunnelDispositions(stage, nth),
+        lead_id: mockLeadId(reached, nth, addedAt, team.id),
+        lead_name: mockLeadName(nth),
+        lead_phone: mockLeadPhone(nth),
+        team_id: team.id,
+        team_name: team.name,
+        created_at: new Date(addedAt).toISOString(),
+        stage: reached,
+        ...mockLeadOutcomes(reached, nth),
       }
     }),
     total,
@@ -773,6 +819,178 @@ function mockFunnelStage(
     limit,
     offset,
   }
+}
+
+const MOCK_STAGE_ORDER: FunnelStage[] = ['leads', 'qualified', 'transferred', 'sold']
+
+/**
+ * Everything behind a lead from a mock funnel list. It reaches the stage its id
+ * names, with an edit, a correction, a turned-down transfer and, when sold, two
+ * cart saves; its latest outcomes match its row in the list.
+ */
+function mockLeadHistory(leadId: string): LeadHistory | null {
+  const parsed = /^mock-lead-(leads|qualified|transferred|sold)-(\d+)-(\d+)-(.+)$/.exec(leadId)
+  const team = parsed && MOCK_TEAMS.find((row) => row.id === parsed[4])
+  if (!parsed || !team) return null
+  const reached = parsed[1] as FunnelStage
+  const nth = Number(parsed[2])
+  const addedAt = Number(parsed[3])
+  const depth = MOCK_STAGE_ORDER.indexOf(reached)
+  const outcomes = mockLeadOutcomes(reached, nth)
+  const at = (minutes: number) => new Date(addedAt + minutes * 60_000).toISOString()
+  const fronter = 'Fiona Fronter'
+  const closer = 'Carl Closer'
+  const events: LeadHistoryEvent[] = []
+  const add = (event: Omit<LeadHistoryEvent, 'changes'> & Partial<LeadHistoryEvent>) =>
+    events.push({ changes: [], ...event })
+  const onCall = (call: number, event: Omit<LeadHistoryEvent, 'changes'>) =>
+    add({ ...event, call, interaction_id: `${leadId}-call-${call}` })
+  const civic = nth % 2 === 0
+  const skipped = nth % 5 === 0 ? 'Customer had to leave, mileage given verbally' : null
+  const optedOut = nth % 7 === 6
+
+  add({ kind: 'added', at: at(0), actor_name: fronter })
+  if (civic) {
+    add({
+      kind: 'lead_edited',
+      at: at(5),
+      actor_name: fronter,
+      changes: [{ field: 'vehicle_model', before: 'Accord', after: 'Civic' }],
+    })
+  }
+  if (depth === 0 && outcomes.fronter_outcome) {
+    onCall(1, { kind: 'fronter_outcome', at: at(10), actor_name: fronter, outcome: outcomes.fronter_outcome, version: 1 })
+  }
+  if (depth >= 1) {
+    onCall(1, { kind: 'fronter_outcome', at: at(10), actor_name: fronter, outcome: 'Callback', version: 1 })
+    onCall(1, {
+      kind: 'fronter_outcome',
+      at: at(12),
+      actor_name: fronter,
+      outcome: 'Qualified - Transferred',
+      version: 2,
+      previous_outcome: 'Callback',
+    })
+    onCall(1, { kind: 'qualification', at: at(14), actor_name: fronter, version: 1 })
+  }
+  if (depth >= 2) {
+    onCall(1, { kind: 'transfer_offered', at: at(15), actor_name: fronter, transfer_status: 'rejected', closer_name: 'Bea Both' })
+    onCall(1, { kind: 'transfer_rejected', at: at(16), actor_name: 'Bea Both' })
+    onCall(1, { kind: 'transfer_offered', at: at(17), actor_name: fronter, transfer_status: 'accepted', closer_name: closer, reason: skipped })
+    onCall(1, { kind: 'transfer_accepted', at: at(18), actor_name: closer })
+  }
+  const policy = `POL-${String(10_000 + nth).slice(-5)}`
+  if (depth === 3) {
+    onCall(1, {
+      kind: 'cart_saved',
+      at: at(28),
+      actor_name: closer,
+      amounts: { policy_number: policy, total_payment: '2000.00', down_payment: '400.00', monthly_payment: '66.67' },
+    })
+    onCall(1, {
+      kind: 'cart_saved',
+      at: at(30),
+      actor_name: closer,
+      amounts: { policy_number: policy, total_payment: '2400.00', down_payment: '400.00', monthly_payment: '83.33' },
+    })
+    onCall(1, { kind: 'closer_outcome', at: at(35), actor_name: closer, outcome: 'Sale', version: 1 })
+    onCall(1, { kind: 'sold', at: at(35), actor_name: closer, outcome: 'Sale' })
+  }
+  if (depth === 2 && outcomes.closer_outcome) {
+    onCall(1, { kind: 'closer_outcome', at: at(35), actor_name: closer, outcome: outcomes.closer_outcome, version: 1 })
+  }
+  // Called back after the handoff, on a call of its own.
+  const calledBack = depth === 2 && outcomes.fronter_outcome === 'Callback'
+  if (calledBack) {
+    onCall(2, { kind: 'fronter_outcome', at: at(24 * 60), actor_name: fronter, outcome: 'Callback', version: 1 })
+  }
+  if (optedOut) {
+    add({ kind: 'do_not_call', at: at(2 * 24 * 60), actor_name: fronter, reason: 'Asked not to be called again' })
+  }
+
+  const last = (kind: LeadHistoryEvent['kind']) => {
+    const event = [...events].reverse().find((row) => row.kind === kind)
+    return event ? { outcome: event.outcome ?? '', actor_name: event.actor_name ?? null, at: event.at } : null
+  }
+  const latestFronter = last('fronter_outcome')
+  const onTheList = latestFronter?.outcome === 'Callback' && (depth === 0 || calledBack)
+
+  return {
+    lead: {
+      id: leadId,
+      lead_name: mockLeadName(nth),
+      phone_no: mockLeadPhone(nth),
+      vehicle_year: 2016 + (nth % 6),
+      vehicle_make: civic ? 'Honda' : 'Toyota',
+      vehicle_model: civic ? 'Civic' : 'Camry',
+      vin: nth % 3 === 0 ? null : `1HGCM82633A${String(100_000 + nth).slice(-6)}`,
+      license_plate: nth % 3 === 0 ? `TX-${String(1000 + nth).slice(-4)}` : null,
+      team_id: team.id,
+      team_name: team.name,
+      source: 'manual',
+      created_at: at(0),
+      updated_at: civic ? at(5) : at(0),
+      added_by_name: fronter,
+    },
+    status: {
+      stage: reached,
+      calls: calledBack ? 2 : events.some((event) => event.call) ? 1 : 0,
+      latest_fronter: latestFronter,
+      latest_closer: last('closer_outcome'),
+      callback: onTheList ? latestFronter : null,
+      awaiting_closer: false,
+      // Accepted with no closer outcome yet: the closer is still on the call.
+      with_closer: depth === 2 && !outcomes.closer_outcome ? closer : null,
+      do_not_call: optedOut,
+    },
+    form:
+      depth >= 1
+        ? {
+            snapshot: { has_warranty: civic, best_time_to_call: 'Evenings', mileage: 84_000 },
+            consent: { consent_given: true, consent_captured_at: at(13), dnc_flagged: false, dnc_source: null },
+            version: 1,
+            saved_at: at(14),
+            saved_by: fronter,
+          }
+        : null,
+    carts:
+      depth === 3
+        ? [
+            {
+              interaction_id: `${leadId}-call-1`,
+              account_last4: '1234',
+              routing_last4: '0021',
+              expiry: '11/29',
+              policy_number: policy,
+              total_payment: '2400.00',
+              down_payment: '400.00',
+              monthly_payment: '83.33',
+              saved_by: closer,
+              saved_at: at(30),
+            },
+          ]
+        : [],
+    events,
+  }
+}
+
+/**
+ * The team a report covers: a Super Admin's pick or every team, anyone else's
+ * own. Naming another team is refused, as the API refuses it.
+ */
+function mockReportTeam(authorization: string | null, asked: string | null) {
+  const actor = mockActor(authorization)
+  if (actor?.roles.includes('super_admin')) return { teamId: asked }
+  if (asked && asked !== actor?.team_id) {
+    return {
+      refused: {
+        status: 403,
+        body: authErrorBody('you can only see your own team', 'team.forbidden'),
+      },
+    }
+  }
+  // No team means no leads, never every team's.
+  return { teamId: actor?.team_id ?? 'no-team' }
 }
 
 // Seed data for the fronter workspace screen (FE-02). Standing in for the
@@ -1350,58 +1568,6 @@ const MOCK_DISPOSITION_CATALOG: MockDisposition[] = [
   { id: 'disp-fronter-dnc', label: 'Do Not Call', stage: 'fronter', ...ENDS_THE_CALL },
   { id: 'disp-fronter-invalid', label: 'Wrong Number', stage: 'fronter', ...ENDS_THE_CALL },
 ]
-
-/**
- * Latest fronter/closer disposition scalars for one funnel drill-down row.
- *
- * Null when that stage has no disposition yet. Attempts and connects are
- * mostly bare; qualified always has a fronter verdict (the only catalogue row
- * that counts); transferred keeps that fronter handoff and usually a closer
- * outcome too.
- */
-function mockFunnelDispositions(stage: FunnelStage, nth: number): {
-  fronter_disposition_id: string | null
-  fronter_disposition_label: string | null
-  closer_disposition_id: string | null
-  closer_disposition_label: string | null
-} {
-  const fronter = MOCK_DISPOSITION_CATALOG.filter((row) => row.stage === 'fronter')
-  const closer = MOCK_DISPOSITION_CATALOG.filter((row) => row.stage === 'closer')
-  const qualified = MOCK_DISPOSITION_CATALOG.find((row) => row.counts_as_qualified)!
-
-  const pair = (row: MockDisposition | undefined) =>
-    row
-      ? { id: row.id, label: row.label }
-      : { id: null as string | null, label: null as string | null }
-
-  let fronterRow: MockDisposition | undefined
-  let closerRow: MockDisposition | undefined
-
-  if (stage === 'attempts') {
-    // Mostly untouched; every fifth row has some fronter outcome.
-    fronterRow = nth % 5 === 0 ? fronter[nth % fronter.length] : undefined
-  } else if (stage === 'connects') {
-    // A little further along: roughly every other call dispositioned, closer rare.
-    fronterRow = nth % 2 === 0 ? fronter[nth % fronter.length] : undefined
-    closerRow = nth % 7 === 0 ? closer[nth % closer.length] : undefined
-  } else if (stage === 'qualified') {
-    // The bar only counts `counts_as_qualified`, so every row carries that label.
-    fronterRow = qualified
-  } else {
-    // Transferred: fronter handoff on every row; closer set more often than not.
-    fronterRow = qualified
-    closerRow = nth % 4 !== 3 ? closer[nth % closer.length] : undefined
-  }
-
-  const fronterPair = pair(fronterRow)
-  const closerPair = pair(closerRow)
-  return {
-    fronter_disposition_id: fronterPair.id,
-    fronter_disposition_label: fronterPair.label,
-    closer_disposition_id: closerPair.id,
-    closer_disposition_label: closerPair.label,
-  }
-}
 
 const MOCK_INTERACTION_DISPOSITIONS = new Map<string, MockInteractionDisposition[]>()
 // Only what the API keeps: last digits, never a full number or a CVV.
@@ -2425,12 +2591,21 @@ export const handlers = [
       return res(ctx.status(422), ctx.json(authErrorBody('Field required', 'validation_error')))
     }
 
+    const scope = mockReportTeam(
+      req.headers.get('authorization'),
+      req.url.searchParams.get('team_id')
+    )
+    if ('refused' in scope && scope.refused) {
+      return res(ctx.status(scope.refused.status), ctx.json(scope.refused.body))
+    }
+
     return res(
       ctx.status(200),
       ctx.json(
         mockFunnel(
           start,
           end,
+          scope.teamId ?? null,
           req.url.searchParams.get('timezone') ??
             mockActor(req.headers.get('authorization'))?.timezone
         )
@@ -2449,6 +2624,16 @@ export const handlers = [
     }
 
     const stage = req.params.stage as FunnelStage
+    if (!MOCK_STAGE_ORDER.includes(stage)) {
+      return res(ctx.status(422), ctx.json(authErrorBody('Input should be a stage', 'validation_error')))
+    }
+    const scope = mockReportTeam(
+      req.headers.get('authorization'),
+      req.url.searchParams.get('team_id')
+    )
+    if ('refused' in scope && scope.refused) {
+      return res(ctx.status(scope.refused.status), ctx.json(scope.refused.body))
+    }
     const limit = Number(req.url.searchParams.get('limit') ?? 50)
     const offset = Number(req.url.searchParams.get('offset') ?? 0)
 
@@ -2459,6 +2644,7 @@ export const handlers = [
           stage,
           start,
           end,
+          scope.teamId ?? null,
           limit,
           offset,
           req.url.searchParams.get('timezone') ??
@@ -2729,6 +2915,17 @@ export const handlers = [
         rows,
       })
     )
+  }),
+
+  rest.get('/leads/:leadId/history', (req, res, ctx) => {
+    const refused = superAdminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const history = mockLeadHistory(String(req.params.leadId))
+    if (!history) {
+      return res(ctx.status(404), ctx.json(authErrorBody('lead not found', 'lead.not_found')))
+    }
+    return res(ctx.status(200), ctx.json(history))
   }),
 
   rest.get('/leads/:leadId', (req, res, ctx) => {
@@ -3117,6 +3314,28 @@ export const handlers = [
     const actor = mockActor(req.headers.get('authorization'))
     if (!actor) return res(ctx.status(401), ctx.json({ detail: 'Not authenticated.' }))
     return res(ctx.status(200), ctx.json(MOCK_CARTS.get(req.params.interactionId as string) ?? null))
+  }),
+
+  // Super Admin only, as the API's is. A mock lead's cart and a closer's mock cart
+  // both reveal made-up numbers that end in the digits already shown.
+  rest.post('/interactions/:interactionId/cart/reveal', (req, res, ctx) => {
+    const refused = superAdminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const interactionId = req.params.interactionId as string
+    const saved = MOCK_CARTS.get(interactionId)
+    const tails = interactionId.startsWith('mock-lead-')
+      ? { account: '1234', routing: '0021' }
+      : saved && { account: saved.account_last4, routing: saved.routing_last4 }
+    if (!tails) return res(ctx.status(200), ctx.json(null))
+    return res(
+      ctx.status(200),
+      ctx.set('Cache-Control', 'no-store'),
+      ctx.json({
+        account_number: `411111111111${tails.account}`.slice(-16),
+        routing_number: tails.routing ? `02100${tails.routing}` : null,
+      })
+    )
   }),
 
   rest.put('/interactions/:interactionId/cart', async (req, res, ctx) => {

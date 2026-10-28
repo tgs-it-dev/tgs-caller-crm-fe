@@ -609,6 +609,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/interactions/{interaction_id}/cart/reveal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Show a cart's full account and routing numbers (Super Admin only)
+         * @description Decrypt the call's cart for the Super Admin asking, and record that they saw it.
+         *
+         *     A POST because each reveal writes an audit row; the numbers never go into
+         *     that row, and the reply is never cached. Null before anything is saved.
+         */
+        post: operations["reveal_cart_numbers_interactions__interaction_id__cart_reveal_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/interactions/{interaction_id}/dispositions": {
         parameters: {
             query?: never;
@@ -795,6 +818,31 @@ export interface paths {
         patch: operations["patch_lead_leads__lead_id__patch"];
         trace?: never;
     };
+    "/leads/{lead_id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Everything recorded on a lead, and everything that happened to it (Super Admin only)
+         * @description The lead, where it stands now, what was entered on it, and one timeline.
+         *
+         *     The timeline runs across all its calls, oldest first, with every correction,
+         *     every cart save and every edit to the lead. A cart shows what its closer sees:
+         *     the last four digits of each number, never a full one, and no CVV, which is
+         *     never stored.
+         */
+        get: operations["get_lead_history_leads__lead_id__history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me/stats/today": {
         parameters: {
             query?: never;
@@ -970,15 +1018,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Funnel counts for a range of business days
-         * @description Counts for interactions created in the window, narrowing at each stage.
+         * The leads added in a range of business days, by the furthest stage reached
+         * @description Leads, Qualified, Transferred and Sold for the leads added in the window.
          *
-         *     Both dates are inclusive days, so one day is start == end. Each number has a
-         *     matching drill-down at /reporting/funnel/{stage}.
-         *
-         *     Administrators only. An agent's own numbers are a different report, and one
-         *     the schema cannot produce yet — interactions, call legs and qualifications
-         *     record no user.
+         *     Each lead counts once, at the furthest stage it has reached, so each stage
+         *     sits inside the one before. Both dates are inclusive days, so one day is
+         *     start == end. Each number lists its leads at /reporting/funnel/{stage}.
+         *     Administrators only.
          */
         get: operations["funnel_reporting_funnel_get"];
         put?: never;
@@ -997,12 +1043,11 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The interactions behind one funnel number
-         * @description The records the number is made of, newest first.
+         * The leads behind one funnel number
+         * @description The leads the number is made of, newest first, with the stage each has reached.
          *
-         *     `total` is produced by the same select the aggregate counts, so it always
-         *     equals the figure this stage reports — pass the same window, timezone and
-         *     team_id the aggregate was read with.
+         *     `total` always equals the figure this stage reports when read with the same
+         *     window, timezone and team_id.
          */
         get: operations["funnel_drilldown_reporting_funnel__stage__get"];
         put?: never;
@@ -1457,6 +1502,16 @@ export interface components {
             team_ids?: string[] | null;
         };
         /**
+         * CartNumbersResponse
+         * @description A cart's full account and routing numbers, for a Super Admin who asked to see them.
+         */
+        CartNumbersResponse: {
+            /** Account Number */
+            account_number: string;
+            /** Routing Number */
+            routing_number: string | null;
+        };
+        /**
          * CartResponse
          * @description A saved cart, masked: at most the last four digits of each number.
          */
@@ -1780,51 +1835,19 @@ export interface components {
             transfers_rejected: number;
         };
         /**
-         * FunnelInteraction
-         * @description One row behind a funnel number.
-         *
-         *     Thin, but not bare. InteractionDetailResponse nests a qualification, which is
-         *     right for one interaction and wasteful repeated down a page of them — so
-         *     nothing nested belongs here. The lead's name, phone and source are scalars
-         *     off one join (name from dialer_queue_entries, phone fallback when no queue
-         *     row), and they are what a reader recognises: a page of uuids and timestamps
-         *     identifies nothing. Carrying them saves the client reading every lead one at
-         *     a time, which is the whole reason they are here.
-         *
-         *     ``event_at`` is the stage's own instant — creation for Attempts, the
-         *     earliest call leg for Connects, the qualifying fronter disposition for
-         *     Qualified, the closer's acceptance for Transferred — so the drill-down
-         *     list can order and label by what the bar counted, not only by when the
-         *     call started.
-         *
-         *     Disposition id/label pairs are the latest per stage (highest version);
-         *     null when that stage has no disposition yet. Scalars only — same reason
-         *     lead fields are not nested.
+         * FunnelLead
+         * @description One lead behind a funnel number.
          */
-        FunnelInteraction: {
-            /** Closer Disposition Id */
-            closer_disposition_id: string | null;
-            /** Closer Disposition Label */
-            closer_disposition_label: string | null;
+        FunnelLead: {
+            /** Closer Outcome */
+            closer_outcome: string | null;
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
-            /**
-             * Event At
-             * Format: date-time
-             */
-            event_at: string;
-            /** Fronter Disposition Id */
-            fronter_disposition_id: string | null;
-            /** Fronter Disposition Label */
-            fronter_disposition_label: string | null;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
+            /** Fronter Outcome */
+            fronter_outcome: string | null;
             /**
              * Lead Id
              * Format: uuid
@@ -1835,15 +1858,22 @@ export interface components {
             /** Lead Phone */
             lead_phone: string;
             /**
-             * Lead Source
+             * Stage
              * @enum {string}
              */
-            lead_source: "vicidial" | "ghl" | "manual";
+            stage: "leads" | "qualified" | "transferred" | "sold";
+            /**
+             * Team Id
+             * Format: uuid
+             */
+            team_id: string;
+            /** Team Name */
+            team_name: string;
         };
-        /** FunnelInteractionListResponse */
-        FunnelInteractionListResponse: {
+        /** FunnelLeadListResponse */
+        FunnelLeadListResponse: {
             /** Items */
-            items: components["schemas"]["FunnelInteraction"][];
+            items: components["schemas"]["FunnelLead"][];
             /** Limit */
             limit: number;
             /** Offset */
@@ -1860,23 +1890,23 @@ export interface components {
         };
         /**
          * HistoricalFunnel
-         * @description Counts for one window, narrowing at each stage.
+         * @description The leads added in one window, by the furthest stage each has reached.
          *
-         *     Not FunnelCounts: that is the live dashboard's snapshot of today, has no
-         *     connects, and carries a sales figure this endpoint cannot yet produce.
+         *     Each stage sits inside the one before: a sold lead is also transferred and
+         *     qualified.
          */
         HistoricalFunnel: {
-            /** Attempts */
-            attempts: number;
-            /** Connects */
-            connects: number;
             /**
              * End
              * Format: date
              */
             end: string;
+            /** Leads */
+            leads: number;
             /** Qualified */
             qualified: number;
+            /** Sold */
+            sold: number;
             /**
              * Start
              * Format: date
@@ -2255,6 +2285,217 @@ export interface components {
              * @description VIN. Required when license_plate is omitted.
              */
             vin?: string | null;
+        };
+        /**
+         * LeadHistoryAmounts
+         * @description What one cart save recorded.
+         */
+        LeadHistoryAmounts: {
+            /** Down Payment */
+            down_payment: string;
+            /** Monthly Payment */
+            monthly_payment: string;
+            /** Policy Number */
+            policy_number: string | null;
+            /** Total Payment */
+            total_payment: string;
+        };
+        /**
+         * LeadHistoryCart
+         * @description A call's cart as its closer sees it: the last four digits of each number, never more.
+         */
+        LeadHistoryCart: {
+            /** Account Last4 */
+            account_last4: string;
+            /** Down Payment */
+            down_payment: string;
+            /** Expiry */
+            expiry: string | null;
+            /**
+             * Interaction Id
+             * Format: uuid
+             */
+            interaction_id: string;
+            /** Monthly Payment */
+            monthly_payment: string;
+            /** Policy Number */
+            policy_number: string | null;
+            /** Routing Last4 */
+            routing_last4: string | null;
+            /**
+             * Saved At
+             * Format: date-time
+             */
+            saved_at: string;
+            /** Saved By */
+            saved_by: string | null;
+            /** Total Payment */
+            total_payment: string;
+        };
+        /** LeadHistoryChange */
+        LeadHistoryChange: {
+            /** After */
+            after: string | null;
+            /** Before */
+            before: string | null;
+            /** Field */
+            field: string;
+        };
+        /**
+         * LeadHistoryEvent
+         * @description One thing that happened to the lead. Fields that do not apply to a kind are empty.
+         */
+        LeadHistoryEvent: {
+            /** Actor Name */
+            actor_name?: string | null;
+            amounts?: components["schemas"]["LeadHistoryAmounts"] | null;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Call */
+            call?: number | null;
+            /**
+             * Changes
+             * @default []
+             */
+            changes: components["schemas"]["LeadHistoryChange"][];
+            /** Closer Name */
+            closer_name?: string | null;
+            /** Interaction Id */
+            interaction_id?: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "added" | "lead_edited" | "fronter_outcome" | "qualification" | "transfer_offered" | "transfer_accepted" | "transfer_rejected" | "cart_saved" | "closer_outcome" | "sold" | "do_not_call";
+            /** Outcome */
+            outcome?: string | null;
+            /** Previous Outcome */
+            previous_outcome?: string | null;
+            /** Reason */
+            reason?: string | null;
+            /** Transfer Status */
+            transfer_status?: ("initiated" | "offered" | "accepted" | "rejected" | "timeout" | "failed") | null;
+            /** Version */
+            version?: number | null;
+        };
+        /**
+         * LeadHistoryForm
+         * @description The fronter's latest form across all the lead's calls.
+         */
+        LeadHistoryForm: {
+            consent: components["schemas"]["ConsentDnc"];
+            /**
+             * Saved At
+             * Format: date-time
+             */
+            saved_at: string;
+            /** Saved By */
+            saved_by: string | null;
+            /** Snapshot */
+            snapshot: {
+                [key: string]: unknown;
+            };
+            /** Version */
+            version: number;
+        };
+        /** LeadHistoryLead */
+        LeadHistoryLead: {
+            /** Added By Name */
+            added_by_name: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Lead Name */
+            lead_name: string;
+            /** License Plate */
+            license_plate: string | null;
+            /** Phone No */
+            phone_no: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "vicidial" | "ghl" | "manual";
+            /**
+             * Team Id
+             * Format: uuid
+             */
+            team_id: string;
+            /** Team Name */
+            team_name: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Vehicle Make */
+            vehicle_make: string | null;
+            /** Vehicle Model */
+            vehicle_model: string | null;
+            /** Vehicle Year */
+            vehicle_year: number | null;
+            /** Vin */
+            vin: string | null;
+        };
+        /** LeadHistoryOutcome */
+        LeadHistoryOutcome: {
+            /** Actor Name */
+            actor_name: string | null;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Outcome */
+            outcome: string;
+        };
+        /**
+         * LeadHistoryResponse
+         * @description A lead's details, where it stands, what was entered, and everything that happened.
+         *
+         *     The events run oldest first across all its calls. A cart shows what its closer
+         *     sees: never a full account or routing number, and a CVV is never stored.
+         */
+        LeadHistoryResponse: {
+            /** Carts */
+            carts: components["schemas"]["LeadHistoryCart"][];
+            /** Events */
+            events: components["schemas"]["LeadHistoryEvent"][];
+            form: components["schemas"]["LeadHistoryForm"] | null;
+            lead: components["schemas"]["LeadHistoryLead"];
+            status: components["schemas"]["LeadHistoryStatus"];
+        };
+        /**
+         * LeadHistoryStatus
+         * @description Where the lead stands now.
+         */
+        LeadHistoryStatus: {
+            /** Awaiting Closer */
+            awaiting_closer: boolean;
+            callback: components["schemas"]["LeadHistoryOutcome"] | null;
+            /** Calls */
+            calls: number;
+            /** Do Not Call */
+            do_not_call: boolean;
+            latest_closer: components["schemas"]["LeadHistoryOutcome"] | null;
+            latest_fronter: components["schemas"]["LeadHistoryOutcome"] | null;
+            /**
+             * Stage
+             * @enum {string}
+             */
+            stage: "leads" | "qualified" | "transferred" | "sold";
+            /** With Closer */
+            with_closer: string | null;
         };
         /** LeadListResponse */
         LeadListResponse: {
@@ -4393,6 +4634,46 @@ export interface operations {
             };
         };
     };
+    reveal_cart_numbers_interactions__interaction_id__cart_reveal_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CartNumbersResponse"] | null;
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     list_dispositions_interactions__interaction_id__dispositions_get: {
         parameters: {
             query?: never;
@@ -4814,6 +5095,46 @@ export interface operations {
             };
         };
     };
+    get_lead_history_leads__lead_id__history_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadHistoryResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     stats_today_me_stats_today_get: {
         parameters: {
             query?: {
@@ -5167,7 +5488,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                stage: "attempts" | "connects" | "qualified" | "transferred";
+                stage: "leads" | "qualified" | "transferred" | "sold";
             };
             cookie?: never;
         };
@@ -5179,7 +5500,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["FunnelInteractionListResponse"];
+                    "application/json": components["schemas"]["FunnelLeadListResponse"];
                 };
             };
             /** @description Client Error */
