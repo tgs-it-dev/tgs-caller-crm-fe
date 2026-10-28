@@ -319,33 +319,36 @@ Attempts.
 
 ## Team stats
 
-`/admin/team-stats` reads `GET /reporting/teams` through `fetchTeamStats()` in
-`lib/reporting.ts`: every team side by side for a range of business days, with
-an "All teams" row under them. Super Admin only, in all three places: the
-sidebar item, `RequireRole role="super_admin"`, and the API's 403.
+`/admin/team-stats` reads `GET /reporting/teams` through `fetchTeamStats()` and
+`GET /reporting/sales` through `fetchSales()`, both in `lib/reporting.ts`. Super
+Admin only, in all three places: the sidebar item, `RequireRole
+role="super_admin"`, and the API's 403.
 
-- **Counts are what happened during the dates**, whenever the lead came in.
-  Leads by when they were created, Qualified and each fronter outcome by when
-  the latest outcome was recorded, Transferred by when a closer accepted, Sales
-  by when the sale was recorded. Near the edges of a range they can differ from
-  the funnel, which credits everything to the day the lead came in.
-- **Conversion is worked out of the range's own leads**: of the leads created
-  during the dates, the share sold at any time. A cell shows the rate, a bar to
-  compare teams by eye, then "8 of 100". It cannot pass 100%, and it rises as
-  those leads close. "n/a" means no leads.
-- **Fronter outcomes are each lead's latest**, one column per catalogue row in
-  the reply, so No answer and Callback need no label matching. Every row carries
-  the same outcomes in the same order, and the columns are keyed by
-  `disposition_id`. An outcome nobody recorded during the dates gets no column.
+- **The team table counts the leads added during the dates, and where each one
+  stands now.** Each lead counts once: No answer, Callback and Qualified by its
+  latest fronter outcome, Transferred if a closer accepted a transfer on any of
+  its calls, Sold if the latest closer outcome on any of its calls is a sale. A
+  range's figures keep moving as its leads are worked. An "All teams" row sits
+  under the teams.
+- **Conversion is Sold over Leads.** A cell shows the rate, a bar to compare
+  teams by eye, then "8 of 100". It cannot pass 100%. "n/a" means no leads.
+- **The sales list goes by the day of the sale**, not the day the lead came in,
+  so its count can differ from the table's Sold. Newest first, paged on the
+  server (`ServerPaging`, 50 to a page), with totals across every matching sale.
+  A sale with no cart shows `-` for its amounts and adds nothing to the sums. No
+  card values or policy number come back.
+- **The agent filter belongs to the sales list**: closers from `listUsers()`,
+  narrowed to the chosen team's. Changing the team resets it, and changing any
+  filter goes back to the first page. The list loads and fails on its own, so a
+  sales error never hides the team table.
 - **The page opens on this month so far** (`monthToDate()`) and, like Reports,
   sends no `timezone`. It needs no correction step, because the user's zone is
   set before the page renders.
-- **The filters have a card of their own at the top**, outside both tables, so
-  the sales report can share them when it lands. Tiles carry the totals. Both
-  tables are shown whole (`paginate={false}`), the Team column takes the slack
-  (`width` on its column), the "All teams" row is shaded and bold, and a team
-  with nothing in the range is drawn in grey.
-- The sales list with amounts, and its agent filter, come with the closer's cart.
+- **The filters have a card of their own at the top**, shared by the table and
+  the sales list. Tiles carry the totals. The team table is shown whole
+  (`paginate={false}`), the Team column takes the slack (`width` on its column),
+  the "All teams" row is shaded and bold, and a team with no leads in the range
+  is drawn in grey.
 
 ## Exceptions and interaction detail
 

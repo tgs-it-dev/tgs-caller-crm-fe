@@ -16,6 +16,18 @@ export type TeamStatsReport = components['schemas']['TeamStatsResponse']
 export type TeamStats = components['schemas']['TeamStats']
 export type TeamFigures = components['schemas']['TeamFigures']
 
+export type SalesReport = components['schemas']['SalesReportResponse']
+export type SaleItem = components['schemas']['SaleItem']
+export type SalesTotals = components['schemas']['SalesTotals']
+
+/** Narrows the sales list; any filter left null is not applied. */
+export type SalesQuery = {
+  teamId: string | null
+  closerId: string | null
+  limit: number
+  offset: number
+}
+
 /** An inclusive range of business days, each as `YYYY-MM-DD`. */
 export type DateRange = { start: string; end: string }
 
@@ -79,6 +91,25 @@ export async function fetchTeamStats(
   })
   if (!res.ok) throw await authError(res)
   return res.json() as Promise<TeamStatsReport>
+}
+
+/**
+ * One page of the sales made in a range of days, newest first, with totals across
+ * every matching sale. Super Admin only; like the others, no `timezone` is sent.
+ */
+export async function fetchSales(
+  range: DateRange,
+  { teamId, closerId, limit, offset }: SalesQuery,
+  token: string
+): Promise<SalesReport> {
+  const query = new URLSearchParams({ ...range, limit: String(limit), offset: String(offset) })
+  if (teamId) query.set('team_id', teamId)
+  if (closerId) query.set('closer_id', closerId)
+  const res = await fetch(apiUrl(`/reporting/sales?${query}`), {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) throw await authError(res)
+  return res.json() as Promise<SalesReport>
 }
 
 /** The calendar day `date` falls on in `timeZone` (the user's zone when omitted). */
