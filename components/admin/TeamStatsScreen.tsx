@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { CircleDollarSign, Contact, TrendingUp } from 'lucide-react'
 import { DateRangePicker } from '@/components/admin/DateRangePicker'
+import { SalesSection } from '@/components/admin/SalesSection'
 import { StatTile } from '@/components/fronter/StatTile'
 import { Alert } from '@/components/ui/Alert'
 import { DataTable, type DataColumn } from '@/components/ui/DataTable'
@@ -54,13 +55,9 @@ function rowsOf(report: TeamStatsReport): Row[] {
   return [...teams, { ...report.total, id: TOTAL_ID, name: 'All teams' }]
 }
 
-/** A team with nothing in the range, drawn quieter so the eye goes to the ones with figures. */
+/** A team with no leads in the range, drawn quieter so the eye goes to the ones with figures. */
 function isQuiet(row: Row) {
-  return (
-    row.id !== TOTAL_ID &&
-    row.leads + row.qualified + row.transferred + row.sales === 0 &&
-    row.outcomes.every((outcome) => outcome.count === 0)
-  )
+  return row.id !== TOTAL_ID && row.leads === 0
 }
 
 function rowSx(row: Row) {
@@ -83,26 +80,21 @@ function Conversion({ row }: { row: Row }) {
       </span>
       <span>{formatPercent(row.conversion_rate)}</span>
       <span className="text-slate">
-        {row.converted} of {row.leads}
+        {row.sold} of {row.leads}
       </span>
     </span>
   )
 }
 
-// The team column takes the slack, so each row's figures sit together.
-const TEAM: DataColumn<Row> = {
-  id: 'team',
-  header: 'Team',
-  width: '30%',
-  render: (row) => row.name,
-}
-
 const COMPARISON: DataColumn<Row>[] = [
-  TEAM,
+  // The team column takes the slack, so each row's figures sit together.
+  { id: 'team', header: 'Team', width: '24%', render: (row) => row.name },
   { id: 'leads', header: 'Leads', align: 'right', render: (row) => row.leads },
+  { id: 'no_answer', header: 'No answer', align: 'right', render: (row) => row.no_answer },
+  { id: 'callback', header: 'Callback', align: 'right', render: (row) => row.callback },
   { id: 'qualified', header: 'Qualified', align: 'right', render: (row) => row.qualified },
   { id: 'transferred', header: 'Transferred', align: 'right', render: (row) => row.transferred },
-  { id: 'sales', header: 'Sales', align: 'right', render: (row) => row.sales },
+  { id: 'sold', header: 'Sold', align: 'right', render: (row) => row.sold },
   {
     id: 'conversion',
     header: 'Conversion',
@@ -110,23 +102,6 @@ const COMPARISON: DataColumn<Row>[] = [
     render: (row) => <Conversion row={row} />,
   },
 ]
-
-/** One column per fronter outcome in the reply, which lists the same outcomes on every row. */
-function outcomeColumns(report: TeamStatsReport): DataColumn<Row>[] {
-  return [
-    TEAM,
-    ...report.total.outcomes.map(
-      (outcome): DataColumn<Row> => ({
-        id: outcome.disposition_id,
-        header: outcome.label,
-        align: 'right',
-        render: (row) =>
-          row.outcomes.find((theirs) => theirs.disposition_id === outcome.disposition_id)
-            ?.count ?? 0,
-      })
-    ),
-  ]
-}
 
 export function TeamStatsScreen() {
   const [selected, setSelected] = useState<Selection>(() => ({
@@ -225,8 +200,8 @@ export function TeamStatsScreen() {
                 icon={<Contact strokeWidth={2} aria-hidden />}
               />
               <StatTile
-                label="Sales"
-                value={load.report.total.sales}
+                label="Sold"
+                value={load.report.total.sold}
                 icon={<CircleDollarSign strokeWidth={2} aria-hidden />}
               />
               <StatTile
@@ -235,7 +210,7 @@ export function TeamStatsScreen() {
                 detail={
                   load.report.total.conversion_rate === null
                     ? undefined
-                    : `${load.report.total.converted} of ${load.report.total.leads} sold`
+                    : `${load.report.total.sold} of ${load.report.total.leads} sold`
                 }
                 icon={<TrendingUp strokeWidth={2} aria-hidden />}
               />
@@ -253,8 +228,8 @@ export function TeamStatsScreen() {
               }
               toolbar={
                 <p className="text-sm leading-[140%] text-slate">
-                  Sales counts every sale made during these dates. Conversion is the share of
-                  these dates&apos; leads that have been sold, whenever the sale happened.
+                  These are the leads added during these dates, and where each one stands now.
+                  Sales below are listed by the day they were made.
                 </p>
               }
               rows={rows}
@@ -265,21 +240,11 @@ export function TeamStatsScreen() {
               paginate={false}
               minWidth="max-content"
             />
-
-            <DataTable
-              title="Fronter outcomes"
-              ariaLabel="Fronter outcomes by team"
-              // No outcome columns means nothing was recorded, which the empty message says.
-              rows={load.report.total.outcomes.length > 0 ? rows : []}
-              columns={outcomeColumns(load.report)}
-              getRowId={(row) => row.id}
-              getRowSx={rowSx}
-              emptyMessage="No fronter outcomes were recorded during these dates."
-              paginate={false}
-              minWidth="max-content"
-            />
           </>
         )}
+
+        {/* Outside the team figures' load, so a failure in one never hides the other. */}
+        <SalesSection range={selected.range} teamId={selected.teamId} />
       </div>
     </PageShell>
   )

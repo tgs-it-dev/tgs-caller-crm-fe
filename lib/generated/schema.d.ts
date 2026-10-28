@@ -1040,6 +1040,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reporting/sales": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sales made in a range of business days, with their totals (Super Admin only)
+         * @description Each sale's amounts, newest first, and the totals across every matching sale.
+         *
+         *     A sale counts on the day the closer recorded it. A sale whose call has no
+         *     cart is listed and counted, with no amounts. Nothing that identifies a
+         *     payment is returned.
+         */
+        get: operations["sales_reporting_sales_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/reporting/teams": {
         parameters: {
             query?: never;
@@ -1049,12 +1073,12 @@ export interface paths {
         };
         /**
          * Each team's figures for a range of business days (Super Admin only)
-         * @description Leads, outcomes, transfers and sales side by side, with each team's conversion.
+         * @description Each team's leads added in the window and where they stand now, with conversion.
          *
-         *     Each count is what happened in the window: a sale counts on the day it was
-         *     made, whenever its lead came in. Conversion is the share of the window's own
-         *     leads that have been sold, at any time. An inactive team is listed only when
-         *     it has figures or is asked for.
+         *     No answer, Callback and Qualified are each lead's latest fronter outcome, so
+         *     they never overlap; transferred and sold follow the same leads, and
+         *     conversion is sold over leads. An inactive team is listed only when it has
+         *     figures or is asked for.
          */
         get: operations["team_figures_reporting_teams_get"];
         put?: never;
@@ -2362,21 +2386,6 @@ export interface components {
             /** Password */
             password: string;
         };
-        /**
-         * OutcomeCount
-         * @description How many leads one fronter outcome is the latest word on.
-         */
-        OutcomeCount: {
-            /** Count */
-            count: number;
-            /**
-             * Disposition Id
-             * Format: uuid
-             */
-            disposition_id: string;
-            /** Label */
-            label: string;
-        };
         /** QualificationCreateRequest */
         QualificationCreateRequest: {
             consent_dnc: components["schemas"]["ConsentDnc"];
@@ -2534,6 +2543,87 @@ export interface components {
             resolved: boolean;
         };
         /**
+         * SaleItem
+         * @description A sale and its amounts. Nothing from the cart that identifies a payment.
+         */
+        SaleItem: {
+            /** Closer Name */
+            closer_name: string;
+            /**
+             * Closer User Id
+             * Format: uuid
+             */
+            closer_user_id: string;
+            /** Down Payment */
+            down_payment: string | null;
+            /**
+             * Interaction Id
+             * Format: uuid
+             */
+            interaction_id: string;
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
+            /** Lead Name */
+            lead_name: string;
+            /** Monthly Payment */
+            monthly_payment: string | null;
+            /**
+             * Sold At
+             * Format: date-time
+             */
+            sold_at: string;
+            /**
+             * Team Id
+             * Format: uuid
+             */
+            team_id: string;
+            /** Team Name */
+            team_name: string;
+            /** Total Payment */
+            total_payment: string | null;
+        };
+        /** SalesReportResponse */
+        SalesReportResponse: {
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /** Items */
+            items: components["schemas"]["SaleItem"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /** Timezone */
+            timezone: string;
+            /** Total */
+            total: number;
+            totals: components["schemas"]["SalesTotals"];
+        };
+        /**
+         * SalesTotals
+         * @description Every matching sale; a sale with no cart counts but adds no amount.
+         */
+        SalesTotals: {
+            /** Count */
+            count: number;
+            /** Down Payment */
+            down_payment: string;
+            /** Monthly Payment */
+            monthly_payment: string;
+            /** Total Payment */
+            total_payment: string;
+        };
+        /**
          * SetUserPasswordRequest
          * @description A Super Admin choosing someone else's password, to tell them in person.
          */
@@ -2572,24 +2662,26 @@ export interface components {
         };
         /**
          * TeamFigures
-         * @description One team's figures for a window, or every team's added up.
+         * @description One team's figures, or every team's added up: the leads added in the window,
+         *     and where each of them stands now.
          *
-         *     Each count is what happened in the window, whenever the lead came in.
-         *     ``converted`` and ``conversion_rate`` follow the window's own leads instead.
+         *     The three outcomes are each lead's latest fronter outcome, so they never
+         *     overlap. Transferred and sold sit inside qualified in the usual flow, but a
+         *     lead marked Callback on a later call still counts as transferred.
          */
         TeamFigures: {
+            /** Callback */
+            callback: number;
             /** Conversion Rate */
             conversion_rate: number | null;
-            /** Converted */
-            converted: number;
             /** Leads */
             leads: number;
-            /** Outcomes */
-            outcomes: components["schemas"]["OutcomeCount"][];
+            /** No Answer */
+            no_answer: number;
             /** Qualified */
             qualified: number;
-            /** Sales */
-            sales: number;
+            /** Sold */
+            sold: number;
             /** Transferred */
             transferred: number;
         };
@@ -2622,18 +2714,18 @@ export interface components {
         };
         /** TeamStats */
         TeamStats: {
+            /** Callback */
+            callback: number;
             /** Conversion Rate */
             conversion_rate: number | null;
-            /** Converted */
-            converted: number;
             /** Leads */
             leads: number;
-            /** Outcomes */
-            outcomes: components["schemas"]["OutcomeCount"][];
+            /** No Answer */
+            no_answer: number;
             /** Qualified */
             qualified: number;
-            /** Sales */
-            sales: number;
+            /** Sold */
+            sold: number;
             /**
              * Team Id
              * Format: uuid
@@ -5129,6 +5221,55 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LiveStatusResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    sales_reporting_sales_get: {
+        parameters: {
+            query: {
+                start: string;
+                end: string;
+                /** @description IANA name deciding which day the dates mean, e.g. America/New_York. Defaults to the caller's own time zone, so people who share a zone see the same figures for the same dates. */
+                timezone?: string | null;
+                /** @description One team's sales, or every team's when left out. */
+                team_id?: string | null;
+                /** @description Only the sales this closer recorded. */
+                closer_id?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesReportResponse"];
                 };
             };
             /** @description Client Error */

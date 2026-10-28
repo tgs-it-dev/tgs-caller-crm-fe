@@ -25,6 +25,8 @@ import type {
   FunnelInteractionList,
   FunnelStage,
   HistoricalFunnel,
+  SaleItem,
+  SalesReport,
   TeamFigures,
   TeamStats,
   TeamStatsReport,
@@ -578,8 +580,8 @@ function mockFunnel(start: string, end: string, timezone?: string | null): Histo
 /**
  * Every team's figures for a window, worked out from it the way `mockFunnel` is
  * so other dates visibly move them. A team picked on its own keeps the figures it
- * had among the others, converted never passes leads, and every row carries the
- * same fronter outcomes, as the API's do.
+ * had among the others. No answer, Callback and Qualified never add up past Leads,
+ * and Sold sits inside Transferred inside Qualified, as the API's usually do.
  */
 function mockTeamStats(
   start: string,
@@ -588,20 +590,9 @@ function mockTeamStats(
   timezone?: string | null
 ): TeamStatsReport {
   const funnel = mockFunnel(start, end, timezone)
-  const fronterOutcomes = MOCK_DISPOSITION_CATALOG.filter((row) => row.stage === 'fronter').sort(
-    (a, b) => a.label.localeCompare(b.label)
-  )
-  const withRates = (
-    counts: Omit<TeamFigures, 'conversion_rate' | 'outcomes'>,
-    outcomeCounts: number[]
-  ): TeamFigures => ({
+  const withRate = (counts: Omit<TeamFigures, 'conversion_rate'>): TeamFigures => ({
     ...counts,
-    conversion_rate: counts.leads ? counts.converted / counts.leads : null,
-    outcomes: fronterOutcomes.map((row, i) => ({
-      disposition_id: row.id,
-      label: row.label,
-      count: outcomeCounts[i] ?? 0,
-    })),
+    conversion_rate: counts.leads ? counts.sold / counts.leads : null,
   })
 
   const teams: TeamStats[] = [...MOCK_TEAMS]
@@ -612,34 +603,120 @@ function mockTeamStats(
       const leads = team.active ? Math.round(funnel.attempts / (index + 2)) : 0
       const qualified = Math.round(leads * 0.3)
       const transferred = Math.round(qualified * 0.6)
-      const sales = Math.round(transferred * 0.5)
       const counts = {
         leads,
+        no_answer: Math.round(leads * 0.35),
+        callback: Math.round(leads * 0.15),
         qualified,
         transferred,
-        sales,
-        converted: Math.min(leads, Math.round(sales * 0.8)),
+        sold: Math.round(transferred * 0.5),
       }
-      const outcomeCounts = fronterOutcomes.map((row, i) =>
-        row.counts_as_qualified ? qualified : Math.round((leads - qualified) / (i + 3))
-      )
-      return [{ team_id: team.id, team_name: team.name, ...withRates(counts, outcomeCounts) }]
+      return [{ team_id: team.id, team_name: team.name, ...withRate(counts) }]
     })
 
   const sum = (pick: (row: TeamStats) => number) =>
     teams.reduce((total, row) => total + pick(row), 0)
-  const total = withRates(
-    {
-      leads: sum((row) => row.leads),
-      qualified: sum((row) => row.qualified),
-      transferred: sum((row) => row.transferred),
-      sales: sum((row) => row.sales),
-      converted: sum((row) => row.converted),
-    },
-    fronterOutcomes.map((_, i) => sum((row) => row.outcomes[i].count))
-  )
+  const total = withRate({
+    leads: sum((row) => row.leads),
+    no_answer: sum((row) => row.no_answer),
+    callback: sum((row) => row.callback),
+    qualified: sum((row) => row.qualified),
+    transferred: sum((row) => row.transferred),
+    sold: sum((row) => row.sold),
+  })
 
   return { start: funnel.start, end: funnel.end, timezone: funnel.timezone, teams, total }
+}
+
+const MOCK_SALE_LEADS = [
+  'Maria Lopez',
+  'James Carter',
+  'Priya Shah',
+  'Tom Becker',
+  'Lena Novak',
+  'Omar Haddad',
+  'Grace Kim',
+]
+
+type MockSalesQuery = {
+  teamId: string | null
+  closerId: string | null
+  limit: number
+  offset: number
+}
+
+/**
+ * The sales made in a window, newest first, worked out from its days so the same
+ * dates always list the same sales. Two or three a day across the seeded closers,
+ * each selling for their own team, so a month fills more than one page. Every
+ * ninth day's first sale has no cart.
+ */
+function mockSales(
+  start: string,
+  end: string,
+  { teamId, closerId, limit, offset }: MockSalesQuery,
+  timezone?: string | null
+): SalesReport {
+  const sellers = MOCK_USERS.flatMap((user) => {
+    const team = MOCK_TEAMS.find((row) => row.id === user.team_id)
+    return user.roles.includes('closer') && team ? [{ user, team }] : []
+  })
+  const days = Math.max(1, Math.round((Date.parse(end) - Date.parse(start)) / 86_400_000) + 1)
+
+  const made: SaleItem[] = []
+  for (let day = days - 1; day >= 0; day--) {
+    const date = new Date(Date.parse(start) + day * 86_400_000).toISOString().slice(0, 10)
+    const seed = Number(date.replace(/-/g, ''))
+    for (let n = 1 + (seed % 2); n >= 0; n--) {
+      // Afternoon UTC, so the sale falls on the same day in Eastern and in Karachi.
+      const soldAt = new Date(`${date}T${15 + n}:00:00Z`)
+      if (soldAt.getTime() > Date.now()) continue
+      const { user, team } = sellers[(seed + n) % sellers.length]
+      const id = String(seed * 10 + n).padStart(12, '0')
+      const total = 1800 + ((seed + n) % 7) * 300
+      const down = total / 10
+      const carted = seed % 9 !== 0 || n > 0
+      made.push({
+        interaction_id: `44444444-4444-4444-8444-${id}`,
+        lead_id: `55555555-5555-4555-8555-${id}`,
+        lead_name: MOCK_SALE_LEADS[(seed + n) % MOCK_SALE_LEADS.length],
+        team_id: team.id,
+        team_name: team.name,
+        closer_user_id: user.id,
+        closer_name: user.name,
+        sold_at: soldAt.toISOString(),
+        total_payment: carted ? total.toFixed(2) : null,
+        down_payment: carted ? down.toFixed(2) : null,
+        monthly_payment: carted ? ((total - down) / 24).toFixed(2) : null,
+      })
+    }
+  }
+
+  const matching = made.filter(
+    (sale) =>
+      (!teamId || sale.team_id === teamId) && (!closerId || sale.closer_user_id === closerId)
+  )
+  // Summed in cents, so the totals match the rows to the penny.
+  const sumOf = (pick: (sale: SaleItem) => string | null) =>
+    (
+      matching.reduce((sum, sale) => sum + Math.round(Number(pick(sale) ?? 0) * 100), 0) / 100
+    ).toFixed(2)
+
+  return {
+    start,
+    end,
+    timezone: timezone || MOCK_BUSINESS_TIMEZONE,
+    items: matching.slice(offset, offset + limit),
+    total: matching.length,
+    limit,
+    offset,
+    totals: {
+      count: matching.length,
+      total_payment: sumOf((sale) => sale.total_payment),
+      down_payment: sumOf((sale) => sale.down_payment),
+      monthly_payment: sumOf((sale) => sale.monthly_payment),
+    },
+  }
 }
 
 /**
@@ -2410,6 +2487,35 @@ export const handlers = [
           req.url.searchParams.get('team_id'),
           req.url.searchParams.get('timezone') ??
             mockActor(req.headers.get('authorization'))?.timezone
+        )
+      )
+    )
+  }),
+
+  rest.get('/reporting/sales', (req, res, ctx) => {
+    const refused = superAdminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const params = req.url.searchParams
+    const start = params.get('start')
+    const end = params.get('end')
+    if (!start || !end) {
+      return res(ctx.status(422), ctx.json(authErrorBody('Field required', 'validation_error')))
+    }
+
+    return res(
+      ctx.status(200),
+      ctx.json(
+        mockSales(
+          start,
+          end,
+          {
+            teamId: params.get('team_id'),
+            closerId: params.get('closer_id'),
+            limit: Number(params.get('limit') ?? 50),
+            offset: Number(params.get('offset') ?? 0),
+          },
+          params.get('timezone') ?? mockActor(req.headers.get('authorization'))?.timezone
         )
       )
     )
