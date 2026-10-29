@@ -1,14 +1,14 @@
 import { RequireRole } from '@/components/auth/RequireRole'
-import { PageShell } from '@/components/ui/PageShell'
+import { QaQueueScreen } from '@/components/qa/QaQueueScreen'
+import type { Role } from '@/lib/auth'
+
+/** Stable gate list: inline arrays would re-trigger RequireRole's effect. */
+const QA_DESK_ROLES: readonly Role[] = ['qa_lead', 'qa_agent']
 
 export default function QaHomePage() {
   return (
-    <RequireRole role="qa_agent" exact>
-      <PageShell title="QA">
-        <p className="rounded-xl border-hairline border-slate bg-white px-4 py-10 text-center text-sm text-slate">
-          QA workspace is not available yet.
-        </p>
-      </PageShell>
+    <RequireRole anyOf={QA_DESK_ROLES} exact>
+      <QaQueueScreen itemHref="/qa/item" />
     </RequireRole>
   )
 }

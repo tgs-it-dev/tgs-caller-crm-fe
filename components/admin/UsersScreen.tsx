@@ -11,8 +11,10 @@ import { DataTable, type DataColumn } from '@/components/ui/DataTable'
 import { Input } from '@/components/ui/Input'
 import { PageShell } from '@/components/ui/PageShell'
 import { Select } from '@/components/ui/Select'
+import { StatCard } from '@/components/ui/StatCard'
 import { AuthError, isQaManager, isSuperAdmin, isTeamAdmin, type Role } from '@/lib/auth'
 import { waitForMocking } from '@/lib/mockReady'
+import { getQaSummary } from '@/lib/qa'
 import { withSession } from '@/lib/session'
 import { listTeams, type Team } from '@/lib/teams'
 import { tokens } from '@/lib/theme'
@@ -26,10 +28,13 @@ import {
 type LoadState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; users: User[]; teams: Team[] }
+  | { status: 'ready'; users: User[]; teams: TeamOption[] }
 
 /** The dialog's subject: a user to edit, null to add one, or closed. */
 type Editing = { user: User | null } | null
+
+/** All the Team column, filter and form read of a team. */
+type TeamOption = Pick<Team, 'id' | 'name'>
 
 type StaffRole = Exclude<Role, 'super_admin'>
 
@@ -45,6 +50,7 @@ const STAFF_ROLES = ASSIGNABLE_ROLES.filter(
 const ROLE_BADGE_TONE: Record<StaffRole, 'teal' | 'amber' | 'neutral' | 'red'> = {
   administrator: 'amber',
   qa_manager: 'red',
+  qa_lead: 'amber',
   qa_agent: 'teal',
   closer: 'teal',
   fronter: 'neutral',
@@ -54,7 +60,9 @@ const ROLE_BADGE_TONE: Record<StaffRole, 'teal' | 'amber' | 'neutral' | 'red'> =
 function filterableRoles(actorRoles: readonly Role[]): StaffRole[] {
   if (isSuperAdmin(actorRoles)) return STAFF_ROLES
   if (isQaManager(actorRoles) && !isTeamAdmin(actorRoles)) {
-    return STAFF_ROLES.filter((role) => role === 'qa_manager' || role === 'qa_agent')
+    return STAFF_ROLES.filter(
+      (role) => role === 'qa_manager' || role === 'qa_lead' || role === 'qa_agent',
+    )
   }
   if (isTeamAdmin(actorRoles)) {
     return STAFF_ROLES.filter(
@@ -160,46 +168,6 @@ function rosterFigures(users: User[], qaView: boolean) {
   }
 }
 
-/**
- * Metric card matching LiveCounters / StatTile: white tile, icon+label on
- * top, figure at the foot. Clicking filters the list; selected = navy border.
- */
-function StatCard({
-  label,
-  count,
-  icon,
-  selected,
-  onClick,
-}: {
-  label: string
-  count: number
-  icon: ReactNode
-  selected: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={selected}
-      className={[
-        'flex flex-col justify-between rounded-xl border-hairline bg-white p-5 text-left transition-colors',
-        selected
-          ? 'border-navy shadow-[0_0_0_1px_#1F3A5F]'
-          : 'border-slate hover:border-navy/40',
-      ].join(' ')}
-    >
-      <p className="flex items-center gap-2 text-sm leading-[120%] text-body-text">
-        <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center [&_svg]:h-5 [&_svg]:w-5">
-          {icon}
-        </span>
-        {label}
-      </p>
-      <p className="mt-6 text-[32px] font-semibold leading-none text-ink tabular-nums">{count}</p>
-    </button>
-  )
-}
-
 /** Removable active-filter pill under the toolbar (HubSpot filter bar). */
 function ActiveFilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
   return (
@@ -230,6 +198,8 @@ export function UsersScreen() {
   const qaView = Boolean(
     signedIn && isQaManager(signedIn.roles) && !isSuperAdmin(signedIn.roles) && !isTeamAdmin(signedIn.roles),
   )
+  // A Super Admin and a QA Manager both work across teams, so both see them.
+  const seesTeams = saView || qaView
   const roleOptions = signedIn ? filterableRoles(signedIn.roles) : STAFF_ROLES
 
   useEffect(() => {
@@ -239,10 +209,15 @@ export function UsersScreen() {
       .then(() =>
         withSession(async (token) => {
           const list = await listUsers(token, {
-            teamId: saView && teamFilter ? teamFilter : null,
+            teamId: seesTeams && teamFilter ? teamFilter : null,
           })
-          // Team names label the SA Team column + filter; Team Admin / QA Manager do not need the catalogue.
-          const teams = saView ? (await listTeams(token)).items : []
+          // Team names label the Team column + filter. A QA Manager may not read
+          // /teams, so their names come from the QA summary; a Team Admin needs none.
+          const teams: TeamOption[] = saView
+            ? (await listTeams(token)).items
+            : qaView
+              ? (await getQaSummary(token)).map((team) => ({ id: team.team_id, name: team.team_name }))
+              : []
           return { list, teams }
         })
       )
@@ -258,7 +233,7 @@ export function UsersScreen() {
     return () => {
       cancelled = true
     }
-  }, [reloads, saView, teamFilter])
+  }, [reloads, saView, qaView, seesTeams, teamFilter])
 
   const isSelf = (user: User) => user.id === signedIn?.id
 
@@ -273,7 +248,7 @@ export function UsersScreen() {
   const sortedUsers = useMemo(() => {
     if (load.status !== 'ready') return []
     const rows = load.users
-    if (!saView) {
+    if (!seesTeams) {
       return [...rows].sort((a, b) => a.name.localeCompare(b.name))
     }
     return [...rows].sort((a, b) => {
@@ -283,7 +258,7 @@ export function UsersScreen() {
       if (byTeam !== 0) return byTeam
       return a.name.localeCompare(b.name)
     })
-  }, [load, saView, teamNameById])
+  }, [load, seesTeams, teamNameById])
 
   // Quick-filter counts stay on the team-scoped roster so picking a view never
   // zeroes out the other chips the way filtered-table stats would.
@@ -351,7 +326,7 @@ export function UsersScreen() {
       header: 'Role',
       render: (user) => <RoleBadges roles={user.roles} />,
     },
-    ...(saView
+    ...(seesTeams
       ? [
           {
             id: 'team_name',
@@ -557,7 +532,7 @@ export function UsersScreen() {
                         <option value="inactive">Inactive</option>
                       </Select>
                     </div>
-                    {saView && (
+                    {seesTeams && (
                       <div className="w-[168px]">
                         <Select
                           size="small"

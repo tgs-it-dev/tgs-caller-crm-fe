@@ -172,6 +172,7 @@ const BASE_PATH: Record<Role, string> = {
   closer: '/closer',
   administrator: '/admin',
   qa_manager: '/admin',
+  qa_lead: '/qa',
   qa_agent: '/qa',
   super_admin: '/admin',
 }
@@ -182,6 +183,7 @@ const DESK_ICON: Record<Role, ComponentType> = {
   closer: CloserDeskIcon,
   administrator: AdminDeskIcon,
   qa_manager: AdminDeskIcon,
+  qa_lead: QaDeskIcon,
   qa_agent: QaDeskIcon,
   super_admin: AdminDeskIcon,
 }
@@ -218,9 +220,17 @@ const TEAM_ADMIN_NAV: NavItem[] = [
   // },
 ]
 
+/** Every team's QA, for a Super Admin or QA Manager. */
+const ADMIN_QA_NAV_ITEM: NavItem = {
+  href: '/admin/qa',
+  label: 'QA',
+  icon: QaDeskIcon,
+  isActive: (p) => p.startsWith('/admin/qa'),
+}
+
 /**
- * Super Admin modules: Users, Teams, Campaigns, Reports and Team stats. Reports
- * is how they reach a lead's full view, through its drill-down.
+ * Super Admin modules: Users, Teams, Campaigns, Reports, Team stats and QA.
+ * Reports is how they reach a lead's full view, through its drill-down.
  */
 const SUPER_ADMIN_NAV: NavItem[] = [
   {
@@ -253,10 +263,12 @@ const SUPER_ADMIN_NAV: NavItem[] = [
     icon: StatsIcon,
     isActive: (p) => p.startsWith('/admin/team-stats'),
   },
+  ADMIN_QA_NAV_ITEM,
 ]
 
-/** QA Manager: Users only — no Teams / Campaigns / company reporting. */
+/** QA Manager: QA and Users, with no Teams, Campaigns or company reporting. */
 const QA_MANAGER_NAV: NavItem[] = [
+  ADMIN_QA_NAV_ITEM,
   {
     href: '/admin/users',
     label: 'Users',
@@ -271,14 +283,14 @@ function adminNavFor(role: Role): NavItem[] {
   return TEAM_ADMIN_NAV
 }
 
-/** Placeholder desk until the QA Agent workspace ships. */
-function qaAgentNav(): NavItem[] {
+/** The QA Lead's team queue, or the QA Agent's own sales. */
+function qaDeskNav(): NavItem[] {
   return [
     {
       href: '/qa',
       label: 'QA',
       icon: QaDeskIcon,
-      isActive: (p) => p === '/qa',
+      isActive: (p) => p === '/qa' || p.startsWith('/qa/item'),
     },
   ]
 }
@@ -393,12 +405,12 @@ function SidebarInner() {
     : basePath
 
   // Team Admin / Super Admin / QA Manager share /admin with different modules;
-  // QA Agent has a stub desk until its workspace ships.
+  // QA Lead and QA Agent work from /qa.
   const navItems =
     role === 'administrator' || role === 'super_admin' || role === 'qa_manager'
       ? adminNavFor(role)
-      : role === 'qa_agent'
-        ? qaAgentNav()
+      : role === 'qa_agent' || role === 'qa_lead'
+        ? qaDeskNav()
         : deskNav(role, activeCallHref)
 
   // Somebody may hold more than one role, and the nav only ever shows the desk
