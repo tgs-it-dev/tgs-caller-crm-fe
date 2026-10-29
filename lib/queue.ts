@@ -29,6 +29,18 @@ export type CloserQueueEntry = {
   status: CloserQueueStatus
 }
 
+/** A call this closer set as a callback, opened again on the same call. */
+export type CloserCallbackEntry = components['schemas']['CloserCallbackItem']
+
+/** `GET /queue/callbacks`: the calls this closer set as a callback, oldest first. */
+export async function listCloserCallbacks(token: string): Promise<CloserCallbackEntry[]> {
+  const res = await fetch(apiUrl('/queue/callbacks'), {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) throw await authError(res)
+  return res.json() as Promise<CloserCallbackEntry[]>
+}
+
 /** Active Call URL — query param so static export / S3 can serve the shell. */
 export function fronterWorkspaceHref(interactionId: string): string {
   return `/fronter/workspace/?id=${encodeURIComponent(interactionId)}`
