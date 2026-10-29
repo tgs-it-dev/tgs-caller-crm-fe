@@ -522,8 +522,12 @@ routes).
   Review card with the status, one button per move the role may make
   (`movesFor()` mirrors the API's flow: Open to Disputed or Closed, Disputed to
   Resolve Dispute, Resolve Dispute to Closed; a QA Agent moves only while Open),
-  and the assignee. Below it is `LeadRecord` from `LeadDetailScreen`, the same
-  cards as the Super Admin lead page, without "Show full numbers".
+  and the assignee. A "Reason" box above the buttons goes with whichever move is
+  made; the API takes it as optional, and the screen does not say so. Then a
+  Review history card (who assigned it, who moved it, when, and the reason),
+  which the API reads back from the audit trail. Below it is `LeadRecord` from
+  `LeadDetailScreen`, the same cards as the Super Admin lead page; only a Super
+  Admin gets "Show full numbers".
 - **Mocks** keep a fixed set of five sales per team in memory; each lead id is one
   `mockLeadHistory` reads as sold, so a sale opens onto its full history. Quinn QA
   (QA Manager, no team), Leo Lead and Aria Agent (Default Team) sign in with

@@ -1000,7 +1000,8 @@ export interface paths {
          * Move a sale's review to another status
          * @description Open moves to Disputed or Closed, Disputed to Resolve Dispute, and that to Closed.
          *
-         *     A QA Agent moves only their own sales, and only while they are open.
+         *     Each move can carry the reason for it. A QA Agent moves only their own sales,
+         *     and only while they are open.
          */
         put: operations["change_item_status_qa_items__interaction_id__status_put"];
         post?: never;
@@ -2862,10 +2863,38 @@ export interface components {
             assignee_user_id: string | null;
         };
         /**
+         * QaHistoryEvent
+         * @description One step of a sale's review.
+         */
+        QaHistoryEvent: {
+            /** Actor Name */
+            actor_name: string | null;
+            /** Assignee Name */
+            assignee_name?: string | null;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "assigned" | "status_changed";
+            /** Note */
+            note?: string | null;
+            /** Previous Status */
+            previous_status?: ("open" | "disputed" | "resolve_dispute" | "closed") | null;
+            /** Status */
+            status?: ("open" | "disputed" | "resolve_dispute" | "closed") | null;
+        };
+        /**
          * QaItemDetailResponse
-         * @description The sale under review and everything recorded on its lead.
+         * @description The sale under review, its review so far, and everything recorded on its lead.
          */
         QaItemDetailResponse: {
+            /** History */
+            history: components["schemas"]["QaHistoryEvent"][];
             item: components["schemas"]["QaItemResponse"];
             lead: components["schemas"]["LeadHistoryResponse"];
         };
@@ -2925,6 +2954,8 @@ export interface components {
         };
         /** QaStatusRequest */
         QaStatusRequest: {
+            /** Note */
+            note?: string | null;
             /**
              * Status
              * @enum {string}

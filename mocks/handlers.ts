@@ -6,7 +6,7 @@ import type { ReconciliationException } from '../lib/exceptions'
 import type { CallLeg, InteractionEvent, InteractionTransfer } from '../lib/interactionDetail'
 import type { InteractionDetailResponse } from '../lib/interactions'
 import type { LeadBulkRow, LeadHistory, LeadHistoryEvent, LeadResponse } from '../lib/leads'
-import type { QaAgent, QaItem, QaStatus, QaTeamSummary } from '../lib/qa'
+import type { QaAgent, QaHistoryEvent, QaItem, QaStatus, QaTeamSummary } from '../lib/qa'
 import { PUSH_INTERVAL_MS, type AgentStatus, type LiveStatus } from '../lib/liveStatus'
 import type { CloserQueueEntry, FronterQueueEntry } from '../lib/queue'
 import {
@@ -2079,6 +2079,42 @@ MOCK_QA_ITEMS[1].assignee_user_id = '10'
 MOCK_QA_ITEMS[1].status = 'disputed'
 MOCK_QA_ITEMS[7].status = 'closed'
 
+/** Each sale's review, oldest first, as the API reads it back from the audit trail. */
+const MOCK_QA_HISTORY = new Map<string, QaHistoryEvent[]>()
+
+function recordQa(interactionId: string, event: QaHistoryEvent) {
+  MOCK_QA_HISTORY.set(interactionId, [...(MOCK_QA_HISTORY.get(interactionId) ?? []), event])
+}
+
+function afterSale(item: MockQaItem, minutes: number) {
+  return new Date(Date.parse(item.closer_outcome_at) + minutes * 60_000).toISOString()
+}
+
+for (const item of [MOCK_QA_ITEMS[0], MOCK_QA_ITEMS[1]]) {
+  recordQa(item.interaction_id, {
+    kind: 'assigned',
+    at: afterSale(item, 60),
+    actor_name: 'Leo Lead',
+    assignee_name: 'Aria Agent',
+  })
+}
+recordQa(MOCK_QA_ITEMS[1].interaction_id, {
+  kind: 'status_changed',
+  at: afterSale(MOCK_QA_ITEMS[1], 120),
+  actor_name: 'Aria Agent',
+  previous_status: 'open',
+  status: 'disputed',
+  note: 'The monthly payment was never read back to the customer.',
+})
+recordQa(MOCK_QA_ITEMS[7].interaction_id, {
+  kind: 'status_changed',
+  at: afterSale(MOCK_QA_ITEMS[7], 90),
+  actor_name: 'Sam Super',
+  previous_status: 'open',
+  status: 'closed',
+  note: null,
+})
+
 function qaItemBody(item: MockQaItem): QaItem {
   return {
     ...item,
@@ -2824,7 +2860,8 @@ export const handlers = [
     const item = mockQaItemFor(user, String(req.params.interactionId))
     const lead = item && mockLeadHistory(item.lead_id)
     if (!item || !lead) return res(ctx.status(404), ctx.json(QA_ITEM_NOT_FOUND))
-    return res(ctx.status(200), ctx.json({ item: qaItemBody(item), lead }))
+    const history = MOCK_QA_HISTORY.get(item.interaction_id) ?? []
+    return res(ctx.status(200), ctx.json({ item: qaItemBody(item), history, lead }))
   }),
 
   rest.get('/qa/summary', (req, res, ctx) => {
@@ -2891,7 +2928,15 @@ export const handlers = [
         )
       }
     }
-    item.assignee_user_id = next
+    if (item.assignee_user_id !== next) {
+      item.assignee_user_id = next
+      recordQa(item.interaction_id, {
+        kind: 'assigned',
+        at: new Date().toISOString(),
+        actor_name: user.name,
+        assignee_name: MOCK_USERS.find((row) => row.id === next)?.name ?? null,
+      })
+    }
     return res(ctx.status(200), ctx.json(qaItemBody(item)))
   }),
 
@@ -2901,7 +2946,15 @@ export const handlers = [
     const item = mockQaItemFor(user, String(req.params.interactionId))
     if (!item) return res(ctx.status(404), ctx.json(QA_ITEM_NOT_FOUND))
 
-    const body = (await req.json()) as { status?: QaStatus }
+    const body = (await req.json()) as { status?: QaStatus; note?: string | null }
+    if (typeof body.note === 'string' && body.note.length > 2000) {
+      const message = 'String should have at most 2000 characters'
+      return res(
+        ctx.status(422),
+        ctx.json(authErrorBody(message, 'validation_error', [{ field: 'note', in: 'body', message }]))
+      )
+    }
+    const note = body.note?.trim() || null
     const to = body.status
     if (to && to !== item.status) {
       if (mockReviewsOwnOnly(user) && item.status !== 'open') {
@@ -2917,6 +2970,14 @@ export const handlers = [
           ctx.json(authErrorBody(message, 'validation_error', [{ field: 'status', in: 'body', message }]))
         )
       }
+      recordQa(item.interaction_id, {
+        kind: 'status_changed',
+        at: new Date().toISOString(),
+        actor_name: user.name,
+        previous_status: item.status,
+        status: to,
+        note,
+      })
       item.status = to
     }
     return res(ctx.status(200), ctx.json(qaItemBody(item)))

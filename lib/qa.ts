@@ -8,6 +8,10 @@ export type QaItemDetail = components['schemas']['QaItemDetailResponse']
 export type QaStatus = QaItem['status']
 export type QaTeamSummary = components['schemas']['QaTeamSummary']
 export type QaAgent = components['schemas']['QaAgentResponse']
+export type QaHistoryEvent = components['schemas']['QaHistoryEvent']
+
+/** The API's limit on a reason. */
+export const QA_NOTE_MAX = 2000
 
 /** An agent's id, `none` for sales nobody has yet, or null for all. */
 export type QaAssigneeFilter = string | null
@@ -129,9 +133,15 @@ export function assignQaItem(
   })
 }
 
-export function setQaStatus(interactionId: string, status: QaStatus, token: string): Promise<QaItem> {
+/** Move the sale's review, with the reason for it; a blank reason is sent as none. */
+export function setQaStatus(
+  interactionId: string,
+  status: QaStatus,
+  note: string,
+  token: string
+): Promise<QaItem> {
   return json<QaItem>(`/qa/items/${encodeURIComponent(interactionId)}/status`, token, {
     method: 'PUT',
-    body: JSON.stringify({ status }),
+    body: JSON.stringify({ status, note: note.trim() || null }),
   })
 }
