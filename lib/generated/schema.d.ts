@@ -1246,6 +1246,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reporting/policy-lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Find the sale behind each policy number in an uploaded list
+         * @description Matched, not found and skipped numbers, each with its row in the file.
+         *
+         *     A Team Admin finds only their own team's sales: a number sold on another team
+         *     reads as not found. Case and surrounding spaces never stop a match.
+         */
+        post: operations["policy_lookup_reporting_policy_lookup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/reporting/sales": {
         parameters: {
             query?: never;
@@ -1558,6 +1581,14 @@ export interface components {
              * @description Team the leads join. Same rules as POST /leads: Super Admin must name one; Team Admin may omit (own membership) and cannot name another.
              */
             team_id?: string | null;
+        };
+        /** Body_policy_lookup_reporting_policy_lookup_post */
+        Body_policy_lookup_reporting_policy_lookup_post: {
+            /**
+             * File
+             * @description A CSV or Excel (.xlsx) file with one policy number per row.
+             */
+            file: string;
         };
         /**
          * CallLegItem
@@ -2833,6 +2864,104 @@ export interface components {
             email: string;
             /** Password */
             password: string;
+        };
+        /**
+         * PolicyLookupResponse
+         * @description A policy with two sales lists both under ``matches``.
+         */
+        PolicyLookupResponse: {
+            /** Matches */
+            matches: components["schemas"]["PolicySale"][];
+            /** Skipped */
+            skipped: components["schemas"]["PolicySkipped"][];
+            summary: components["schemas"]["PolicyLookupSummary"];
+            /** Unmatched */
+            unmatched: components["schemas"]["PolicyNumberRow"][];
+        };
+        /**
+         * PolicyLookupSummary
+         * @description Numbers read (no header, no blank rows); matched, unmatched and skipped add up to it.
+         */
+        PolicyLookupSummary: {
+            /** Matched */
+            matched: number;
+            /** Rows */
+            rows: number;
+            /** Skipped */
+            skipped: number;
+            /** Unmatched */
+            unmatched: number;
+        };
+        /**
+         * PolicyNumberRow
+         * @description An uploaded policy number with no sale behind it that the caller may see.
+         */
+        PolicyNumberRow: {
+            /** Policy Number */
+            policy_number: string;
+            /** Row */
+            row: number;
+        };
+        /**
+         * PolicySale
+         * @description A sale found for one of the uploaded policy numbers.
+         */
+        PolicySale: {
+            /** Closer Name */
+            closer_name: string;
+            /** Down Payment */
+            down_payment: string;
+            /**
+             * Interaction Id
+             * Format: uuid
+             */
+            interaction_id: string;
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
+            /** Lead Name */
+            lead_name: string;
+            /** Lead Phone */
+            lead_phone: string;
+            /** Monthly Payment */
+            monthly_payment: string;
+            /** Policy Number */
+            policy_number: string;
+            /** Row */
+            row: number;
+            /**
+             * Sold At
+             * Format: date-time
+             */
+            sold_at: string;
+            /**
+             * Team Id
+             * Format: uuid
+             */
+            team_id: string;
+            /** Team Name */
+            team_name: string;
+            /** Total Payment */
+            total_payment: string;
+        };
+        /**
+         * PolicySkipped
+         * @description A row left out of the lookup, and why.
+         */
+        PolicySkipped: {
+            /** First Row */
+            first_row?: number | null;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "duplicate" | "too_long";
+            /** Row */
+            row: number;
+            /** Value */
+            value: string;
         };
         /** QaAgentListResponse */
         QaAgentListResponse: {
@@ -6240,6 +6369,48 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LiveStatusResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    policy_lookup_reporting_policy_lookup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_policy_lookup_reporting_policy_lookup_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyLookupResponse"];
                 };
             };
             /** @description Client Error */

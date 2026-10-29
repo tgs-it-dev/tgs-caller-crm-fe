@@ -533,6 +533,29 @@ routes).
   (QA Manager, no team), Leo Lead and Aria Agent (Default Team) sign in with
   `password1`.
 
+## Policy lookup
+
+`/admin/policies` (Team Admin and Super Admin) takes a CSV or Excel file with one
+policy number per row and shows the sale behind each, through `lib/policies.ts`
+(`POST /reporting/policy-lookup`).
+
+- **The API reads the file:** the first column, a header row and blank rows
+  passed over, case and surrounding spaces ignored, up to 5,000 numbers and 1 MB.
+  A file it cannot read comes back as a 422 naming `file`, and its message shows
+  under the upload. A Team Admin only finds their own team's sales; another
+  team's reads as not found.
+- **The upload** is one drop zone: drag a file in, or Choose file, then Look up.
+- **Results** have a header naming the file, with Download results, then three
+  `StatCard` tiles, Matched, Not found and Skipped, that each show their own table,
+  20 to a page in the browser. Matched shows each lead's phone; a Super Admin also
+  sees the team and gets an Open button for the lead's full view.
+- **Download results** is built in the browser (`policyResultCsv`): every uploaded
+  number with its status, lead, phone and sale, in the upload's order, so no row
+  column is needed. It starts with a byte order mark so Excel reads it as UTF-8,
+  and a cell a spreadsheet would run as a formula gets a leading apostrophe.
+- **Mocks** know `POL-10001` to `POL-10030`, spread across the mock teams. An
+  Excel upload gets a fixed sample answer, since the mock does not unpack it.
+
 ## Settings
 
 `/admin/settings`, `/fronter/settings` and `/closer/settings` all render one
