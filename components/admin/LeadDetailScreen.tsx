@@ -569,9 +569,15 @@ export function LeadRecord({
   )
 }
 
+/** Where the back link goes: Policy lookup when it opened the lead, Reports otherwise. */
+const POLICIES = { href: '/admin/policies', label: 'Back to Policy lookup' }
+const REPORTS = { href: '/admin/reports', label: 'Back to Reports' }
+
 /** A Super Admin's view of one lead: everything recorded on it, and everything that happened. */
 export function LeadDetailScreen() {
-  const leadId = useSearchParams().get('id') ?? ''
+  const params = useSearchParams()
+  const leadId = params.get('id') ?? ''
+  const back = params.get('from') === 'policies' ? POLICIES : REPORTS
   const [load, setLoad] = useState<LoadState>({ status: 'loading' })
 
   // Adjusting state during render, not in an effect, when another lead is opened.
@@ -601,11 +607,11 @@ export function LeadDetailScreen() {
   return (
     <PageShell
       title={
-        <Link href="/admin/reports" className="group inline-flex items-center gap-3">
+        <Link href={back.href} className="group inline-flex items-center gap-3">
           <span className="flex h-9 w-9 items-center justify-center rounded-lg border-hairline border-slate bg-white text-ink group-hover:bg-shop-floor">
             <ArrowLeft className="h-4 w-4" strokeWidth={2} aria-hidden />
           </span>
-          Back to Reports
+          {back.label}
         </Link>
       }
     >

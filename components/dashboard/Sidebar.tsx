@@ -13,6 +13,7 @@ import {
   ChevronDown,
   ClipboardCheck,
   Contact,
+  FileSearch,
   Headset,
   ListOrdered,
   LogOut,
@@ -54,6 +55,10 @@ function QueueIcon() {
 
 function StatsIcon() {
   return <ChartLine {...NAV_ICON} />
+}
+
+function PolicyIcon() {
+  return <FileSearch {...NAV_ICON} />
 }
 
 function BellIcon() {
@@ -197,6 +202,12 @@ const TEAM_ADMIN_NAV: NavItem[] = [
     icon: ReportsIcon,
     isActive: (p) => p.startsWith('/admin/reports'),
   },
+  {
+    href: '/admin/policies',
+    label: 'Policy lookup',
+    icon: PolicyIcon,
+    isActive: (p) => p.startsWith('/admin/policies'),
+  },
   // {
   //   href: '/admin/exceptions',
   //   label: 'Exceptions',
@@ -258,6 +269,12 @@ const SUPER_ADMIN_NAV: NavItem[] = [
     isActive: (p) => p.startsWith('/admin/reports'),
   },
   {
+    href: '/admin/policies',
+    label: 'Policy lookup',
+    icon: PolicyIcon,
+    isActive: (p) => p.startsWith('/admin/policies'),
+  },
+  {
     href: '/admin/team-stats',
     label: 'Team stats',
     icon: StatsIcon,
@@ -298,6 +315,15 @@ function qaDeskNav(): NavItem[] {
 /** `trailingSlash: true` makes usePathname() return `/fronter/`; nav hrefs stay `/fronter`. */
 function normalizePath(pathname: string): string {
   return pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname
+}
+
+/**
+ * The path the menu lights up for. A lead's full view lives under Reports, but
+ * opened from Policy lookup (`?from=policies`) it belongs to that page instead.
+ */
+function menuPath(pathname: string, from: string | null): string {
+  const path = normalizePath(pathname)
+  return path === '/admin/reports/lead' && from === 'policies' ? '/admin/policies' : path
 }
 
 function deskNav(role: 'fronter' | 'closer', activeCallHref: string): NavItem[] {
@@ -569,7 +595,7 @@ function SidebarInner() {
           }`}
         >
           {navItems.map(({ href, label, icon: Icon, isActive }) => {
-            const active = isActive(normalizePath(pathname))
+            const active = isActive(menuPath(pathname, searchParams.get('from')))
             return (
               <Link
                 key={label}

@@ -2168,6 +2168,36 @@ function mockQaItemFor(user: MockUser, interactionId: string): MockQaItem | null
 
 const QA_ITEM_NOT_FOUND = authErrorBody('no such sale to review', 'interaction.not_found')
 
+/**
+ * Policy numbers POL-10001 to POL-10030, each sold once on one of the mock teams
+ * in turn. Each lead id is one mockLeadHistory reads as sold, so a Super Admin
+ * can open it.
+ */
+const MOCK_POLICY_SALES = Array.from({ length: 30 }, (_, i) => {
+  const team = MOCK_TEAMS[i % MOCK_TEAMS.length]
+  const nth = 100 + i
+  const addedAt = Date.parse('2026-10-01T14:00:00Z') + i * 86_400_000
+  const leadId = `mock-lead-sold-${nth}-${addedAt}-${team.id}`
+  return {
+    policy_number: `POL-${10_001 + i}`,
+    lead_id: leadId,
+    interaction_id: `${leadId}-call-1`,
+    lead_name: mockLeadName(nth),
+    lead_phone: mockLeadPhone(nth),
+    team_id: team.id,
+    team_name: team.name,
+    closer_name: 'Carl Closer',
+    sold_at: new Date(addedAt + 35 * 60_000).toISOString(),
+    total_payment: (1800 + (i % 7) * 300).toFixed(2),
+    down_payment: '200.00',
+    monthly_payment: '75.00',
+  }
+})
+
+function policyFileProblem(message: string) {
+  return authErrorBody(message, 'validation_error', [{ field: 'file', in: 'body', message }])
+}
+
 export const handlers = [
   rest.get('http://localhost:4000/health', (req, res, ctx) => {
     return res(ctx.status(200), ctx.json({ status: 'ok' }))
@@ -2981,6 +3011,76 @@ export const handlers = [
       item.status = to
     }
     return res(ctx.status(200), ctx.json(qaItemBody(item)))
+  }),
+
+  rest.post('/reporting/policy-lookup', async (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = adminRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const actor = mockActor(authorization)!
+
+    // Deprecated, but req.body is MSW 1.x's only multipart reader.
+    const form = req.body as { file?: File }
+    if (!(form.file instanceof File) || form.file.size === 0) {
+      return res(ctx.status(422), ctx.json(policyFileProblem('That file is empty.')))
+    }
+    if (form.file.size > 1_048_576) {
+      return res(ctx.status(422), ctx.json(policyFileProblem('Up to 1 MB.')))
+    }
+    const head = new Uint8Array(await form.file.slice(0, 2).arrayBuffer())
+    // An Excel workbook is a zip, which the mock does not unpack: it answers a sample.
+    const cells =
+      head[0] === 0x50 && head[1] === 0x4b
+        ? ['Policy number', 'POL-10001', 'POL-10004', 'POL-99999']
+        : (await form.file.text())
+            .replace(/^\uFEFF/, '')
+            .split(/\r?\n/)
+            .map((line) => (line.split(',')[0] ?? '').trim())
+
+    const teams = actor.roles.includes('super_admin') ? null : [actor.team_id]
+    const matches: object[] = []
+    const unmatched: { row: number; policy_number: string }[] = []
+    const skipped: { row: number; value: string; reason: string; first_row: number | null }[] = []
+    const firstRowOf = new Map<string, number>()
+    let read = 0
+    cells.forEach((value, index) => {
+      const row = index + 1
+      if (!value || (row === 1 && value.toLowerCase().includes('policy'))) return
+      read += 1
+      if (value.length > 64) {
+        skipped.push({ row, value, reason: 'too_long', first_row: null })
+        return
+      }
+      const key = value.toLowerCase()
+      const first = firstRowOf.get(key)
+      if (first !== undefined) {
+        skipped.push({ row, value, reason: 'duplicate', first_row: first })
+        return
+      }
+      firstRowOf.set(key, row)
+      const found = MOCK_POLICY_SALES.filter(
+        (sale) =>
+          sale.policy_number.toLowerCase() === key && (!teams || teams.includes(sale.team_id))
+      )
+      if (found.length === 0) unmatched.push({ row, policy_number: value })
+      for (const sale of found) matches.push({ ...sale, row, policy_number: value })
+    })
+    if (read === 0) {
+      return res(ctx.status(422), ctx.json(policyFileProblem('That file has no policy numbers in it.')))
+    }
+    if (read > 5000) {
+      return res(ctx.status(422), ctx.json(policyFileProblem('Up to 5,000 policy numbers at a time.')))
+    }
+    const matched = read - unmatched.length - skipped.length
+    return res(
+      ctx.status(200),
+      ctx.json({
+        matches,
+        unmatched,
+        skipped,
+        summary: { rows: read, matched, unmatched: unmatched.length, skipped: skipped.length },
+      })
+    )
   }),
 
   rest.get('/reporting/live', (req, res, ctx) => {
