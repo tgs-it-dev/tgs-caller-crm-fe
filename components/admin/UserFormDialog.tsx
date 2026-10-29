@@ -65,6 +65,9 @@ function bannerFor(err: AuthError): string {
 const sameRoles = (a: Role[], b: Role[]) =>
   a.length === b.length && a.every((role) => b.includes(role))
 
+/** These cover every team, so an account holding one has no team and no other role. */
+const COMPANY_WIDE: readonly Role[] = ['super_admin', 'qa_manager']
+
 export function UserFormDialog({
   user,
   actorRoles,
@@ -80,11 +83,12 @@ export function UserFormDialog({
   /** This is the signed-in admin's own account. */
   isSelf: boolean
   /**
-   * Company team catalogue. Super Admin must pick one when creating (except for
-   * a super_admin account) and may change it when editing; Team Admin and QA
-   * Manager leave `team_id` out and the API pins the account to their own team.
+   * The teams to pick from. A Super Admin picks one when creating and may change
+   * it when editing; a QA Manager picks one only when creating. Neither picks one
+   * for a super_admin or qa_manager account. A Team Admin leaves `team_id` out and
+   * the API pins the account to their own team.
    */
-  teams: Team[]
+  teams: Pick<Team, 'id' | 'name'>[]
   onClose: () => void
   onSaved: () => void
 }) {
@@ -103,9 +107,10 @@ export function UserFormDialog({
   )
   const [active, setActive] = useState(user?.active ?? true)
   const [teamId, setTeamId] = useState(startingTeam)
-  // SA: team required for every role except super_admin (API: team.super_admin_forbidden).
   const creatingSuperAdmin = !user && roles.includes('super_admin')
-  const showTeamField = canPickTeam && !creatingSuperAdmin
+  const companyWide = roles.some((role) => COMPANY_WIDE.includes(role))
+  // Changing someone's team stays the Super Admin's; a QA Manager names it for a new account.
+  const showTeamField = !companyWide && (canPickTeam || (qaManagerOnly && !user))
   const mustPickTeam = !user && showTeamField
   const [signIn, setSignIn] = useState<SignInMethod>('password')
   const [password, setPassword] = useState('')
@@ -124,6 +129,9 @@ export function UserFormDialog({
   })
 
   function roleLocked(role: Role): boolean {
+    // qa_manager decides whether an account has a team, so it is set only when the
+    // account is made; a QA Manager's roles stay as they are.
+    if (user && (role === 'qa_manager' || user.roles.includes('qa_manager'))) return true
     // Only lock the elevated role the actor themselves holds — SA ≠ Team Admin ≠ QA Manager.
     if (!isSelf) return false
     if (role === 'super_admin') return isSuperAdmin(actorRoles)
@@ -190,9 +198,9 @@ export function UserFormDialog({
       } else {
         // The key is left out entirely for an invitation, never sent empty: the
         // API validates `password` whenever it is present at all, so `''` would
-        // be a 422 rather than "no password given". Same for team_id: Team Admin
-        // and QA Manager omit it so the API pins their own team; Super Admin
-        // must send one except when creating a super_admin (no team).
+        // be a 422 rather than "no password given". Same for team_id: a Team Admin
+        // omits it so the API pins their own team; a Super Admin or QA Manager
+        // sends one, except for a super_admin or qa_manager account (no team).
         await withSession((token) =>
           createUser(
             {
@@ -218,16 +226,13 @@ export function UserFormDialog({
     if (!offerable.includes(role) || roleLocked(role)) return
     setRoles((held) => {
       const next = held.includes(role) ? held.filter((r) => r !== role) : [...held, role]
-      // Super Admin is company-wide: selecting it drops a team pin and any
-      // team-scoped roles that would otherwise demand one.
-      if (next.includes('super_admin') && role === 'super_admin') {
+      // A company-wide role stands alone: selecting it drops the team and any
+      // team-scoped roles, and selecting a team-scoped role drops it.
+      if (COMPANY_WIDE.includes(role) && next.includes(role)) {
         setTeamId('')
-        return ['super_admin']
+        return [role]
       }
-      if (role !== 'super_admin' && next.includes('super_admin')) {
-        return next.filter((r) => r !== 'super_admin')
-      }
-      return next
+      return next.filter((r) => r === role || !COMPANY_WIDE.includes(r))
     })
   }
 
@@ -348,6 +353,11 @@ export function UserFormDialog({
               Super Admin accounts are not assigned to a team.
             </p>
           )}
+          {canPickTeam && !user && roles.includes('qa_manager') && (
+            <p className="text-xs leading-[150%] text-slate">
+              A QA Manager oversees every team, so is not assigned to one.
+            </p>
+          )}
 
           {!user && (
             <fieldset>
@@ -429,13 +439,18 @@ export function UserFormDialog({
             </div>
             {isSuperAdmin(actorRoles) && !user && (
               <p className="mt-2 text-xs leading-[150%] text-slate">
-                Only Super Admin can create a QA Manager. QA Managers create QA Agents on
-                their own team.
+                Only Super Admin can create a QA Manager. QA Managers create QA Leads and
+                QA Agents on any team.
               </p>
             )}
             {qaManagerOnly && (
               <p className="mt-2 text-xs leading-[150%] text-slate">
-                You can only create QA Agents on your own team.
+                You can create QA Leads and QA Agents on any team.
+              </p>
+            )}
+            {user?.roles.includes('qa_manager') && (
+              <p className="mt-2 text-xs leading-[150%] text-slate">
+                A QA Manager&apos;s role is set when the account is created.
               </p>
             )}
             {isSelf && isTeamAdmin(actorRoles) && !isSuperAdmin(actorRoles) && (

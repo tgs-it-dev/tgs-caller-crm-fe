@@ -264,7 +264,7 @@ type Reveal =
   | { status: 'error' }
 
 /** A call's cart, masked until a Super Admin asks to see the full numbers. */
-function CartCard({ cart, call }: { cart: Cart; call?: number }) {
+function CartCard({ cart, call, revealable }: { cart: Cart; call?: number; revealable: boolean }) {
   const [reveal, setReveal] = useState<Reveal>({ status: 'hidden' })
   const shown = reveal.status === 'shown' ? reveal.numbers : null
   const by = cart.saved_by ? ` by ${cart.saved_by}` : ''
@@ -302,7 +302,7 @@ function CartCard({ cart, call }: { cart: Cart; call?: number }) {
     <Card
       title={call ? `Cart and payment · Call ${call}` : 'Cart and payment'}
       caption={`Saved ${formatDateTime(cart.saved_at)}${by}`}
-      actions={toggle}
+      actions={revealable ? toggle : undefined}
     >
       {reveal.status === 'error' && (
         <p role="alert" className="mb-3 text-xs leading-[150%] text-status-red">
@@ -334,7 +334,7 @@ function CartCard({ cart, call }: { cart: Cart; call?: number }) {
   )
 }
 
-function Carts({ history }: { history: LeadHistory }) {
+function Carts({ history, revealable }: { history: LeadHistory; revealable: boolean }) {
   if (history.carts.length === 0) {
     return (
       <Card title="Cart and payment">
@@ -352,7 +352,12 @@ function Carts({ history }: { history: LeadHistory }) {
   return (
     <div className="flex min-w-0 flex-col gap-5 [&>*]:flex-1">
       {history.carts.map((cart) => (
-        <CartCard key={cart.interaction_id} cart={cart} call={callOf(cart)} />
+        <CartCard
+          key={cart.interaction_id}
+          cart={cart}
+          call={callOf(cart)}
+          revealable={revealable}
+        />
       ))}
     </div>
   )
@@ -537,6 +542,33 @@ function History({ history }: { history: LeadHistory }) {
   )
 }
 
+/**
+ * Everything recorded on a lead and everything that happened to it. Only a Super
+ * Admin may show a cart's full numbers, so anyone else gets it masked.
+ */
+export function LeadRecord({
+  history,
+  revealable = false,
+}: {
+  history: LeadHistory
+  revealable?: boolean
+}) {
+  return (
+    <div className="space-y-5">
+      {/* Rows stretch, so cards side by side end level rather than leaving a gap. */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+        <LeadCard lead={history.lead} />
+        <WhereItStands status={history.status} />
+      </div>
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <FronterForm form={history.form} />
+        <Carts history={history} revealable={revealable} />
+      </div>
+      <History history={history} />
+    </div>
+  )
+}
+
 /** A Super Admin's view of one lead: everything recorded on it, and everything that happened. */
 export function LeadDetailScreen() {
   const leadId = useSearchParams().get('id') ?? ''
@@ -583,20 +615,7 @@ export function LeadDetailScreen() {
         </p>
       )}
       {load.status === 'error' && <Alert>{load.message}</Alert>}
-      {load.status === 'ready' && (
-        <div className="space-y-5">
-          {/* Rows stretch, so cards side by side end level rather than leaving a gap. */}
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-            <LeadCard lead={load.history.lead} />
-            <WhereItStands status={load.history.status} />
-          </div>
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-            <FronterForm form={load.history.form} />
-            <Carts history={load.history} />
-          </div>
-          <History history={load.history} />
-        </div>
-      )}
+      {load.status === 'ready' && <LeadRecord history={load.history} revealable />}
     </PageShell>
   )
 }

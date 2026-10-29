@@ -6,6 +6,7 @@ import type { ReconciliationException } from '../lib/exceptions'
 import type { CallLeg, InteractionEvent, InteractionTransfer } from '../lib/interactionDetail'
 import type { InteractionDetailResponse } from '../lib/interactions'
 import type { LeadBulkRow, LeadHistory, LeadHistoryEvent, LeadResponse } from '../lib/leads'
+import type { QaAgent, QaItem, QaStatus, QaTeamSummary } from '../lib/qa'
 import { PUSH_INTERVAL_MS, type AgentStatus, type LiveStatus } from '../lib/liveStatus'
 import type { CloserQueueEntry, FronterQueueEntry } from '../lib/queue'
 import {
@@ -171,9 +172,11 @@ const MOCK_USERS: MockUser[] = [
   { id: '7', email: 'both@tgs.com', password: 'password1', name: 'Bea Both', roles: ['fronter', 'closer'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_WEST },
   // Company-wide admin — no team pin; inherits every Team Admin surface.
   { id: '8', email: 'super@tgs.com', password: 'password1', name: 'Sam Super', roles: ['super_admin'], active: true, created_at: SEEDED_AT, team_id: null },
-  // QA desk demos — Default Team, matching backend seed (quinn.qa / aria.agent).
-  { id: '9', email: 'quinn.qa@tgs.com', password: 'password1', name: 'Quinn QA', roles: ['qa_manager'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_DEFAULT },
+  // QA desk demos, matching the backend seed: the QA Manager oversees every team,
+  // so has none; the QA Lead and QA Agent work Default Team.
+  { id: '9', email: 'quinn.qa@tgs.com', password: 'password1', name: 'Quinn QA', roles: ['qa_manager'], active: true, created_at: SEEDED_AT, team_id: null },
   { id: '10', email: 'aria.agent@tgs.com', password: 'password1', name: 'Aria Agent', roles: ['qa_agent'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_DEFAULT },
+  { id: '11', email: 'leo.lead@tgs.com', password: 'password1', name: 'Leo Lead', roles: ['qa_lead'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_DEFAULT },
 ]
 
 const KNOWN_ROLES: Role[] = [
@@ -181,14 +184,15 @@ const KNOWN_ROLES: Role[] = [
   'closer',
   'administrator',
   'qa_manager',
+  'qa_lead',
   'qa_agent',
   'super_admin',
 ]
 
 /** Dialer agents a Team Admin may manage (besides self). */
 const AGENT_ROLES: readonly Role[] = ['fronter', 'closer']
-/** QA agents a QA Manager may manage (besides self). */
-const QA_AGENT_ROLES: readonly Role[] = ['qa_agent']
+/** QA staff a QA Manager may manage on any team (besides self). */
+const QA_STAFF_ROLES: readonly Role[] = ['qa_lead', 'qa_agent']
 
 type MockLink = { token: string; userId: string; purpose: 'invite' | 'reset'; state: 'live' | 'used' | 'superseded' | 'expired' }
 
@@ -479,46 +483,33 @@ function superAdminRefusal(authorization: string | null) {
   return null
 }
 
-/**
- * Roles this actor may assign. Matches lib/users grantableRoles / BE grants:
- * Super Admin → any; Team Admin → fronter/closer; QA Manager → qa_agent.
- */
-function grantableBy(actor: MockUser): Role[] {
-  if (actor.roles.includes('super_admin')) return [...KNOWN_ROLES]
-  if (actor.roles.includes('administrator')) return [...AGENT_ROLES]
-  if (actor.roles.includes('qa_manager')) return [...QA_AGENT_ROLES]
-  return []
+/** Whether every role the target holds is one of these. */
+function holdsOnly(target: MockUser, roles: readonly Role[]): boolean {
+  return target.roles.every((role) => roles.includes(role))
 }
 
 /**
- * Roles whose holders this actor may manage (besides self).
- * `null` = everyone (Super Admin).
+ * Whether this row is in the actor's Users list, as the API's grants decide:
+ * themselves, a Team Admin's own team's agents, or QA staff on any team for a
+ * QA Manager, who has no team.
  */
-function managedRolesBy(actor: MockUser): ReadonlySet<Role> | null {
-  if (actor.roles.includes('super_admin')) return null
-  const managed = new Set<Role>()
-  if (actor.roles.includes('administrator')) {
-    for (const role of AGENT_ROLES) managed.add(role)
-  }
-  if (actor.roles.includes('qa_manager')) {
-    for (const role of QA_AGENT_ROLES) managed.add(role)
-  }
-  return managed
-}
-
-/** Whether this row is in the actor's Users list (self + managed roles on own team). */
 function isManageableBy(actor: MockUser, target: MockUser): boolean {
   if (actor.id === target.id) return true
-  const managed = managedRolesBy(actor)
-  if (managed === null) return true
-  if (managed.size === 0) return false
-  if (!actor.team_id || target.team_id !== actor.team_id) return false
-  return target.roles.every((role) => managed.has(role))
+  if (actor.roles.includes('super_admin')) return true
+  if (
+    actor.roles.includes('administrator') &&
+    actor.team_id &&
+    target.team_id === actor.team_id &&
+    holdsOnly(target, AGENT_ROLES)
+  ) {
+    return true
+  }
+  return actor.roles.includes('qa_manager') && Boolean(target.team_id) && holdsOnly(target, QA_STAFF_ROLES)
 }
 
 /**
- * 403 when the actor tries to grant above their ceiling, or onto another team.
- * Only roles the target lacks count as granted (self may keep an elevated role).
+ * 403 when the actor tries to grant above their ceiling, or a Team Admin onto
+ * another team. A QA Manager grants on any team; the caller still needs one.
  */
 function grantCeilingRefusal(
   actor: MockUser,
@@ -527,22 +518,26 @@ function grantCeilingRefusal(
   target: MockUser | null = null,
 ) {
   if (actor.roles.includes('super_admin')) return null
-  const allowed = new Set(grantableBy(actor))
   const current = new Set(target?.roles ?? [])
-  const newlyGranted = roles.filter((role) => !current.has(role))
-  if (newlyGranted.some((role) => !allowed.has(role))) {
-    return {
-      status: 403,
-      body: authErrorBody('cannot grant roles above your ceiling', 'user.grant_forbidden'),
-    }
+  const granted = roles.filter((role) => !current.has(role))
+  const within = (allowed: readonly Role[]) => granted.every((role) => allowed.includes(role))
+  if (
+    actor.roles.includes('administrator') &&
+    within(AGENT_ROLES) &&
+    actor.team_id &&
+    teamId === actor.team_id
+  ) {
+    return null
   }
-  if (!actor.team_id || teamId !== actor.team_id) {
-    return {
-      status: 403,
-      body: authErrorBody('cannot grant roles above your ceiling', 'user.grant_forbidden'),
-    }
+  if (actor.roles.includes('qa_manager') && within(QA_STAFF_ROLES)) return null
+  return {
+    status: 403,
+    body: authErrorBody('cannot grant roles above your ceiling', 'user.grant_forbidden'),
   }
-  return null
+}
+
+function qaManagerHasNoTeam(field: 'team_id' | 'roles', message: string) {
+  return authErrorBody(message, 'validation_error', [{ field, in: 'body', message }])
 }
 
 /** Default business day when the client leaves `timezone` off, matching the API. */
@@ -2040,6 +2035,103 @@ const MOCK_RAW_EVENTS: Record<string, InteractionEvent[]> = {
   }
 })()
 
+/** Who may reach the QA routes at all; each route narrows it further. */
+const QA_ROLES: readonly Role[] = ['super_admin', 'qa_manager', 'qa_lead', 'qa_agent']
+const QA_OVERSEERS: readonly Role[] = ['super_admin', 'qa_manager', 'qa_lead']
+const QA_ASSIGNERS: readonly Role[] = ['super_admin', 'qa_lead']
+
+/** Where each status may move next, as the API's flow allows. */
+const MOCK_QA_MOVES: Record<QaStatus, QaStatus[]> = {
+  open: ['disputed', 'closed'],
+  disputed: ['resolve_dispute'],
+  resolve_dispute: ['closed'],
+  closed: [],
+}
+
+type MockQaItem = Omit<QaItem, 'team_name' | 'assignee_name'>
+
+/**
+ * Five sold calls per team, one every twelve hours. Each lead id is one
+ * mockLeadHistory reads as sold, so a sale opens onto its full history. Aria
+ * starts with two of Default Team's, one already disputed, and one of East
+ * Coast's is closed, so every desk has something to show.
+ */
+const MOCK_QA_ITEMS: MockQaItem[] = MOCK_TEAMS.flatMap((team, t) =>
+  Array.from({ length: 5 }, (_, i): MockQaItem => {
+    const nth = t * 5 + i + 1
+    const addedAt = Date.parse('2026-10-19T14:00:00Z') + (nth - 1) * 12 * 3_600_000
+    const leadId = `mock-lead-sold-${nth}-${addedAt}-${team.id}`
+    return {
+      interaction_id: `${leadId}-call-1`,
+      lead_id: leadId,
+      lead_name: mockLeadName(nth),
+      team_id: team.id,
+      closer_name: 'Carl Closer',
+      closer_outcome: 'Sale',
+      closer_outcome_at: new Date(addedAt + 35 * 60_000).toISOString(),
+      status: 'open',
+      assignee_user_id: null,
+    }
+  })
+)
+MOCK_QA_ITEMS[0].assignee_user_id = '10'
+MOCK_QA_ITEMS[1].assignee_user_id = '10'
+MOCK_QA_ITEMS[1].status = 'disputed'
+MOCK_QA_ITEMS[7].status = 'closed'
+
+function qaItemBody(item: MockQaItem): QaItem {
+  return {
+    ...item,
+    team_name: MOCK_TEAMS.find((team) => team.id === item.team_id)?.name ?? '',
+    assignee_name: MOCK_USERS.find((user) => user.id === item.assignee_user_id)?.name ?? null,
+  }
+}
+
+type MockRefusal = { status: number; body: ReturnType<typeof authErrorBody> }
+
+/** The signed-in user if they hold one of these roles, or why not. */
+function qaActor(authorization: string | null, allowed: readonly Role[]): MockUser | MockRefusal {
+  const user = mockActor(authorization)
+  if (!user || !user.active) {
+    return { status: 401, body: authErrorBody('Could not validate credentials', 'auth.not_authenticated') }
+  }
+  if (!user.roles.some((role) => allowed.includes(role))) {
+    return { status: 403, body: authErrorBody('Insufficient role for this operation', 'auth.forbidden') }
+  }
+  return user
+}
+
+const isRefusal = (value: MockUser | MockRefusal | { teams: string[] | null }): value is MockRefusal =>
+  'status' in value && 'body' in value
+
+/** Every team (null) for a Super Admin or QA Manager, or the one they name; anyone else their own. */
+function mockQaScope(user: MockUser, requested: string | null): { teams: string[] | null } | MockRefusal {
+  if (user.roles.includes('super_admin') || user.roles.includes('qa_manager')) {
+    return { teams: requested ? [requested] : null }
+  }
+  const own = user.team_id ? [user.team_id] : []
+  if (requested && !own.includes(requested)) {
+    return { status: 403, body: authErrorBody('you can only see your own team', 'team.forbidden') }
+  }
+  return { teams: own }
+}
+
+function mockReviewsOwnOnly(user: MockUser): boolean {
+  return !user.roles.some((role) => role === 'super_admin' || role === 'qa_manager' || role === 'qa_lead')
+}
+
+/** The sale, if this user may see it. */
+function mockQaItemFor(user: MockUser, interactionId: string): MockQaItem | null {
+  const item = MOCK_QA_ITEMS.find((row) => row.interaction_id === interactionId)
+  const scope = mockQaScope(user, null)
+  if (!item || isRefusal(scope)) return null
+  if (scope.teams && !scope.teams.includes(item.team_id)) return null
+  if (mockReviewsOwnOnly(user) && item.assignee_user_id !== user.id) return null
+  return item
+}
+
+const QA_ITEM_NOT_FOUND = authErrorBody('no such sale to review', 'interaction.not_found')
+
 export const handlers = [
   rest.get('http://localhost:4000/health', (req, res, ctx) => {
     return res(ctx.status(200), ctx.json({ status: 'ok' }))
@@ -2482,13 +2574,20 @@ export const handlers = [
     const knownTeamIds = new Set(MOCK_TEAMS.map((team) => team.id))
     const requestedTeam =
       typeof body.team_id === 'string' && knownTeamIds.has(body.team_id) ? body.team_id : null
-    // Non-SA omit team_id; the API pins their own team.
-    const teamId = roles.includes('super_admin')
-      ? null
-      : (requestedTeam ?? actor.team_id)
+    // A Team Admin omits team_id and the API pins their own; Super Admin and
+    // QA Manager accounts cover every team, so get none.
+    const companyWide = roles.includes('super_admin') || roles.includes('qa_manager')
+    const teamId = companyWide ? null : (requestedTeam ?? actor.team_id)
 
     const ceiling = grantCeilingRefusal(actor, roles, teamId)
     if (ceiling) return res(ctx.status(ceiling.status), ctx.json(ceiling.body))
+
+    if (roles.includes('qa_manager') && !roles.includes('super_admin') && body.team_id) {
+      return res(
+        ctx.status(422),
+        ctx.json(qaManagerHasNoTeam('team_id', 'a QA Manager covers every team, so has no team'))
+      )
+    }
 
     if (roles.includes('super_admin') && requestedTeam) {
       return res(
@@ -2501,7 +2600,7 @@ export const handlers = [
         )
       )
     }
-    if (!roles.includes('super_admin') && !teamId) {
+    if (!companyWide && !teamId) {
       return res(
         ctx.status(422),
         ctx.json(
@@ -2613,6 +2712,18 @@ export const handlers = [
         typeof body.team_id === 'string' ? body.team_id : user.team_id
       const ceiling = grantCeilingRefusal(actor, body.roles, teamForGrant, user)
       if (ceiling) return res(ctx.status(ceiling.status), ctx.json(ceiling.body))
+      // qa_manager decides whether the account has a team, so it is fixed at creation.
+      if (body.roles.includes('qa_manager') !== user.roles.includes('qa_manager')) {
+        return res(
+          ctx.status(422),
+          ctx.json(
+            qaManagerHasNoTeam(
+              'roles',
+              'qa_manager cannot be added to or removed from an existing account'
+            )
+          )
+        )
+      }
     }
 
     // The API refuses to let someone lock themselves out of their elevated role.
@@ -2653,6 +2764,12 @@ export const handlers = [
           )
         )
       }
+      if (user.roles.includes('qa_manager')) {
+        return res(
+          ctx.status(422),
+          ctx.json(qaManagerHasNoTeam('team_id', 'a QA Manager covers every team, so has no team'))
+        )
+      }
       if (!MOCK_TEAMS.some((team) => team.id === body.team_id)) {
         return res(ctx.status(404), ctx.json(authErrorBody('team not found', 'team.not_found')))
       }
@@ -2664,6 +2781,145 @@ export const handlers = [
     if (typeof body.team_id === 'string') user.team_id = body.team_id
 
     return res(ctx.status(200), ctx.json(userBody(user)))
+  }),
+
+  rest.get('/qa/items', (req, res, ctx) => {
+    const user = qaActor(req.headers.get('authorization'), QA_ROLES)
+    if (isRefusal(user)) return res(ctx.status(user.status), ctx.json(user.body))
+    const scope = mockQaScope(user, req.url.searchParams.get('team_id'))
+    if (isRefusal(scope)) return res(ctx.status(scope.status), ctx.json(scope.body))
+
+    const status = req.url.searchParams.get('status')
+    // A QA Agent only ever gets their own, whatever they ask for.
+    const assignee = mockReviewsOwnOnly(user) ? user.id : req.url.searchParams.get('assignee')
+    const limit = Number(req.url.searchParams.get('limit') ?? 20)
+    const offset = Number(req.url.searchParams.get('offset') ?? 0)
+    const matched = MOCK_QA_ITEMS.filter(
+      (item) =>
+        (!scope.teams || scope.teams.includes(item.team_id)) &&
+        (!status || item.status === status) &&
+        (!assignee ||
+          (assignee === 'none'
+            ? item.assignee_user_id === null && item.status !== 'closed'
+            : item.assignee_user_id === assignee))
+    ).sort(
+      (a, b) =>
+        a.closer_outcome_at.localeCompare(b.closer_outcome_at) ||
+        a.interaction_id.localeCompare(b.interaction_id)
+    )
+    return res(
+      ctx.status(200),
+      ctx.json({
+        items: matched.slice(offset, offset + limit).map(qaItemBody),
+        total: matched.length,
+        limit,
+        offset,
+      })
+    )
+  }),
+
+  rest.get('/qa/items/:interactionId', (req, res, ctx) => {
+    const user = qaActor(req.headers.get('authorization'), QA_ROLES)
+    if (isRefusal(user)) return res(ctx.status(user.status), ctx.json(user.body))
+    const item = mockQaItemFor(user, String(req.params.interactionId))
+    const lead = item && mockLeadHistory(item.lead_id)
+    if (!item || !lead) return res(ctx.status(404), ctx.json(QA_ITEM_NOT_FOUND))
+    return res(ctx.status(200), ctx.json({ item: qaItemBody(item), lead }))
+  }),
+
+  rest.get('/qa/summary', (req, res, ctx) => {
+    const user = qaActor(req.headers.get('authorization'), QA_OVERSEERS)
+    if (isRefusal(user)) return res(ctx.status(user.status), ctx.json(user.body))
+    const scope = mockQaScope(user, null)
+    if (isRefusal(scope)) return res(ctx.status(scope.status), ctx.json(scope.body))
+
+    const teams: QaTeamSummary[] = MOCK_TEAMS.filter(
+      (team) => !scope.teams || scope.teams.includes(team.id)
+    ).map((team) => {
+      const items = MOCK_QA_ITEMS.filter((item) => item.team_id === team.id)
+      const counted = (status: QaStatus) => items.filter((item) => item.status === status).length
+      return {
+        team_id: team.id,
+        team_name: team.name,
+        open: counted('open'),
+        disputed: counted('disputed'),
+        resolve_dispute: counted('resolve_dispute'),
+        closed: counted('closed'),
+        unassigned: items.filter((item) => item.status !== 'closed' && !item.assignee_user_id).length,
+      }
+    })
+    return res(ctx.status(200), ctx.json({ teams }))
+  }),
+
+  rest.get('/qa/agents', (req, res, ctx) => {
+    const user = qaActor(req.headers.get('authorization'), QA_OVERSEERS)
+    if (isRefusal(user)) return res(ctx.status(user.status), ctx.json(user.body))
+    const scope = mockQaScope(user, req.url.searchParams.get('team_id'))
+    if (isRefusal(scope)) return res(ctx.status(scope.status), ctx.json(scope.body))
+
+    const items: QaAgent[] = MOCK_USERS.filter(
+      (agent) =>
+        agent.active &&
+        agent.roles.includes('qa_agent') &&
+        agent.team_id !== null &&
+        (!scope.teams || scope.teams.includes(agent.team_id))
+    )
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((agent) => ({ user_id: agent.id, name: agent.name, team_id: agent.team_id as string }))
+    return res(ctx.status(200), ctx.json({ items }))
+  }),
+
+  rest.put('/qa/items/:interactionId/assignee', async (req, res, ctx) => {
+    const user = qaActor(req.headers.get('authorization'), QA_ASSIGNERS)
+    if (isRefusal(user)) return res(ctx.status(user.status), ctx.json(user.body))
+    const item = mockQaItemFor(user, String(req.params.interactionId))
+    if (!item) return res(ctx.status(404), ctx.json(QA_ITEM_NOT_FOUND))
+
+    const body = (await req.json()) as { assignee_user_id?: string | null }
+    const next = body.assignee_user_id ?? null
+    if (next) {
+      const agent = MOCK_USERS.find((row) => row.id === next)
+      if (!agent || !agent.active || !agent.roles.includes('qa_agent') || agent.team_id !== item.team_id) {
+        const message = "not an active QA Agent on this sale's team"
+        return res(
+          ctx.status(422),
+          ctx.json(
+            authErrorBody(message, 'validation_error', [
+              { field: 'assignee_user_id', in: 'body', message },
+            ])
+          )
+        )
+      }
+    }
+    item.assignee_user_id = next
+    return res(ctx.status(200), ctx.json(qaItemBody(item)))
+  }),
+
+  rest.put('/qa/items/:interactionId/status', async (req, res, ctx) => {
+    const user = qaActor(req.headers.get('authorization'), QA_ROLES)
+    if (isRefusal(user)) return res(ctx.status(user.status), ctx.json(user.body))
+    const item = mockQaItemFor(user, String(req.params.interactionId))
+    if (!item) return res(ctx.status(404), ctx.json(QA_ITEM_NOT_FOUND))
+
+    const body = (await req.json()) as { status?: QaStatus }
+    const to = body.status
+    if (to && to !== item.status) {
+      if (mockReviewsOwnOnly(user) && item.status !== 'open') {
+        return res(
+          ctx.status(403),
+          ctx.json(authErrorBody('a QA Agent can only move a sale while it is open', 'auth.forbidden'))
+        )
+      }
+      if (!MOCK_QA_MOVES[item.status].includes(to)) {
+        const message = `cannot move from ${item.status} to ${to}`
+        return res(
+          ctx.status(422),
+          ctx.json(authErrorBody(message, 'validation_error', [{ field: 'status', in: 'body', message }]))
+        )
+      }
+      item.status = to
+    }
+    return res(ctx.status(200), ctx.json(qaItemBody(item)))
   }),
 
   rest.get('/reporting/live', (req, res, ctx) => {

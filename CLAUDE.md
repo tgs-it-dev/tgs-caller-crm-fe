@@ -67,9 +67,10 @@ Contract (typed in `lib/generated/schema.d.ts`):
   that user, so a refresh token must never be sent twice.
 - `POST /auth/logout` `{refresh_token}` → 204, whether or not the token was live.
 - `GET /auth/me` (Bearer token) → `{id, email, name, active, roles, team_id, created_at}`
-- `RoleName = "fronter" | "closer" | "administrator" | "super_admin"` — a user can
-  hold multiple roles; frontend picks the landing route by priority
-  (`super_admin` > `administrator` > `closer` > `fronter`), see `lib/auth.ts`.
+- `RoleName = "fronter" | "closer" | "administrator" | "qa_manager" | "qa_lead" |
+  "qa_agent" | "super_admin"`. A user can hold multiple roles; frontend picks the
+  landing route by priority (`super_admin` > `administrator` > `qa_manager` >
+  `closer` > `fronter` > `qa_lead` > `qa_agent`), see `lib/auth.ts`.
   Super Admin inherits every Team Admin `/admin` surface (`roleSatisfies`).
 - Every error response is `{detail, code, fields?}`, read with `readApiError()`.
   Branch on `code`, never on `detail`: `auth.not_authenticated` (token missing,
@@ -126,8 +127,11 @@ Frontend pieces:
   own `isActive(pathname)`. A new page goes under its role's segment and into
   that role's list.
 - **A Super Admin's list is `SUPER_ADMIN_NAV`**: Users, Teams, Campaigns,
-  Reports and Team stats. Reports is there because its drill-down is how they
+  Reports, Team stats and QA. Reports is there because its drill-down is how they
   reach a lead's full view. Exceptions stays out: without the dialer it is empty.
+- **QA desks.** A QA Manager works from `/admin` with QA and Users. A QA Lead and
+  a QA Agent work from `/qa`, which `deskRoleFromPath()` resolves to whichever of
+  the two they hold (`qaDeskRole()`).
 - **Somebody may hold more than one role**, and the nav only ever shows the desk
   they are on, so the sidebar identity doubles as a desk menu — `heldDesks()` in
   `lib/auth.ts` lists every desk held, the current one ticked. A single-role
@@ -456,9 +460,13 @@ state or team. Administrator-only, like the rest of `/admin`.
 - **An email address cannot be changed** — `UpdateUserRequest` carries name,
   roles, active and `team_id`, and nothing else. The field is shown disabled
   rather than hidden, so nobody goes looking for it.
-- **Team is Super Admin only.** It is required when adding and can be changed
-  when editing; the edit sends `team_id` in the same PATCH as the rest, and only
-  when it changed. Picking a different team shows a note that the move takes
+- **Team is set by a Super Admin, or by a QA Manager when adding.** A Super
+  Admin must pick it when adding and can change it when editing; the edit sends
+  `team_id` in the same PATCH as the rest, and only when it changed. A QA Manager
+  picks it only when adding staff, from `/qa/summary`, since they may not read
+  `/teams`; moving someone stays the Super Admin's. Super Admin and QA Manager
+  accounts have no team: ticking either role makes it the only one and hides the
+  field, and `qa_manager` is fixed once the account exists. Picking a different team shows a note that the move takes
   effect on save and that anyone on a call should record its outcome first. The
   API does not block a move mid-call. Team Admins never see the field: the API
   puts their users on their own team and refuses `team_id` from them.
@@ -488,6 +496,38 @@ state or team. Administrator-only, like the rest of `/admin`.
   person. Every session that person has ends, so they are signed out within the
   15-minute access token. Super Admin only, and never your own account
   (`user.cannot_reset_own_password`); your own goes through Settings.
+
+## QA
+
+QA reviews sales. Every sold call is a QA item in its team's queue, through
+`lib/qa.ts` (`/qa/items`, `/qa/summary`, `/qa/agents`, and the assignee and status
+routes).
+
+- **Who sees what:**
+  - a Super Admin and a QA Manager see every team at `/admin/qa`: count tiles for
+    all teams together, a Teams table with each team's counts (its name filters
+    the queue), then the queue;
+  - a QA Lead sees their team at `/qa` ("QA · <team>"), and assigns each sale from
+    the "Assigned to" dropdown in its row, which saves on change. It opens on
+    Unassigned whenever anything is waiting;
+  - the count tiles are the Users screen's `StatCard`, in the order the work goes
+    (Unassigned, Open, Disputed, Resolve Dispute, Closed). Each one filters the
+    queue, and clicking the selected one clears it. Unassigned means not closed
+    and nobody has it, the same as the API's `assignee=none`;
+  - a QA Agent sees only what is assigned to them at `/qa`, as "Assigned to me".
+    They never call `/qa/summary` or `/qa/agents`, which answer them 403.
+- **Assigning** is the QA Lead's (and Super Admin's). A QA Manager sees the
+  assignee as text. The API only accepts an active QA Agent on the sale's team.
+- **The sale page** (`/admin/qa/item?id=`, `/qa/item?id=`) is `QaItemScreen`: a
+  Review card with the status, one button per move the role may make
+  (`movesFor()` mirrors the API's flow: Open to Disputed or Closed, Disputed to
+  Resolve Dispute, Resolve Dispute to Closed; a QA Agent moves only while Open),
+  and the assignee. Below it is `LeadRecord` from `LeadDetailScreen`, the same
+  cards as the Super Admin lead page, without "Show full numbers".
+- **Mocks** keep a fixed set of five sales per team in memory; each lead id is one
+  `mockLeadHistory` reads as sold, so a sale opens onto its full history. Quinn QA
+  (QA Manager, no team), Leo Lead and Aria Agent (Default Team) sign in with
+  `password1`.
 
 ## Settings
 

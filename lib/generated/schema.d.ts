@@ -302,8 +302,8 @@ export interface paths {
          * Assign a user to a team (Super Admin only)
          * @description Pin the user to exactly one team (PUT set / replace).
          *
-         *     Locked contract: a second assign replaces ``team_id``; ``super_admin``
-         *     targets are rejected (company-wide scope is no ``user_teams`` row).
+         *     Locked contract: a second assign replaces ``team_id``; ``super_admin`` and
+         *     ``qa_manager`` targets are rejected (company-wide scope is no ``user_teams`` row).
          */
         put: operations["assign_user_team_auth_users__user_id__team_put"];
         post?: never;
@@ -914,6 +914,122 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/qa/agents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The QA Agents a sale can be assigned to */
+        get: operations["list_agents_qa_agents_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/qa/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sales for QA to review
+         * @description The longest waiting first. A QA Agent only ever gets their own.
+         */
+        get: operations["list_items_qa_items_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/qa/items/{interaction_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A sale to review, with everything recorded on its lead
+         * @description The cart shows what its closer sees: the last four digits of each number.
+         */
+        get: operations["get_item_qa_items__interaction_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/qa/items/{interaction_id}/assignee": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Assign a sale to a QA Agent on its team, or to nobody */
+        put: operations["assign_item_qa_items__interaction_id__assignee_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/qa/items/{interaction_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Move a sale's review to another status
+         * @description Open moves to Disputed or Closed, Disputed to Resolve Dispute, and that to Closed.
+         *
+         *     A QA Agent moves only their own sales, and only while they are open.
+         */
+        put: operations["change_item_status_qa_items__interaction_id__status_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/qa/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Each team's sales by review status
+         * @description Every team for a QA Manager or Super Admin, or a QA Lead's own.
+         */
+        get: operations["get_summary_qa_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/qualification": {
         parameters: {
             query?: never;
@@ -1357,7 +1473,7 @@ export interface components {
              * Role
              * @enum {string}
              */
-            role: "fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "super_admin";
+            role: "fronter" | "closer" | "administrator" | "qa_manager" | "qa_lead" | "qa_agent" | "super_admin";
             /**
              * Since
              * Format: date-time
@@ -1693,10 +1809,10 @@ export interface components {
             /** Password */
             password?: string | null;
             /** Roles */
-            roles: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "super_admin")[];
+            roles: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_lead" | "qa_agent" | "super_admin")[];
             /**
              * Team Id
-             * @description Team the account joins: a Team Admin or QA Manager's own team, which they may leave out. A Super Admin must name one, except for a super_admin account. qa_manager and qa_agent are team-scoped and always need a team.
+             * @description Team the account joins: a Team Admin's own team, which they may leave out. A Super Admin or QA Manager must name one, except for a super_admin or qa_manager account, which covers every team and has none. qa_lead and qa_agent always need a team.
              */
             team_id?: string | null;
         };
@@ -2717,6 +2833,129 @@ export interface components {
             /** Password */
             password: string;
         };
+        /** QaAgentListResponse */
+        QaAgentListResponse: {
+            /** Items */
+            items: components["schemas"]["QaAgentResponse"][];
+        };
+        /** QaAgentResponse */
+        QaAgentResponse: {
+            /** Name */
+            name: string;
+            /**
+             * Team Id
+             * Format: uuid
+             */
+            team_id: string;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+        };
+        /**
+         * QaAssignRequest
+         * @description Null takes the sale off whoever has it.
+         */
+        QaAssignRequest: {
+            /** Assignee User Id */
+            assignee_user_id: string | null;
+        };
+        /**
+         * QaItemDetailResponse
+         * @description The sale under review and everything recorded on its lead.
+         */
+        QaItemDetailResponse: {
+            item: components["schemas"]["QaItemResponse"];
+            lead: components["schemas"]["LeadHistoryResponse"];
+        };
+        /** QaItemListResponse */
+        QaItemListResponse: {
+            /** Items */
+            items: components["schemas"]["QaItemResponse"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * QaItemResponse
+         * @description One sale for QA to review.
+         */
+        QaItemResponse: {
+            /** Assignee Name */
+            assignee_name: string | null;
+            /** Assignee User Id */
+            assignee_user_id: string | null;
+            /** Closer Name */
+            closer_name: string;
+            /** Closer Outcome */
+            closer_outcome: string;
+            /**
+             * Closer Outcome At
+             * Format: date-time
+             */
+            closer_outcome_at: string;
+            /**
+             * Interaction Id
+             * Format: uuid
+             */
+            interaction_id: string;
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
+            /** Lead Name */
+            lead_name: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "open" | "disputed" | "resolve_dispute" | "closed";
+            /**
+             * Team Id
+             * Format: uuid
+             */
+            team_id: string;
+            /** Team Name */
+            team_name: string;
+        };
+        /** QaStatusRequest */
+        QaStatusRequest: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "open" | "disputed" | "resolve_dispute" | "closed";
+        };
+        /** QaSummaryResponse */
+        QaSummaryResponse: {
+            /** Teams */
+            teams: components["schemas"]["QaTeamSummary"][];
+        };
+        /** QaTeamSummary */
+        QaTeamSummary: {
+            /** Closed */
+            closed: number;
+            /** Disputed */
+            disputed: number;
+            /** Open */
+            open: number;
+            /** Resolve Dispute */
+            resolve_dispute: number;
+            /**
+             * Team Id
+             * Format: uuid
+             */
+            team_id: string;
+            /** Team Name */
+            team_name: string;
+            /** Unassigned */
+            unassigned: number;
+        };
         /** QualificationCreateRequest */
         QualificationCreateRequest: {
             consent_dnc: components["schemas"]["ConsentDnc"];
@@ -3277,7 +3516,7 @@ export interface components {
             /** Name */
             name?: string | null;
             /** Roles */
-            roles?: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "super_admin")[] | null;
+            roles?: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_lead" | "qa_agent" | "super_admin")[] | null;
             /**
              * Team Id
              * @description Super Admin only: moves the user to this team, saved with the rest of the change. Leave it out to keep their team.
@@ -3320,7 +3559,7 @@ export interface components {
             /** Name */
             name: string;
             /** Roles */
-            roles: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "super_admin")[];
+            roles: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_lead" | "qa_agent" | "super_admin")[];
             /** Team Id */
             team_id?: string | null;
             /**
@@ -3768,7 +4007,7 @@ export interface operations {
                 /** @description Filter by account state */
                 active?: boolean | null;
                 /** @description Filter by role held */
-                role?: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "super_admin") | null;
+                role?: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_lead" | "qa_agent" | "super_admin") | null;
                 /** @description Members of this team only (Super Admins never match) */
                 team_id?: string | null;
                 /** @description Substring of email or name */
@@ -5329,6 +5568,259 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TodaysStatsResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_agents_qa_agents_get: {
+        parameters: {
+            query?: {
+                /** @description One team only. A QA Lead may name only their own. */
+                team_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QaAgentListResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_items_qa_items_get: {
+        parameters: {
+            query?: {
+                /** @description One team only. A QA Lead may name only their own. */
+                team_id?: string | null;
+                status?: ("open" | "disputed" | "resolve_dispute" | "closed") | null;
+                /** @description The QA Agent reviewing it, or none for a sale not closed that nobody has. */
+                assignee?: string | "none" | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QaItemListResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_item_qa_items__interaction_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QaItemDetailResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    assign_item_qa_items__interaction_id__assignee_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QaAssignRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QaItemResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    change_item_status_qa_items__interaction_id__status_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QaStatusRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QaItemResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_summary_qa_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QaSummaryResponse"];
                 };
             };
             /** @description Client Error */

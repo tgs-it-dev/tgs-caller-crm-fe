@@ -30,9 +30,9 @@ const ROLE_LANDING: Record<Role, string> = {
   // Closer desk opens on Queue (pick/accept a transfer); Active Call is `/closer`.
   closer: '/closer/queue',
   administrator: '/admin',
-  // QA Manager modules are Users only — not the Team Admin dashboard or SA chrome.
-  qa_manager: '/admin/users',
-  // QA Agent desk is a later ticket; land somewhere gated until it ships.
+  // QA Manager oversees every team's QA from the admin desk.
+  qa_manager: '/admin/qa',
+  qa_lead: '/qa',
   qa_agent: '/qa',
   // Super Admin modules are Users / Teams / Campaigns — not the Team Admin dashboard.
   super_admin: '/admin/users',
@@ -115,6 +115,7 @@ const ROLE_PRIORITY: Role[] = [
   'qa_manager',
   'closer',
   'fronter',
+  'qa_lead',
   'qa_agent',
 ]
 
@@ -139,6 +140,13 @@ export function adminDeskRole(
   if (roles.includes('super_admin')) return 'super_admin'
   if (roles.includes('administrator')) return 'administrator'
   if (roles.includes('qa_manager')) return 'qa_manager'
+  return null
+}
+
+/** The `/qa` desk is the QA Lead's when they hold it, otherwise the QA Agent's. */
+export function qaDeskRole(roles: readonly Role[]): 'qa_lead' | 'qa_agent' | null {
+  if (roles.includes('qa_lead')) return 'qa_lead'
+  if (roles.includes('qa_agent')) return 'qa_agent'
   return null
 }
 
@@ -167,6 +175,7 @@ const DESK_LABEL: Record<Role, string> = {
   closer: 'CRM — Closer',
   administrator: 'CRM — Team Admin',
   qa_manager: 'CRM — QA Manager',
+  qa_lead: 'CRM - QA Lead',
   qa_agent: 'CRM — QA Agent',
   super_admin: 'CRM — Super Admin',
 }
@@ -176,6 +185,7 @@ const ROLE_NAME: Record<Role, string> = {
   closer: 'Closer',
   administrator: 'Team Admin',
   qa_manager: 'QA Manager',
+  qa_lead: 'QA Lead',
   qa_agent: 'QA Agent',
   super_admin: 'Super Admin',
 }
@@ -197,9 +207,8 @@ export function heldDesks(roles: Role[]): Role[] {
   if (admin) desks.push(admin)
   if (roles.includes('closer')) desks.push('closer')
   if (roles.includes('fronter')) desks.push('fronter')
-  // QA Agent is its own desk once the workspace ships; until then it still
-  // needs a switcher entry when held alongside another role.
-  if (roles.includes('qa_agent') && !admin) desks.push('qa_agent')
+  const qa = qaDeskRole(roles)
+  if (qa && !admin) desks.push(qa)
   return desks
 }
 
@@ -218,7 +227,9 @@ export function deskRoleFromPath(pathname: string, roles?: readonly Role[]): Rol
     if (roles) return adminDeskRole(roles) ?? 'administrator'
     return 'administrator'
   }
-  if (pathname === '/qa' || pathname.startsWith('/qa/')) return 'qa_agent'
+  if (pathname === '/qa' || pathname.startsWith('/qa/')) {
+    return (roles && qaDeskRole(roles)) ?? 'qa_agent'
+  }
   if (pathname === '/closer' || pathname.startsWith('/closer/')) return 'closer'
   if (pathname === '/fronter' || pathname.startsWith('/fronter/')) return 'fronter'
   return null
