@@ -8,7 +8,7 @@ import type { InteractionDetailResponse } from '../lib/interactions'
 import type { LeadBulkRow, LeadHistory, LeadHistoryEvent, LeadResponse } from '../lib/leads'
 import type { QaAgent, QaHistoryEvent, QaItem, QaStatus, QaTeamSummary } from '../lib/qa'
 import { PUSH_INTERVAL_MS, type AgentStatus, type LiveStatus } from '../lib/liveStatus'
-import type { CloserQueueEntry, FronterQueueEntry } from '../lib/queue'
+import type { CloserCallbackEntry, CloserQueueEntry, FronterQueueEntry } from '../lib/queue'
 import {
   checkCart,
   digitsOf,
@@ -1660,6 +1660,75 @@ const MOCK_INTERACTION_DISPOSITIONS = new Map<string, MockInteractionDisposition
 // Only what the API keeps: last digits, never a full number or a CVV.
 const MOCK_CARTS = new Map<string, CartResponse>()
 let interactionDispositionSeq = 0
+
+// A call the mock closer set as a callback yesterday, so their Callbacks table has a row.
+;(() => {
+  const interactionId = 'int-closer-cb-1'
+  const at = new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString()
+  MOCK_TRANSFERS.set('transfer-closer-cb-1', {
+    id: 'transfer-closer-cb-1',
+    interaction_id: interactionId,
+    status: 'accepted',
+    fronter_user_id: '1',
+    closer_user_id: '2',
+    created_at: at,
+    updated_at: at,
+  })
+  seedCloserQualification(
+    interactionId,
+    {
+      first_name: 'Marcus',
+      last_name: 'T.',
+      phone_no: '+13235550190',
+      vehicle_year: '2019',
+      vehicle_make: 'Toyota',
+      vehicle_model: 'RAV4',
+      vin: '',
+      license_plate: '',
+    },
+    { consent_given: true, dnc_flagged: false }
+  )
+  MOCK_INTERACTION_DISPOSITIONS.set(interactionId, [
+    {
+      id: `int-disp-${++interactionDispositionSeq}`,
+      interaction_id: interactionId,
+      disposition_id: 'disp-closer-callback',
+      label: 'Callback Scheduled',
+      stage: 'closer',
+      actor_user_id: '2',
+      version: 1,
+      created_at: at,
+    },
+  ])
+})()
+
+/** Accepted calls whose latest closer outcome is Callback Scheduled, oldest first. */
+function mockCloserCallbacks(closerId: string | null): CloserCallbackEntry[] {
+  const entries: CloserCallbackEntry[] = []
+  for (const transfer of MOCK_TRANSFERS.values()) {
+    if (transfer.status !== 'accepted' || !transfer.closer_user_id) continue
+    if (closerId !== null && transfer.closer_user_id !== closerId) continue
+    const latest = (MOCK_INTERACTION_DISPOSITIONS.get(transfer.interaction_id) ?? [])
+      .filter((row) => row.stage === 'closer')
+      .at(-1)
+    if (latest?.label !== 'Callback Scheduled') continue
+    const lead = leadForInteraction(transfer.interaction_id)
+    const closer = MOCK_USERS.find((user) => user.id === transfer.closer_user_id)
+    entries.push({
+      interaction_id: transfer.interaction_id,
+      transfer_id: transfer.id,
+      lead_id: lead.id,
+      lead_name: [lead.first_name, lead.last_name].filter(Boolean).join(' ').trim() || lead.phone_no,
+      lead_phone: lead.phone_no,
+      // Mock leads carry no team, so the closer's stands in for the lead's.
+      team_name: MOCK_TEAMS.find((team) => team.id === closer?.team_id)?.name ?? DEFAULT_TEAM_NAME,
+      closer_user_id: transfer.closer_user_id,
+      closer_name: closer?.name ?? 'Closer',
+      scheduled_at: latest.created_at,
+    })
+  }
+  return entries.sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at))
+}
 
 /** FE-08 My Stats — `/me/stats/today` seed, keyed by actor user id. */
 type MyStatsDispositionSeed = {
@@ -3602,6 +3671,24 @@ export const handlers = [
     )
   }),
 
+  rest.get('/queue/callbacks', (req, res, ctx) => {
+    const user = mockActor(req.headers.get('authorization'))
+    if (!user) {
+      return res(
+        ctx.status(401),
+        ctx.json(authErrorBody('Could not validate credentials', 'auth.not_authenticated'))
+      )
+    }
+    const superAdmin = user.roles.includes('super_admin')
+    if (!superAdmin && !user.roles.includes('closer')) {
+      return res(
+        ctx.status(403),
+        ctx.json(authErrorBody('Insufficient role for this operation', 'auth.forbidden'))
+      )
+    }
+    return res(ctx.status(200), ctx.json(mockCloserCallbacks(superAdmin ? null : user.id)))
+  }),
+
   // Agent-scoped My Stats — fronter or closer via ?stage=.
   rest.get('/me/stats/today', (req, res, ctx) => {
     const authHeader = req.headers.get('authorization') || ''
@@ -4042,6 +4129,12 @@ export const handlers = [
     } else if (catalog.stage === 'fronter') {
       const idx = MOCK_FRONTER_CALLBACKS.findIndex((row) => row.id === interactionId)
       if (idx >= 0) MOCK_FRONTER_CALLBACKS.splice(idx, 1)
+    } else {
+      // An outcome finishes the call, so it leaves the closer queue, as in the API.
+      const idx = MOCK_CLOSER_QUEUE.findIndex(
+        (row) => row.interaction_id === interactionId && row.status === 'accepted'
+      )
+      if (idx >= 0) MOCK_CLOSER_QUEUE.splice(idx, 1)
     }
 
     return res(ctx.status(201), ctx.json(record))

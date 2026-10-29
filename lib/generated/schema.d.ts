@@ -1098,6 +1098,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/queue/callbacks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A closer's callbacks, to work again on the same call
+         * @description The calls this closer accepted whose latest closer outcome is Callback Scheduled.
+         *
+         *     Saving another outcome on the call takes it off the list. A Super Admin sees
+         *     every closer's.
+         */
+        get: operations["get_closer_callbacks_queue_callbacks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/realtime/ticket": {
         parameters: {
             query?: never;
@@ -1781,6 +1804,45 @@ export interface components {
             current_password: string;
             /** New Password */
             new_password: string;
+        };
+        /**
+         * CloserCallbackItem
+         * @description A call a closer set as a callback, to be worked again on the same call.
+         */
+        CloserCallbackItem: {
+            /** Closer Name */
+            closer_name: string;
+            /**
+             * Closer User Id
+             * Format: uuid
+             */
+            closer_user_id: string;
+            /**
+             * Interaction Id
+             * Format: uuid
+             */
+            interaction_id: string;
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
+            /** Lead Name */
+            lead_name: string;
+            /** Lead Phone */
+            lead_phone: string;
+            /**
+             * Scheduled At
+             * Format: date-time
+             */
+            scheduled_at: string;
+            /** Team Name */
+            team_name: string;
+            /**
+             * Transfer Id
+             * Format: uuid
+             */
+            transfer_id: string;
         };
         /** CloserQueueItem */
         CloserQueueItem: {
@@ -6106,6 +6168,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FronterCallbackItem"][] | components["schemas"]["CloserQueueItem"][];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_closer_callbacks_queue_callbacks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CloserCallbackItem"][];
                 };
             };
             /** @description Client Error */

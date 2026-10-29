@@ -256,6 +256,20 @@ the API calls and rules are in `lib/cart.ts`.
 - `checkCart` mirrors the API's rules so most mistakes show inline before a
   save; the mock handler reuses it, so the two cannot drift.
 
+## Closer callbacks
+
+The closer's Queue page lists **Callbacks** under the transfer queue
+(`components/queue/QueueScreen.tsx`, `GET /queue/callbacks`): the calls this
+closer accepted whose latest closer outcome is Callback Scheduled, oldest first.
+
+- **Open goes back to the same call.** The workspace loads its cart and saved
+  outcome, and saving another outcome records the next closer version on that
+  call, which takes it off the list. No new call is made.
+- **No clock on a call with an outcome.** The header timer counts from the
+  accept, so it shows only while the call is still being worked.
+- **It loads on its own and refreshes every 30 seconds**, so a queue error never
+  hides it, and the reverse.
+
 ## Reporting
 
 `/admin/reports` reads `GET /reporting/funnel` through `fetchFunnel()` in

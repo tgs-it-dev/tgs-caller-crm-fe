@@ -376,6 +376,9 @@ function CloserActiveCallWorkspace({
       ? (STATUS_LABEL[transferStatus] ?? 'Transfer Accepted')
       : 'Transfer not found'
   const dispositionLocked = isLoading || transferStatus !== 'accepted'
+  // The clock counts from the accept, so a call with an outcome, such as a
+  // callback opened days later, shows none.
+  const live = transferStatus === 'accepted' && !savedLabel
   const lockedMessage =
     isLoading || transferStatus === 'accepted'
       ? null
@@ -386,10 +389,10 @@ function CloserActiveCallWorkspace({
       title="Active Call"
       actions={
         <TransferStatusBadge
-          key={transferStatus === 'accepted' ? (callStartedAt ?? 'pending') : 'pending'}
+          key={live ? (callStartedAt ?? 'pending') : 'pending'}
           label={statusText}
           tone={!isLoading && transferStatus !== 'accepted' ? 'neutral' : 'accepted'}
-          startedAt={transferStatus === 'accepted' ? callStartedAt : null}
+          startedAt={live ? callStartedAt : null}
         />
       }
     >
