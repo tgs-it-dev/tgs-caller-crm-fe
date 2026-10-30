@@ -235,6 +235,11 @@ export function deskRoleFromPath(pathname: string, roles?: readonly Role[]): Rol
   return null
 }
 
+/** The desks with their own accent. Super Admin and the QA desks keep the default. */
+export function deskAccent(role: Role): 'administrator' | 'fronter' | 'closer' | null {
+  return role === 'administrator' || role === 'fronter' || role === 'closer' ? role : null
+}
+
 /** Desk header label for a layout segment (or the user's primary role). */
 export function deskLabelForRole(role: Role): string {
   return DESK_LABEL[role]

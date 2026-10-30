@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useMemo, useState, type ComponentType, type SVGProps } from 'react'
+import { Suspense, useEffect, useMemo, useState, type ComponentType, type SVGProps } from 'react'
 import Image from 'next/image'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import {
+  deskAccent,
   deskLabelForRole,
   deskRoleFromPath,
   formatRolesLabel,
@@ -401,6 +402,19 @@ function SidebarInner() {
     (userReady ? primaryRole(user.roles) : null) ??
     'fronter'
 
+  // Until /auth/me answers, `/admin` reads as Team Admin, which would flash a
+  // Super Admin's desk green.
+  const accent = userReady || role !== 'administrator' ? deskAccent(role) : null
+
+  // On <html>, because dialogs and menus render under <body>.
+  useEffect(() => {
+    if (!accent) return
+    document.documentElement.dataset.accent = accent
+    return () => {
+      delete document.documentElement.dataset.accent
+    }
+  }, [accent])
+
   const basePath = BASE_PATH[role]
   const workspacePathPrefix = `${basePath}/workspace`
   const settingsHref = `${basePath}/settings`
@@ -465,7 +479,7 @@ function SidebarInner() {
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex h-full min-h-0 flex-shrink-0 flex-col overflow-hidden overscroll-none border-r border-slate/15 bg-white transition-transform duration-200 ease-in-out lg:static lg:z-auto lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex h-full min-h-0 flex-shrink-0 flex-col overflow-hidden overscroll-none border-r border-slate/15 bg-white shadow-[inset_0_3px_0_var(--accent-rule)] transition-transform duration-200 ease-in-out lg:static lg:z-auto lg:translate-x-0 ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         } ${collapsed ? 'lg:w-16' : 'w-72 lg:w-72'}`}
       >
@@ -576,11 +590,11 @@ function SidebarInner() {
                 <span className="flex shrink-0 text-slate">
                   <Icon />
                 </span>
-                <span className={`flex-1 ${current ? 'font-semibold text-navy' : 'text-black'}`}>
+                <span className={`flex-1 ${current ? 'font-semibold text-accent-text' : 'text-black'}`}>
                   {roleLabel(desk)}
                 </span>
                 {current && (
-                  <Check className="h-4 w-4 shrink-0 text-navy" strokeWidth={2.5} aria-hidden />
+                  <Check className="h-4 w-4 shrink-0 text-accent-text" strokeWidth={2.5} aria-hidden />
                 )}
               </MenuItem>
             )
@@ -603,7 +617,7 @@ function SidebarInner() {
                 title={collapsed ? label : undefined}
                 className={`flex items-center gap-3 rounded-lg text-sm font-medium leading-[150%] transition ${
                   collapsed ? 'lg:justify-center lg:px-2 lg:py-2 px-3 py-2.5' : 'px-3 py-2.5'
-                } ${active ? 'bg-nav-active text-navy' : 'text-slate hover:bg-slate/10 hover:text-ink'}`}
+                } ${active ? 'bg-accent-soft text-accent-text' : 'text-slate hover:bg-slate/10 hover:text-ink'}`}
               >
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center">
                   <Icon />
@@ -646,7 +660,7 @@ function SidebarInner() {
             aria-label={collapsed ? 'Settings' : undefined}
             className={`mt-1 flex items-center gap-3 rounded-lg py-2.5 text-sm font-medium transition ${
               collapsed ? 'lg:justify-center lg:px-2 px-3' : 'px-3'
-            } ${settingsActive ? 'bg-nav-active text-navy' : 'text-ink hover:bg-slate/10'}`}
+            } ${settingsActive ? 'bg-accent-soft text-accent-text' : 'text-ink hover:bg-slate/10'}`}
           >
             <span className="flex-shrink-0 p-1">
               <SettingsIcon />

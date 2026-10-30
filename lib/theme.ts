@@ -22,6 +22,11 @@ export const tokens = {
     /** Figma "Bay green" — the Closers "Completed" pill. Deliberately not status.green. */
     bayGreen: '#2F8F5B',
   },
+  /** Follows the desk, see `--accent` in styles/globals.css. */
+  accent: {
+    main: 'var(--accent)',
+    on: 'var(--accent-on)',
+  },
   /** Header/footer strips inside the Queue and Closers card tables. */
   strip: '#F8F8F8',
   /** Pill borders in the workspace "Phone Matched" / "Source" chips. */
@@ -110,15 +115,15 @@ export const theme = createTheme({
         // button still picks up its own palette entry.
         contained: {
           '&.MuiButton-colorPrimary': {
-            backgroundColor: tokens.navy,
-            color: tokens.paper,
+            backgroundColor: tokens.accent.main,
+            color: tokens.accent.on,
             '&:hover': {
-              backgroundColor: tokens.navy,
+              backgroundColor: tokens.accent.main,
               opacity: 0.9,
             },
             '&.Mui-disabled': {
-              backgroundColor: tokens.navy,
-              color: tokens.paper,
+              backgroundColor: tokens.accent.main,
+              color: tokens.accent.on,
               opacity: 0.5,
             },
           },
