@@ -685,14 +685,25 @@ password ever gets set. The first two are one component —
 - Visual theme (as of the Figma "CRM - Auto Warranty" file, superseding the
   earlier dark/teal theme): light (`bg-paper` / `tokens.paper` `#FCFCFC`),
   `ink` (`#1C2430`) for headings/dark surfaces, `navy` (`#1F3A5F`) for
-  primary CTAs, `slate` (`#8A94A3`) for borders/placeholders/secondary text.
+  primary CTAs on default desks (see the accent note below), `slate` (`#8A94A3`) for borders/placeholders/secondary text.
   `status-red` / `status-green` / `status-gold` / `status-blue` are
   accent/status colors only, not for primary CTAs. Keep `tokens` in
   `lib/theme.ts` and Tailwind color keys in sync when adding colors. Font is
   Inter, loaded via `next/font/google` in `app/layout.tsx` (`--font-inter`),
   on a 61/49/39/32/23/20/18/16/14/13px type scale (base 16, ~1.125 ratio,
-  120% line-height). `Button` takes a `variant` prop (`primary` navy-filled /
+  120% line-height). `Button` takes a `variant` prop (`primary` accent-filled /
   `secondary` slate-outlined) and a `size` prop (`default` / `small`).
+- **The accent follows the desk.** Team Admin is green, Fronter yellow, Closer
+  orange; Super Admin and the QA desks keep navy. `styles/globals.css` is the
+  only place the role colours are written, as `--accent*` tokens. `Sidebar` sets
+  `data-accent` on `<html>` from `deskAccent()` in `lib/auth.ts`, on `<html>`
+  because dialogs and menus render under `<body>`. The accent reaches primary
+  buttons, the sidebar and the page header rule, and nothing else: links, focus
+  rings and status pills keep their colours. MUI's `palette.primary` stays navy
+  on purpose, because radios and other MUI parts read it and yellow on white
+  fails contrast. Accents are deep fills with light text, like navy, except
+  yellow, which turns olive when darkened, so it stays light and takes navy
+  text. Use `--accent-text`, never `--accent`, for text on white.
 - Errors (auth failures, form validation) render inline via `<Alert>` /
   `role="alert"` — never fail silently or let an unhandled rejection crash
   the page.
