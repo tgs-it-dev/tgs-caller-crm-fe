@@ -84,8 +84,6 @@ export function LeadEditDialog({
 
   useEffect(() => {
     let cancelled = false
-    setLoading(true)
-    setBanner(null)
     waitForMocking()
       .then(() =>
         withSession(async (token) => {
