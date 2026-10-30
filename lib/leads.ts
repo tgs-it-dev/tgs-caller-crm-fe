@@ -11,6 +11,7 @@ export type LeadBulkUpload = components['schemas']['LeadBulkUploadResponse']
 export type LeadBulkRow = components['schemas']['LeadBulkRowResult']
 export type LeadHistory = components['schemas']['LeadHistoryResponse']
 export type LeadHistoryEvent = components['schemas']['LeadHistoryEvent']
+export type LeadSummary = components['schemas']['LeadSummaryResponse']
 export type LeadSearch = components['schemas']['LeadSearchResponse']
 export type LeadSearchItem = components['schemas']['LeadSearchItem']
 
@@ -50,6 +51,11 @@ export async function getLead(leadId: string, token: string): Promise<LeadRespon
   })
   if (!res.ok) throw await authError(res)
   return res.json() as Promise<LeadResponse>
+}
+
+/** Who worked a lead, where it stands, and its sale figures. A Team Admin's own team only. */
+export function fetchLeadSummary(leadId: string, token: string): Promise<LeadSummary> {
+  return json<LeadSummary>(`/leads/${encodeURIComponent(leadId)}/summary`, token)
 }
 
 /** A lead's details and everything that happened to it, oldest first. Super Admin only. */

@@ -321,8 +321,12 @@ furthest stage it has reached**.
 - **A row is a lead:** name (the phone when there is none) and phone, team, date
   added, stage reached ("Added" for a lead that got no further), and its latest
   fronter and closer outcomes, `-` when there are none. Newest added first.
-- **Only a Super Admin can open a lead.** The Open action is dropped from the
-  columns for anyone else, and goes to `/admin/reports/lead/?id=…`.
+- **Only a Super Admin can open a lead,** through Open, which goes to
+  `/admin/reports/lead/?id=…`. A Team Admin gets Summary in the same column:
+  `LeadSummaryDialog`, reading `GET /leads/{id}/summary`, says who worked the lead,
+  where it stands, and for a sale its figures. It has no card details, form
+  answers or timeline. The row supplies the name, phone and stage, and the dialog
+  is `dismissible`, because a read-only view has nothing to lose.
 
 ## Lead detail
 

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import MuiButton from '@mui/material/Button'
 import { STAGE_LABEL } from '@/components/admin/FunnelChart'
+import { LeadSummaryDialog } from '@/components/admin/LeadSummaryDialog'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import { Alert } from '@/components/ui/Alert'
 import { DataTable, type DataColumn } from '@/components/ui/DataTable'
@@ -41,8 +42,14 @@ function messageFor(err: unknown): string {
   return 'Could not load the leads behind this number.'
 }
 
-/** Per zone: rows are drawn in the one the figure above them was counted in. */
-const columnsIn = (timeZone: string): DataColumn<FunnelLead>[] => [
+/**
+ * Per zone: rows are drawn in the one the figure above them was counted in.
+ * `onSummary` is for a reader who can't open a lead; without it, rows go to Open.
+ */
+const columnsIn = (
+  timeZone: string,
+  onSummary: ((row: FunnelLead) => void) | null
+): DataColumn<FunnelLead>[] => [
   {
     id: 'lead',
     header: 'Lead',
@@ -78,16 +85,21 @@ const columnsIn = (timeZone: string): DataColumn<FunnelLead>[] => [
     align: 'right',
     // MUI directly rather than our Button: that renders a <button> where this
     // navigates, and is `fullWidth`, which in a cell stretches to the column.
-    render: (row) => (
-      <MuiButton
-        component={Link}
-        href={`/admin/reports/lead/?id=${encodeURIComponent(row.lead_id)}`}
-        variant="outlined"
-        size="small"
-      >
-        Open<span className="sr-only"> {row.lead_name}</span>
-      </MuiButton>
-    ),
+    render: (row) =>
+      onSummary ? (
+        <MuiButton variant="outlined" size="small" onClick={() => onSummary(row)}>
+          Summary<span className="sr-only"> {row.lead_name}</span>
+        </MuiButton>
+      ) : (
+        <MuiButton
+          component={Link}
+          href={`/admin/reports/lead/?id=${encodeURIComponent(row.lead_id)}`}
+          variant="outlined"
+          size="small"
+        >
+          Open<span className="sr-only"> {row.lead_name}</span>
+        </MuiButton>
+      ),
   },
 ]
 
@@ -112,6 +124,7 @@ export function FunnelLeads({
 }) {
   const [offset, setOffset] = useState(0)
   const [load, setLoad] = useState<LoadState>({ status: 'loading' })
+  const [summaryOf, setSummaryOf] = useState<FunnelLead | null>(null)
   const { user } = useCurrentUser()
   const canOpen = Boolean(user && isSuperAdmin(user.roles))
 
@@ -158,34 +171,42 @@ export function FunnelLeads({
   const heading = stage === 'leads' ? 'Leads' : `Leads behind ${STAGE_LABEL[stage]}`
 
   return (
-    <DataTable
-      id={id}
-      title={heading}
-      ariaLabel={heading}
-      rows={load.list.items}
-      // Opening a lead is the Super Admin's alone.
-      columns={columnsIn(load.list.timezone).filter(
-        (column) => canOpen || column.id !== 'actions'
+    <>
+      <DataTable
+        id={id}
+        title={heading}
+        ariaLabel={heading}
+        rows={load.list.items}
+        // Opening a lead is the Super Admin's alone.
+        columns={columnsIn(load.list.timezone, canOpen ? null : setSummaryOf)}
+        getRowId={(row) => row.lead_id}
+        minWidth="max-content"
+        emptyMessage="No leads reached this stage in these dates."
+        paging={{
+          total: load.list.total,
+          limit: load.list.limit,
+          offset: load.list.offset,
+          onOffsetChange: (next) => {
+            setLoad({ status: 'loading' })
+            setOffset(next)
+          },
+        }}
+        actions={
+          // The zone the figures were counted in, not the reader's, so the card
+          // and the window above the chart name the same one.
+          <span className="whitespace-nowrap text-xs leading-[150%] text-slate">
+            Times in {formatZone(funnel.end, load.list.timezone)}
+          </span>
+        }
+      />
+      {summaryOf && (
+        <LeadSummaryDialog
+          key={summaryOf.lead_id}
+          lead={summaryOf}
+          timeZone={load.list.timezone}
+          onClose={() => setSummaryOf(null)}
+        />
       )}
-      getRowId={(row) => row.lead_id}
-      minWidth="max-content"
-      emptyMessage="No leads reached this stage in these dates."
-      paging={{
-        total: load.list.total,
-        limit: load.list.limit,
-        offset: load.list.offset,
-        onOffsetChange: (next) => {
-          setLoad({ status: 'loading' })
-          setOffset(next)
-        },
-      }}
-      actions={
-        // The zone the figures were counted in, not the reader's, so the card
-        // and the window above the chart name the same one.
-        <span className="whitespace-nowrap text-xs leading-[150%] text-slate">
-          Times in {formatZone(funnel.end, load.list.timezone)}
-        </span>
-      }
-    />
+    </>
   )
 }

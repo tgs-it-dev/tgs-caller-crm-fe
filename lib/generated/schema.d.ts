@@ -887,6 +887,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/leads/{lead_id}/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who worked a lead, where it stands, and its sale figures
+         * @description What a Team Admin sees of a lead on their team.
+         *
+         *     No card details, form answers or timeline: those stay on the full lead view.
+         */
+        get: operations["get_lead_summary_leads__lead_id__summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me/stats/today": {
         parameters: {
             query?: never;
@@ -2864,6 +2886,33 @@ export interface components {
             offset: number;
             /** Total */
             total: number;
+        };
+        /**
+         * LeadSummaryResponse
+         * @description Who worked a lead and where it stands. The full record stays with a Super Admin.
+         */
+        LeadSummaryResponse: {
+            sale: components["schemas"]["LeadSummarySale"] | null;
+            status: components["schemas"]["LeadHistoryStatus"];
+        };
+        /**
+         * LeadSummarySale
+         * @description A sale's figures, with nothing that identifies a payment.
+         */
+        LeadSummarySale: {
+            /** Down Payment */
+            down_payment: string;
+            /** Monthly Payment */
+            monthly_payment: string;
+            /** Policy Number */
+            policy_number: string | null;
+            /**
+             * Sold At
+             * Format: date-time
+             */
+            sold_at: string;
+            /** Total Payment */
+            total_payment: string;
         };
         /**
          * LeadUpdateRequest
@@ -5754,6 +5803,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeadHistoryResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_lead_summary_leads__lead_id__summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSummaryResponse"];
                 };
             };
             /** @description Client Error */
