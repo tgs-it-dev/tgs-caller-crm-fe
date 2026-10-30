@@ -3579,6 +3579,33 @@ export const handlers = [
     return res(ctx.status(200), ctx.json({ interaction_id: id }))
   }),
 
+  rest.get('/leads/:leadId/summary', (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = adminRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const actor = mockActor(authorization)
+    const history = mockLeadHistory(String(req.params.leadId))
+    const allowed = actor?.roles.includes('super_admin') || history?.lead.team_id === actor?.team_id
+    if (!history || !allowed) {
+      return res(ctx.status(404), ctx.json(authErrorBody('lead not found', 'lead.not_found')))
+    }
+
+    const sold = [...history.events].reverse().find((event) => event.kind === 'sold')
+    const cart = history.carts.find((row) => row.interaction_id === sold?.interaction_id)
+    const sale =
+      sold && cart
+        ? {
+            sold_at: sold.at,
+            policy_number: cart.policy_number,
+            total_payment: cart.total_payment,
+            down_payment: cart.down_payment,
+            monthly_payment: cart.monthly_payment,
+          }
+        : null
+    return res(ctx.status(200), ctx.json({ status: history.status, sale }))
+  }),
+
   rest.get('/leads/:leadId/history', (req, res, ctx) => {
     const refused = superAdminRefusal(req.headers.get('authorization'))
     if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))

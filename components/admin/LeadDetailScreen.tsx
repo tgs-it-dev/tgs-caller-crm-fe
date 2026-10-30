@@ -41,7 +41,7 @@ const CALLBACK = 'Callback'
 
 type Tone = 'neutral' | 'teal' | 'amber' | 'done'
 
-const STAGE_BADGE: Record<Status['stage'], { label: string; tone: Tone }> = {
+export const STAGE_BADGE: Record<Status['stage'], { label: string; tone: Tone }> = {
   leads: { label: 'Added', tone: 'neutral' },
   qualified: { label: 'Qualified', tone: 'teal' },
   transferred: { label: 'Transferred', tone: 'amber' },

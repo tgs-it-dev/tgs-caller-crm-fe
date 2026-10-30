@@ -16,14 +16,18 @@ import { tokens } from '@/lib/theme'
 export function Dialog({
   open,
   title,
+  titleAside,
   onClose,
   busy = false,
+  dismissible = false,
   maxWidth = 'xs',
   actions,
   children,
 }: {
   open: boolean
   title: string
+  /** Sits opposite the title, such as a status badge. */
+  titleAside?: ReactNode
   /**
    * Called from Cancel (and other explicit actions). Backdrop and Escape do
    * not close — a half-filled CRM form must not dismiss on a stray click.
@@ -31,6 +35,8 @@ export function Dialog({
   onClose: () => void
   /** Something is in flight: closing now would lose the answer to it. */
   busy?: boolean
+  /** Nothing to lose, as in a read-only view, so the backdrop and Escape close it too. */
+  dismissible?: boolean
   /** `sm` for content that needs the room, such as a table of results. */
   maxWidth?: 'xs' | 'sm'
   actions?: ReactNode
@@ -45,7 +51,7 @@ export function Dialog({
         if (busy) return
         // Only the Cancel action (or equivalent) should dismiss — never the
         // dimmed overlay or Escape mid-form.
-        if (reason === 'backdropClick' || reason === 'escapeKeyDown') return
+        if (!dismissible && (reason === 'backdropClick' || reason === 'escapeKeyDown')) return
         onClose()
       }}
       aria-labelledby={titleId}
@@ -57,7 +63,14 @@ export function Dialog({
         id={titleId}
         sx={{ fontSize: 18, fontWeight: 500, lineHeight: 1.2, color: tokens.ink, paddingBottom: 1 }}
       >
-        {title}
+        {titleAside ? (
+          <span className="flex items-start justify-between gap-3">
+            <span className="min-w-0 break-words">{title}</span>
+            <span className="shrink-0">{titleAside}</span>
+          </span>
+        ) : (
+          title
+        )}
       </DialogTitle>
       <DialogContent sx={{ paddingBottom: 1 }}>{children}</DialogContent>
       {actions && <DialogActions sx={{ padding: '8px 24px 20px' }}>{actions}</DialogActions>}
