@@ -2,6 +2,44 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * The accent follows the desk. Sidebar sets data-accent on <html>, so dialogs
+ * and menus rendered under <body> pick it up too. Every pair here passes WCAG
+ * AA: --accent-on on --accent, and --accent-text on white and on --accent-soft.
+ */
+:root {
+  --accent: #1F3A5F;
+  --accent-on: #FCFCFC;
+  --accent-text: #1F3A5F;
+  --accent-soft: #F3F7FB;
+  /* The sidebar band and page header rule. Default desks draw neither. */
+  --accent-rule: transparent;
+}
+
+[data-accent='administrator'] {
+  --accent: #1F7A4D;
+  --accent-on: #FCFCFC;
+  --accent-text: #1F7A4D;
+  --accent-soft: #E9F5EE;
+  --accent-rule: var(--accent);
+}
+
+[data-accent='fronter'] {
+  --accent: #F0B429;
+  --accent-on: #1F3A5F;
+  --accent-text: #1F3A5F;
+  --accent-soft: #FEF3D6;
+  --accent-rule: var(--accent);
+}
+
+[data-accent='closer'] {
+  --accent: #B85200;
+  --accent-on: #FCFCFC;
+  --accent-text: #B85200;
+  --accent-soft: #FEF3EA;
+  --accent-rule: var(--accent);
+}
+
 html, body, #__next {
   height: 100%;
 }

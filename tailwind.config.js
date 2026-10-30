@@ -32,14 +32,17 @@ module.exports = {
         // Figma "Light Grey" — Qualification Snapshot heading rule.
         "light-grey": "#DCDCDC",
         accent: {
-          blue: "#0088FF"
+          blue: "#0088FF",
+          // These two follow the desk, see styles/globals.css.
+          text: "var(--accent-text)",
+          soft: "var(--accent-soft)"
         },
         // Reports funnel bar fills, one per stage — see tokens.funnel.
         funnel: {
-          attempts: "#3E7CB1",
-          connects: "#4F8A5B",
+          leads: "#3E7CB1",
           qualified: "#7A5FA3",
-          transferred: "#C99A3E"
+          transferred: "#C99A3E",
+          sold: "#4F8A5B"
         }
       },
       fontFamily: {

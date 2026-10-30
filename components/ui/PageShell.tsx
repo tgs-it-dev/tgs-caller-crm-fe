@@ -36,7 +36,8 @@ export function PageShell({
     // sidebar). min-h-screen here was a second viewport and left a dead band
     // under short cards. flex-col lets a lone DataTable grow into the rest.
     <main className="flex min-h-full flex-col bg-shop-floor">
-      <div className="shrink-0 border-b-hairline border-slate px-6 pb-5 pt-8">
+      {/* The accent rule is a shadow, so it takes no room and nothing shifts. */}
+      <div className="shrink-0 border-b-hairline border-slate px-6 pb-5 pt-8 shadow-[0_2px_0_var(--accent-rule)]">
         <div className="flex items-center justify-between gap-4">
           {/* Figma text style "Page Heading" — 24px / 120%, no letter-spacing. */}
           <h1 className="text-2xl font-semibold leading-[120%] text-ink">{title}</h1>

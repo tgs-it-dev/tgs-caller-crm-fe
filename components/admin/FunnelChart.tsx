@@ -1,36 +1,20 @@
+import { formatPercent } from '@/lib/format'
 import type { FunnelStage, HistoricalFunnel } from '@/lib/reporting'
 
-/** What each bar is called, and what the list drilling into one is titled. */
+/** What each bar is called, and what the list behind one is titled. */
 export const STAGE_LABEL: Record<FunnelStage, string> = {
-  attempts: 'Attempts',
-  connects: 'Connects',
+  leads: 'Leads',
   qualified: 'Qualified',
-  // Doesn't claim the closer reached the lead — the caption says so.
+  // Doesn't claim the closer reached the lead; the caption says so.
   transferred: 'Transferred',
-}
-
-/**
- * What `event_at` is on each stage's list, and what that column is headed.
- *
- * "at" throughout, unlike the bare participles elsewhere in the app: this table
- * is the one place two time columns sit together, and "Started / Qualified"
- * reads as a pair of statuses. Keep Started at in step with these.
- *
- * Attempts is excluded rather than carrying an entry nothing draws — there the
- * list renders no second column. Still exhaustive, so a new stage fails the
- * build here.
- */
-export const STAGE_TIME_LABEL: Record<Exclude<FunnelStage, 'attempts'>, string> = {
-  connects: 'Connected at',
-  qualified: 'Qualified at',
-  transferred: 'Transferred at',
+  sold: 'Sold',
 }
 
 const STAGES = [
-  { field: 'attempts', fill: 'bg-funnel-attempts' },
-  { field: 'connects', fill: 'bg-funnel-connects' },
+  { field: 'leads', fill: 'bg-funnel-leads' },
   { field: 'qualified', fill: 'bg-funnel-qualified' },
   { field: 'transferred', fill: 'bg-funnel-transferred' },
+  { field: 'sold', fill: 'bg-funnel-sold' },
 ] as const satisfies readonly { field: FunnelStage; fill: string }[]
 
 export function FunnelChart({
@@ -46,12 +30,10 @@ export function FunnelChart({
   /** The list these bars scope, when one is on screen. */
   listId?: string
 }) {
-  const peak = Math.max(...STAGES.map(({ field }) => funnel[field]))
-
-  if (peak === 0) {
+  if (funnel.leads === 0) {
     return (
       <p className="py-10 text-center text-sm text-slate">
-        No interactions in this range. Widen the dates to look further back.
+        No leads were added in these dates. Widen the dates to look further back.
       </p>
     )
   }
@@ -61,10 +43,9 @@ export function FunnelChart({
       <ol className="space-y-4">
         {STAGES.map(({ field, fill }) => {
           const count = funnel[field]
-          // Measured against the largest count rather than attempts: the stages
-          // are meant to narrow, but nothing enforces it, and a figure is never
-          // reshaped to suggest they did.
-          const width = count === 0 ? 0 : Math.max(2, Math.min(100, (count / peak) * 100))
+          // Each stage sits inside Leads, so its share of Leads is also its width.
+          const share = count / funnel.leads
+          const width = count === 0 ? 0 : Math.max(2, share * 100)
           const selected = field === stage
 
           return (
@@ -94,8 +75,11 @@ export function FunnelChart({
                     style={{ width: `${width}%` }}
                   />
                 </span>
+                <span className="w-16 shrink-0 text-right text-sm text-slate tabular-nums">
+                  {field === 'leads' ? '' : formatPercent(share)}
+                </span>
                 <span className="w-24 shrink-0 text-right text-lg font-semibold leading-none text-ink tabular-nums">
-                  {(count ?? 0).toLocaleString()}
+                  {count.toLocaleString()}
                 </span>
               </button>
             </li>
@@ -105,10 +89,10 @@ export function FunnelChart({
 
       {/* Said here rather than in hover text, which a screen reader never reads. */}
       <p className="mt-5 text-xs leading-[150%] text-slate">
-        Connects counts interactions with at least one call leg; Qualified, those whose fronter
-        recorded a qualifying outcome; Transferred, those a closer accepted — not that they reached
-        the lead, which isn’t recorded. Offers nobody took are on the dashboard, not here. Figures
-        stay provisional until dialer call events are mapped.
+        These are the leads added during these dates, each counted once at the furthest stage it
+        has reached. Qualified means its latest fronter outcome qualifies it, Transferred that a
+        closer accepted it (not that they reached the lead, which isn’t recorded), and Sold that
+        one of its calls ended in a sale. Percentages are of Leads.
       </p>
     </>
   )

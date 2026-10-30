@@ -15,15 +15,21 @@ function CheckIcon() {
 }
 
 export function CallerLeadInfo({ interaction }: { interaction?: InteractionDetail | null }) {
-  const phone = interaction ? formatPhone(interaction.lead.phone_normalized) : null
+  const phone = interaction ? formatPhone(interaction.lead.phone_no) : null
   const source = interaction ? SOURCE_LABEL[interaction.lead.source] : '—'
+  const name = interaction
+    ? [interaction.lead.first_name, interaction.lead.last_name].filter(Boolean).join(' ').trim()
+    : ''
 
   return (
     <div className="rounded-xl border-hairline border-slate bg-white p-6">
       <h2 className="border-b border-slate/20 pb-4 text-lg font-medium leading-[120%] text-ink">
         Caller / Lead Info
       </h2>
-      <p className="mt-4 text-base leading-[150%] text-body-text">
+      {name ? (
+        <p className="mt-4 text-base font-medium leading-[150%] text-ink">{name}</p>
+      ) : null}
+      <p className={`text-base leading-[150%] text-body-text ${name ? 'mt-1' : 'mt-4'}`}>
         {phone ?? 'Loading lead…'}
       </p>
       <div className="mt-4 flex flex-wrap items-center gap-2">

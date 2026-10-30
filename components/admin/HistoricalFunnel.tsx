@@ -3,10 +3,12 @@
 import { useEffect, useState } from 'react'
 import { DateRangePicker } from '@/components/admin/DateRangePicker'
 import { FunnelChart } from '@/components/admin/FunnelChart'
-import { FunnelInteractions } from '@/components/admin/FunnelInteractions'
+import { FunnelLeads } from '@/components/admin/FunnelLeads'
+import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import { Alert } from '@/components/ui/Alert'
 import { PageShell } from '@/components/ui/PageShell'
-import { AuthError } from '@/lib/auth'
+import { Select } from '@/components/ui/Select'
+import { AuthError, isSuperAdmin } from '@/lib/auth'
 import { formatDayRange, formatZone } from '@/lib/format'
 import { waitForMocking } from '@/lib/mockReady'
 import {
@@ -18,16 +20,17 @@ import {
   type HistoricalFunnel as Funnel,
 } from '@/lib/reporting'
 import { withSession } from '@/lib/session'
+import { listTeams, type Team } from '@/lib/teams'
 
 /** The list the bars scope; both sides of `aria-controls` read it from here. */
-const LIST_ID = 'funnel-interactions'
+const LIST_ID = 'funnel-leads'
 
 /**
- * A window the page chose rather than the user, and so one it may still
- * correct. `timezone` is unset until someone picks one — the first read lets
- * the server name the business day.
+ * A window, whether the page chose it rather than the user (and so may still
+ * correct it), and the team, empty for all of them. No zone: the server counts
+ * in the user's own.
  */
-type Selection = { range: DateRange; auto: boolean; timezone?: string }
+type Selection = { range: DateRange; auto: boolean; teamId: string }
 
 type LoadState =
   | { status: 'loading' }
@@ -38,8 +41,6 @@ function messageFor(err: unknown): string {
   if (err instanceof AuthError && err.status === 403) return 'You no longer have access to reports.'
   if (err instanceof AuthError && err.status === 401)
     return 'Your session has ended. Please sign in again.'
-  if (err instanceof AuthError && err.code === 'reporting.unknown_timezone')
-    return 'That time zone is not recognised.'
   return 'Could not load the funnel for this range.'
 }
 
@@ -47,17 +48,22 @@ export function HistoricalFunnel() {
   const [selected, setSelected] = useState<Selection>(() => ({
     range: defaultRange(),
     auto: true,
+    teamId: '',
   }))
   const [load, setLoad] = useState<LoadState>({ status: 'loading' })
   // Bumped only when the page moves the window itself, to start the date fields
   // again from it. A window the user picked leaves their fields alone.
   const [pageMoved, setPageMoved] = useState(0)
-  // The business zone, once a reply has named it. Until then Eastern days are
-  // used for the picker max (same default as `defaultRange`).
+  // The zone the reply counted in, once it has named one. Until then the
+  // user's own zone sets the picker max (same default as `defaultRange`).
   const [zone, setZone] = useState<string | undefined>(undefined)
   // Which bar the list below is showing. A new window doesn't reset it: someone
   // reading Qualified who moves the dates still wants Qualified.
-  const [stage, setStage] = useState<FunnelStage>('attempts')
+  const [stage, setStage] = useState<FunnelStage>('leads')
+  const [teams, setTeams] = useState<Team[]>([])
+  // A Team Admin has no choice to make: the server keeps them to their own team.
+  const { user } = useCurrentUser()
+  const picksTeam = Boolean(user && isSuperAdmin(user.roles))
 
   /** Read a different window. The figures on screen answered the old one. */
   const select = (next: Selection) => {
@@ -66,23 +72,44 @@ export function HistoricalFunnel() {
   }
 
   useEffect(() => {
+    if (!picksTeam) return
     let cancelled = false
 
     waitForMocking()
-      .then(() => withSession((token) => fetchFunnel(selected.range, token, selected.timezone)))
+      .then(() => withSession((token) => listTeams(token)))
+      .then((list) => {
+        if (!cancelled) setTeams([...list.items].sort((a, b) => a.name.localeCompare(b.name)))
+      })
+      // Without the list the filter offers all teams only, and the page still works.
+      .catch(() => {
+        if (!cancelled) setTeams([])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [picksTeam])
+
+  useEffect(() => {
+    let cancelled = false
+
+    waitForMocking()
+      .then(() =>
+        withSession((token) => fetchFunnel(selected.range, selected.teamId || null, token))
+      )
       .then((funnel) => {
         if (cancelled) return
         setZone(funnel.timezone)
 
-        // The page opens on yesterday–today in Eastern. Where the reply names
-        // another business zone and those days disagree, these figures cover a
+        // The page opens on yesterday–today in the user's zone. Where the reply
+        // names another zone and those days disagree, these figures cover a
         // window nobody asked for: they're dropped and the right one read
         // instead, leaving the page loading rather than showing them.
         if (selected.auto) {
           const corrected = defaultRange(funnel.timezone)
           if (corrected.start !== selected.range.start || corrected.end !== selected.range.end) {
             setPageMoved((moved) => moved + 1)
-            select({ range: corrected, auto: true, timezone: selected.timezone })
+            select({ ...selected, range: corrected, auto: true })
             return
           }
         }
@@ -115,12 +142,30 @@ export function HistoricalFunnel() {
               )}
             </div>
 
-            <DateRangePicker
-              key={pageMoved}
-              range={selected.range}
-              max={businessDay(new Date(), zone)}
-              onChange={(range) => select({ range, auto: false, timezone: selected.timezone })}
-            />
+            <div className="flex flex-wrap items-end gap-3">
+              {picksTeam && (
+                <div className="w-[200px]">
+                  <Select
+                    label="Team"
+                    value={selected.teamId}
+                    onChange={(event) => select({ ...selected, teamId: event.target.value })}
+                  >
+                    <option value="">All teams</option>
+                    {teams.map((team) => (
+                      <option key={team.id} value={team.id}>
+                        {team.name}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              )}
+              <DateRangePicker
+                key={pageMoved}
+                range={selected.range}
+                max={businessDay(new Date(), zone)}
+                onChange={(range) => select({ ...selected, range, auto: false })}
+              />
+            </div>
           </header>
 
           {load.status === 'loading' && (
@@ -134,24 +179,22 @@ export function HistoricalFunnel() {
               onStageChange={setStage}
               // Only while the list is on screen: an aria-controls pointing at
               // an id that isn't rendered is worse than none.
-              listId={load.funnel.attempts > 0 ? LIST_ID : undefined}
+              listId={load.funnel.leads > 0 ? LIST_ID : undefined}
             />
           )}
         </section>
 
-        {/* Keyed by stage + window so another bar or zone remounts at the first
-            page, rather than resetting the offset in an effect. Hidden on an
-            empty window because every stage is then empty and the chart already
-            says so. */}
-        {load.status === 'ready' && load.funnel.attempts > 0 && (
-          <FunnelInteractions
-            key={`${stage}-${load.funnel.start}-${load.funnel.end}-${load.funnel.timezone}`}
+        {/* Keyed by stage, window and team so another bar or filter remounts at
+            the first page, rather than resetting the offset in an effect. Hidden
+            on an empty window because every stage is then empty and the chart
+            already says so. */}
+        {load.status === 'ready' && load.funnel.leads > 0 && (
+          <FunnelLeads
+            key={`${stage}-${load.funnel.start}-${load.funnel.end}-${load.funnel.timezone}-${selected.teamId}`}
             id={LIST_ID}
             stage={stage}
             funnel={load.funnel}
-            onTimezoneChange={(timezone) =>
-              select({ range: selected.range, auto: false, timezone })
-            }
+            teamId={selected.teamId || null}
           />
         )}
       </div>

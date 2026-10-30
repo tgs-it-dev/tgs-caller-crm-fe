@@ -38,17 +38,11 @@ import { withSession } from '@/lib/session'
 const EVENTS_LIMIT = 10
 
 /**
- * Where the reader came from, and so where "back" goes.
- *
- * This screen has more than one way in by design — the exception queue and the
- * reports funnel — so the header can't hard-code one of them. A new caller adds
- * its entry here and passes `?from=`; nothing else changes.
+ * Where the reader came from, and so where "back" goes. A new caller adds its
+ * entry here and passes `?from=`; nothing else changes.
  */
 const ORIGINS: Record<string, { href: string; label: string }> = {
   exceptions: { href: '/admin/exceptions', label: 'Back to Exceptions' },
-  // "Funnel" rather than "Reports": the design's word, and the reader came from
-  // a bar, not from the page that holds it.
-  funnel: { href: '/admin/reports', label: 'Back to Funnel' },
 }
 
 /** For a bookmarked or pasted link, which names no origin. */

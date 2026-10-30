@@ -60,16 +60,9 @@ export type QualificationSnapshot = {
 }
 
 export type ConsentDnc = components['schemas']['ConsentDnc']
-
-export type QualificationResponse = {
-  id: string
-  interaction_id: string
-  version: number
-  snapshot_json: QualificationSnapshot
-  consent_dnc: ConsentDnc
-  created_at: string
-  updated_at?: string
-}
+export type QualificationCustomer = components['schemas']['QualificationCustomer']
+/** Wire shape from GET/POST /qualification — includes lead `customer` for the closer card. */
+export type QualificationResponse = components['schemas']['QualificationResponse']
 
 export type QualificationCreateRequest = {
   interaction_id: string

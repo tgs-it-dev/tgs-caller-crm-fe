@@ -30,17 +30,13 @@ const ROLE_LABEL: Record<Role, string> = {
   fronter: 'Fronter',
   closer: 'Closer',
   administrator: 'Team Admin',
+  qa_manager: 'QA Manager',
+  qa_lead: 'QA Lead',
+  qa_agent: 'QA Agent',
   super_admin: 'Super Admin',
 }
 
-export function AgentStatusTable({
-  agents,
-  timeZone,
-}: {
-  agents: AgentLiveStatus[]
-  /** The business time zone, so these times read in the same day as the counts above. */
-  timeZone: string
-}) {
+export function AgentStatusTable({ agents }: { agents: AgentLiveStatus[] }) {
   const [page, setPage] = useState(1)
   // The design dashes this card while a call is going on, and only then.
   const live = agents.some((agent) => STATUS[agent.status].onCall)
@@ -104,7 +100,7 @@ export function AgentStatusTable({
                         {status.label}
                       </Badge>
                     </TableCell>
-                    <TableCell>{status.onCall ? formatTime(agent.since, timeZone) : '-'}</TableCell>
+                    <TableCell>{status.onCall ? formatTime(agent.since) : '-'}</TableCell>
                   </TableRow>
                 )
               })}

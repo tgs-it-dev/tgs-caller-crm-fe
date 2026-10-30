@@ -4,6 +4,7 @@ import { useCallback, useEffect, useReducer, useState, type ReactNode } from 're
 import { usePathname } from 'next/navigation'
 import { RequireRole } from '@/components/auth/RequireRole'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
+import { CartPaymentCard } from '@/components/closer/CartPaymentCard'
 import { CloserDispositionCard } from '@/components/closer/CloserDispositionCard'
 import { QualificationSnapshot } from '@/components/closer/QualificationSnapshot'
 import { TodaysDispositionTable } from '@/components/closer/TodaysDispositionTable'
@@ -274,6 +275,8 @@ function CloserActiveCallWorkspace({
   const { user, status: userStatus } = useCurrentUser()
   const [workspace, dispatch] = useReducer(workspaceReducer, initialWorkspace)
   const [isSaving, setIsSaving] = useState(false)
+  // Null until the cart has loaded, so a failed load leaves the call to the server.
+  const [cartSaved, setCartSaved] = useState<boolean | null>(null)
 
   const {
     snapshot,
@@ -375,6 +378,9 @@ function CloserActiveCallWorkspace({
       ? (STATUS_LABEL[transferStatus] ?? 'Transfer Accepted')
       : 'Transfer not found'
   const dispositionLocked = isLoading || transferStatus !== 'accepted'
+  // The clock counts from the accept, so a call with an outcome, such as a
+  // callback opened days later, shows none.
+  const live = transferStatus === 'accepted' && !savedLabel
   const lockedMessage =
     isLoading || transferStatus === 'accepted'
       ? null
@@ -385,10 +391,10 @@ function CloserActiveCallWorkspace({
       title="Active Call"
       actions={
         <TransferStatusBadge
-          key={transferStatus === 'accepted' ? (callStartedAt ?? 'pending') : 'pending'}
+          key={live ? (callStartedAt ?? 'pending') : 'pending'}
           label={statusText}
           tone={!isLoading && transferStatus !== 'accepted' ? 'neutral' : 'accepted'}
-          startedAt={transferStatus === 'accepted' ? callStartedAt : null}
+          startedAt={live ? callStartedAt : null}
         />
       }
     >
@@ -403,7 +409,12 @@ function CloserActiveCallWorkspace({
           <QualificationSnapshot snapshot={snapshot} isLoading={isLoading} />
           {todaysTable}
         </div>
-        <div className="lg:col-span-5">
+        <div className="flex flex-col gap-4 lg:col-span-5">
+          <CartPaymentCard
+            interactionId={interactionId}
+            enabled={!isLoading && transferStatus === 'accepted'}
+            onCartLoaded={setCartSaved}
+          />
           <CloserDispositionCard
             options={options}
             dispositionId={dispositionId}
@@ -412,6 +423,7 @@ function CloserActiveCallWorkspace({
             isSaving={isSaving}
             disabled={dispositionLocked}
             savedLabel={savedLabel}
+            cartSaved={cartSaved}
             error={saveError ?? lockedMessage}
           />
         </div>

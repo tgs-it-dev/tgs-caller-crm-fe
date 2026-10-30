@@ -2,17 +2,15 @@
 
 import { useId, useState, type FormEvent } from 'react'
 import {
-  CAMPAIGN_PROBLEMS,
-  LeadCampaignSelect,
-  campaignMissing,
-  initialCampaignId,
-} from '@/components/admin/LeadCampaignSelect'
-import { Alert } from '@/components/ui/Alert'
+  EMPTY_LEAD_CREATE_FORM,
+  LeadCreateForm,
+  leadCreatePayload,
+  validateLeadCreateForm,
+  type LeadCreateFormValues,
+} from '@/components/fronter/LeadCreateForm'
 import { Button } from '@/components/ui/Button'
 import { Dialog } from '@/components/ui/Dialog'
-import { Input } from '@/components/ui/Input'
 import { AuthError } from '@/lib/auth'
-import type { Campaign } from '@/lib/campaigns'
 import { formatDate } from '@/lib/format'
 import { createLead, findLeadOnTeam } from '@/lib/leads'
 import { withSession } from '@/lib/session'
@@ -31,29 +29,32 @@ function bannerFor(err: AuthError): string {
   return err.message
 }
 
+const FIELD_KEYS = [
+  'first_name',
+  'last_name',
+  'phone_no',
+  'vehicle_make',
+  'vehicle_year',
+  'vehicle_model',
+  'vin',
+  'license_plate',
+] as const
+
 export function LeadFormDialog({
-  campaigns,
   onClose,
   onSaved,
 }: {
-  /** The team's active campaigns. */
-  campaigns: Campaign[]
   onClose: () => void
   onSaved: () => void
 }) {
   const formId = useId()
-  const [phone, setPhone] = useState('')
-  const [name, setName] = useState('')
-  const [campaignId, setCampaignId] = useState(initialCampaignId(campaigns))
+  const [values, setValues] = useState<LeadCreateFormValues>(EMPTY_LEAD_CREATE_FORM)
   const [problems, setProblems] = useState<Record<string, string>>({})
   const [banner, setBanner] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
-  function checkHere(): Record<string, string> {
-    const found: Record<string, string> = {}
-    if (!phone.trim()) found.phone = 'Enter a phone number.'
-    if (campaignMissing(campaigns, campaignId)) found.campaign_id = 'Select a campaign.'
-    return found
+  function patch(next: Partial<LeadCreateFormValues>) {
+    setValues((prev) => ({ ...prev, ...next }))
   }
 
   function showFailure(err: unknown) {
@@ -62,15 +63,12 @@ export function LeadFormDialog({
       return
     }
     if (PHONE_PROBLEMS[err.code]) {
-      setProblems({ phone: PHONE_PROBLEMS[err.code] })
+      setProblems({ phone_no: PHONE_PROBLEMS[err.code] })
       return
     }
-    if (CAMPAIGN_PROBLEMS[err.code]) {
-      setProblems({ campaign_id: CAMPAIGN_PROBLEMS[err.code] })
-      return
-    }
-    // A request the API could not read names its input; anything else goes up top.
-    const named = err.fields.filter((field) => field.field === 'phone' || field.field === 'name')
+    const named = err.fields.filter((field) =>
+      FIELD_KEYS.includes(field.field as (typeof FIELD_KEYS)[number])
+    )
     if (named.length > 0) {
       setProblems(Object.fromEntries(named.map((field) => [field.field as string, field.message])))
       return
@@ -80,35 +78,23 @@ export function LeadFormDialog({
 
   async function submit(event: FormEvent) {
     event.preventDefault()
-    const found = checkHere()
+    const found = validateLeadCreateForm(values)
     setProblems(found)
     setBanner(null)
     if (Object.keys(found).length > 0) return
 
     setSaving(true)
     try {
-      // POST /leads answers 201 for a number the team already has, so ask first.
-      const existing = await withSession((token) => findLeadOnTeam(phone.trim(), token))
-      if (existing) {
-        const added = formatDate(existing.created_at)
-        setProblems({
-          phone: `This number is already on your team (added ${added}). It was not added again.`,
-        })
-        setSaving(false)
-        return
-      }
-      await withSession((token) =>
-        createLead(
-          {
-            phone: phone.trim(),
-            source: 'manual',
-            // The API refuses an empty name, so a blank one is left out.
-            ...(name.trim() ? { name: name.trim() } : {}),
-            ...(campaignId ? { campaign_id: campaignId } : {}),
-          },
-          token
-        )
+      const existing = await withSession((token) =>
+        findLeadOnTeam(values.phone_no.trim(), token)
       )
+      if (existing) {
+        setBanner(
+          `This number is already on your team (added ${formatDate(existing.created_at)}). Saving will update its details.`
+        )
+      }
+
+      await withSession((token) => createLead(leadCreatePayload(values), token))
       onSaved()
     } catch (err) {
       showFailure(err)
@@ -122,6 +108,7 @@ export function LeadFormDialog({
       title="Add lead"
       onClose={onClose}
       busy={saving}
+      maxWidth="sm"
       actions={
         <div className="flex w-full gap-3">
           <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
@@ -133,36 +120,16 @@ export function LeadFormDialog({
         </div>
       }
     >
-      <form id={formId} onSubmit={submit} noValidate className="space-y-5 pt-1">
-        {banner && <Alert>{banner}</Alert>}
-
-        <Input
-          label="Phone"
-          type="tel"
-          value={phone}
-          onChange={(event) => setPhone(event.target.value)}
-          error={Boolean(problems.phone)}
-          helperText={problems.phone ?? 'Include the area code, for example (212) 555-0100.'}
-          maxLength={32}
-          autoFocus
-        />
-
-        <Input
-          label="Name"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          error={Boolean(problems.name)}
-          helperText={problems.name ?? 'Optional. Fronters see it on their queue.'}
-          maxLength={255}
-        />
-
-        <LeadCampaignSelect
-          campaigns={campaigns}
-          value={campaignId}
-          onChange={setCampaignId}
-          error={problems.campaign_id}
-        />
-      </form>
+      <LeadCreateForm
+        formId={formId}
+        values={values}
+        onChange={patch}
+        problems={problems}
+        banner={banner}
+        onSubmit={(e) => {
+          void submit(e)
+        }}
+      />
     </Dialog>
   )
 }

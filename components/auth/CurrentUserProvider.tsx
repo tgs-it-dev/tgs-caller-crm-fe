@@ -2,6 +2,7 @@
 
 import {
   createContext,
+  Fragment,
   ReactNode,
   useCallback,
   useContext,
@@ -16,6 +17,7 @@ import {
   getCurrentUser,
   readToken,
 } from '@/lib/auth'
+import { BUSINESS_TIMEZONE, setDisplayTimeZone } from '@/lib/format'
 import { waitForMocking } from '@/lib/mockReady'
 import { signOut as endSession, withSession } from '@/lib/session'
 
@@ -123,7 +125,16 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
     [state, refresh, hydrate, signOut]
   )
 
-  return <CurrentUserContext.Provider value={value}>{children}</CurrentUserContext.Provider>
+  // Set before the children render, so every formatter draws in this user's zone.
+  const zone = state.status === 'ready' ? state.user.timezone : BUSINESS_TIMEZONE
+  setDisplayTimeZone(zone)
+
+  return (
+    <CurrentUserContext.Provider value={value}>
+      {/* Keyed by zone so changing it redraws every screen in the new one. */}
+      <Fragment key={zone}>{children}</Fragment>
+    </CurrentUserContext.Provider>
+  )
 }
 
 export function useCurrentUser() {

@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useMemo, useState, type ComponentType, type SVGProps } from 'react'
+import { Suspense, useEffect, useMemo, useState, type ComponentType, type SVGProps } from 'react'
 import Image from 'next/image'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
@@ -11,17 +11,21 @@ import {
   ChartLine,
   Check,
   ChevronDown,
+  ClipboardCheck,
   Contact,
+  FileSearch,
   Headset,
   ListOrdered,
   LogOut,
   Menu,
   Phone,
   PhoneIncoming,
+  Settings,
   Shield,
 } from 'lucide-react'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import {
+  deskAccent,
   deskLabelForRole,
   deskRoleFromPath,
   formatRolesLabel,
@@ -54,12 +58,20 @@ function StatsIcon() {
   return <ChartLine {...NAV_ICON} />
 }
 
+function PolicyIcon() {
+  return <FileSearch {...NAV_ICON} />
+}
+
 function BellIcon() {
   return <Bell {...NAV_ICON} />
 }
 
 function SignOutIcon() {
   return <LogOut {...NAV_ICON} />
+}
+
+function SettingsIcon() {
+  return <Settings {...NAV_ICON} />
 }
 
 function MenuIcon() {
@@ -88,6 +100,10 @@ function CloserDeskIcon() {
 
 function AdminDeskIcon() {
   return <Shield {...DESK_ICON_PROPS} />
+}
+
+function QaDeskIcon() {
+  return <ClipboardCheck {...DESK_ICON_PROPS} />
 }
 
 function DashboardIcon() {
@@ -161,6 +177,9 @@ const BASE_PATH: Record<Role, string> = {
   fronter: '/fronter',
   closer: '/closer',
   administrator: '/admin',
+  qa_manager: '/admin',
+  qa_lead: '/qa',
+  qa_agent: '/qa',
   super_admin: '/admin',
 }
 
@@ -169,6 +188,9 @@ const DESK_ICON: Record<Role, ComponentType> = {
   fronter: FronterDeskIcon,
   closer: CloserDeskIcon,
   administrator: AdminDeskIcon,
+  qa_manager: AdminDeskIcon,
+  qa_lead: QaDeskIcon,
+  qa_agent: QaDeskIcon,
   super_admin: AdminDeskIcon,
 }
 
@@ -182,29 +204,46 @@ const TEAM_ADMIN_NAV: NavItem[] = [
     isActive: (p) => p.startsWith('/admin/reports'),
   },
   {
-    href: '/admin/exceptions',
-    label: 'Exceptions',
-    icon: ExceptionsIcon,
-    // Not /admin/interactions: that screen is reached from here and from the
-    // reports funnel, so lighting either one is wrong half the time. It lights
-    // nothing, and its back link says which way the reader came in.
-    isActive: (p) => p.startsWith('/admin/exceptions'),
+    href: '/admin/policies',
+    label: 'Policy lookup',
+    icon: PolicyIcon,
+    isActive: (p) => p.startsWith('/admin/policies'),
   },
+  // {
+  //   href: '/admin/exceptions',
+  //   label: 'Exceptions',
+  //   icon: ExceptionsIcon,
+  //   // Not /admin/interactions: that screen is reached from here and from the
+  //   // reports funnel, so lighting either one is wrong half the time. It lights
+  //   // nothing, and its back link says which way the reader came in.
+  //   isActive: (p) => p.startsWith('/admin/exceptions'),
+  // },
   {
     href: '/admin/users',
     label: 'Users',
     icon: UsersIcon,
     isActive: (p) => p.startsWith('/admin/users'),
   },
-  {
-    href: '/admin/leads',
-    label: 'Leads',
-    icon: LeadsIcon,
-    isActive: (p) => p.startsWith('/admin/leads'),
-  },
+  // {
+  //   href: '/admin/leads',
+  //   label: 'Leads',
+  //   icon: LeadsIcon,
+  //   isActive: (p) => p.startsWith('/admin/leads'),
+  // },
 ]
 
-/** Super Admin modules — Users / Teams / Campaigns only. */
+/** Every team's QA, for a Super Admin or QA Manager. */
+const ADMIN_QA_NAV_ITEM: NavItem = {
+  href: '/admin/qa',
+  label: 'QA',
+  icon: QaDeskIcon,
+  isActive: (p) => p.startsWith('/admin/qa'),
+}
+
+/**
+ * Super Admin modules: Users, Teams, Campaigns, Reports, Team stats and QA.
+ * Reports is how they reach a lead's full view, through its drill-down.
+ */
 const SUPER_ADMIN_NAV: NavItem[] = [
   {
     href: '/admin/users',
@@ -224,10 +263,54 @@ const SUPER_ADMIN_NAV: NavItem[] = [
     icon: CampaignsIcon,
     isActive: (p) => p.startsWith('/admin/campaigns'),
   },
+  {
+    href: '/admin/reports',
+    label: 'Reports',
+    icon: ReportsIcon,
+    isActive: (p) => p.startsWith('/admin/reports'),
+  },
+  {
+    href: '/admin/policies',
+    label: 'Policy lookup',
+    icon: PolicyIcon,
+    isActive: (p) => p.startsWith('/admin/policies'),
+  },
+  {
+    href: '/admin/team-stats',
+    label: 'Team stats',
+    icon: StatsIcon,
+    isActive: (p) => p.startsWith('/admin/team-stats'),
+  },
+  ADMIN_QA_NAV_ITEM,
+]
+
+/** QA Manager: QA and Users, with no Teams, Campaigns or company reporting. */
+const QA_MANAGER_NAV: NavItem[] = [
+  ADMIN_QA_NAV_ITEM,
+  {
+    href: '/admin/users',
+    label: 'Users',
+    icon: UsersIcon,
+    isActive: (p) => p.startsWith('/admin/users'),
+  },
 ]
 
 function adminNavFor(role: Role): NavItem[] {
-  return role === 'super_admin' ? SUPER_ADMIN_NAV : TEAM_ADMIN_NAV
+  if (role === 'super_admin') return SUPER_ADMIN_NAV
+  if (role === 'qa_manager') return QA_MANAGER_NAV
+  return TEAM_ADMIN_NAV
+}
+
+/** The QA Lead's team queue, or the QA Agent's own sales. */
+function qaDeskNav(): NavItem[] {
+  return [
+    {
+      href: '/qa',
+      label: 'QA',
+      icon: QaDeskIcon,
+      isActive: (p) => p === '/qa' || p.startsWith('/qa/item'),
+    },
+  ]
 }
 
 /** `trailingSlash: true` makes usePathname() return `/fronter/`; nav hrefs stay `/fronter`. */
@@ -235,19 +318,34 @@ function normalizePath(pathname: string): string {
   return pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname
 }
 
+/**
+ * The path the menu lights up for. A lead's full view lives under Reports, but
+ * opened from Policy lookup (`?from=policies`) it belongs to that page instead.
+ */
+function menuPath(pathname: string, from: string | null): string {
+  const path = normalizePath(pathname)
+  return path === '/admin/reports/lead' && from === 'policies' ? '/admin/policies' : path
+}
+
 function deskNav(role: 'fronter' | 'closer', activeCallHref: string): NavItem[] {
   const base = BASE_PATH[role]
   const workspace = `${base}/workspace`
-  const queue = role === 'closer' ? `${base}/queue` : base
+  // Fronter home is lead create + callbacks (no dialer queue). Closer keeps /closer/queue.
+  const listHref = role === 'closer' ? `${base}/queue` : base
+  const listLabel = role === 'closer' ? 'Queue' : 'Leads'
+  // Kept for when Active Call returns to the nav (see commented item below).
+  void activeCallHref
+  void workspace
   return [
-    {
-      href: activeCallHref,
-      label: 'Active Call',
-      icon: PhoneIcon,
-      // A closer's Active Call is the desk itself; a fronter's is always a workspace.
-      isActive: (p) => p.startsWith(workspace) || (role === 'closer' && p === base),
-    },
-    { href: queue, label: 'Queue', icon: QueueIcon, isActive: (p) => p === queue },
+    // Active Call — not shown while fronters work from Leads / create form only.
+    // {
+    //   href: activeCallHref,
+    //   label: 'Active Call',
+    //   icon: PhoneIcon,
+    //   // A closer's Active Call is the desk itself; a fronter's is always a workspace.
+    //   isActive: (p) => p.startsWith(workspace) || (role === 'closer' && p === base),
+    // },
+    { href: listHref, label: listLabel, icon: QueueIcon, isActive: (p) => p === listHref },
     {
       href: `${base}/stats`,
       label: 'My Stats',
@@ -304,8 +402,23 @@ function SidebarInner() {
     (userReady ? primaryRole(user.roles) : null) ??
     'fronter'
 
+  // Until /auth/me answers, `/admin` reads as Team Admin, which would flash a
+  // Super Admin's desk green.
+  const accent = userReady || role !== 'administrator' ? deskAccent(role) : null
+
+  // On <html>, because dialogs and menus render under <body>.
+  useEffect(() => {
+    if (!accent) return
+    document.documentElement.dataset.accent = accent
+    return () => {
+      delete document.documentElement.dataset.accent
+    }
+  }, [accent])
+
   const basePath = BASE_PATH[role]
   const workspacePathPrefix = `${basePath}/workspace`
+  const settingsHref = `${basePath}/settings`
+  const settingsActive = normalizePath(pathname) === settingsHref
 
   // Prefer ?id= (static-export safe). Path segments still resolve for CDN deep
   // links that rewrite /workspace/<id>/ onto the prebuilt shell.
@@ -331,11 +444,14 @@ function SidebarInner() {
       : `${workspacePathPrefix}/?id=${encodeURIComponent(workspaceIdFromUrl)}`
     : basePath
 
-  // Team Admin vs Super Admin get different /admin modules.
+  // Team Admin / Super Admin / QA Manager share /admin with different modules;
+  // QA Lead and QA Agent work from /qa.
   const navItems =
-    role === 'administrator' || role === 'super_admin'
+    role === 'administrator' || role === 'super_admin' || role === 'qa_manager'
       ? adminNavFor(role)
-      : deskNav(role, activeCallHref)
+      : role === 'qa_agent' || role === 'qa_lead'
+        ? qaDeskNav()
+        : deskNav(role, activeCallHref)
 
   // Somebody may hold more than one role, and the nav only ever shows the desk
   // they are on — so without a way across, the others are unreachable. One role
@@ -363,7 +479,7 @@ function SidebarInner() {
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex h-full min-h-0 flex-shrink-0 flex-col overflow-hidden overscroll-none border-r border-slate/15 bg-white transition-transform duration-200 ease-in-out lg:static lg:z-auto lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex h-full min-h-0 flex-shrink-0 flex-col overflow-hidden overscroll-none border-r border-slate/15 bg-white shadow-[inset_0_3px_0_var(--accent-rule)] transition-transform duration-200 ease-in-out lg:static lg:z-auto lg:translate-x-0 ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         } ${collapsed ? 'lg:w-16' : 'w-72 lg:w-72'}`}
       >
@@ -474,11 +590,11 @@ function SidebarInner() {
                 <span className="flex shrink-0 text-slate">
                   <Icon />
                 </span>
-                <span className={`flex-1 ${current ? 'font-semibold text-navy' : 'text-black'}`}>
+                <span className={`flex-1 ${current ? 'font-semibold text-accent-text' : 'text-black'}`}>
                   {roleLabel(desk)}
                 </span>
                 {current && (
-                  <Check className="h-4 w-4 shrink-0 text-navy" strokeWidth={2.5} aria-hidden />
+                  <Check className="h-4 w-4 shrink-0 text-accent-text" strokeWidth={2.5} aria-hidden />
                 )}
               </MenuItem>
             )
@@ -493,7 +609,7 @@ function SidebarInner() {
           }`}
         >
           {navItems.map(({ href, label, icon: Icon, isActive }) => {
-            const active = isActive(normalizePath(pathname))
+            const active = isActive(menuPath(pathname, searchParams.get('from')))
             return (
               <Link
                 key={label}
@@ -501,7 +617,7 @@ function SidebarInner() {
                 title={collapsed ? label : undefined}
                 className={`flex items-center gap-3 rounded-lg text-sm font-medium leading-[150%] transition ${
                   collapsed ? 'lg:justify-center lg:px-2 lg:py-2 px-3 py-2.5' : 'px-3 py-2.5'
-                } ${active ? 'bg-nav-active text-navy' : 'text-slate hover:bg-slate/10 hover:text-ink'}`}
+                } ${active ? 'bg-accent-soft text-accent-text' : 'text-slate hover:bg-slate/10 hover:text-ink'}`}
               >
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center">
                   <Icon />
@@ -536,6 +652,21 @@ function SidebarInner() {
               2
             </span>
           </div>
+
+          {/* Every desk has one, so it sits with the account rather than in a desk's nav. */}
+          <Link
+            href={settingsHref}
+            title={collapsed ? 'Settings' : undefined}
+            aria-label={collapsed ? 'Settings' : undefined}
+            className={`mt-1 flex items-center gap-3 rounded-lg py-2.5 text-sm font-medium transition ${
+              collapsed ? 'lg:justify-center lg:px-2 px-3' : 'px-3'
+            } ${settingsActive ? 'bg-accent-soft text-accent-text' : 'text-ink hover:bg-slate/10'}`}
+          >
+            <span className="flex-shrink-0 p-1">
+              <SettingsIcon />
+            </span>
+            <span className={collapsed ? 'lg:hidden' : ''}>Settings</span>
+          </Link>
 
           <div
             className={`mt-2 flex items-center gap-3 rounded-lg py-2.5 ${

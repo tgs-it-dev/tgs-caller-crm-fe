@@ -1,7 +1,7 @@
 import type { components, paths } from '@/lib/generated/schema'
 import { apiUrl } from '@/lib/apiUrl'
 import { authError } from '@/lib/auth'
-import { BUSINESS_TIMEZONE } from '@/lib/format'
+import { displayTimeZone } from '@/lib/format'
 
 export type HistoricalFunnel = components['schemas']['HistoricalFunnel']
 
@@ -9,52 +9,42 @@ export type HistoricalFunnel = components['schemas']['HistoricalFunnel']
 export type FunnelStage =
   paths['/reporting/funnel/{stage}']['get']['parameters']['path']['stage']
 
-export type FunnelInteraction = components['schemas']['FunnelInteraction']
-export type FunnelInteractionList = components['schemas']['FunnelInteractionListResponse']
+export type FunnelLead = components['schemas']['FunnelLead']
+export type FunnelLeadList = components['schemas']['FunnelLeadListResponse']
+
+export type TeamStatsReport = components['schemas']['TeamStatsResponse']
+export type TeamStats = components['schemas']['TeamStats']
+export type TeamFigures = components['schemas']['TeamFigures']
+
+export type SalesReport = components['schemas']['SalesReportResponse']
+export type SaleItem = components['schemas']['SaleItem']
+export type SalesTotals = components['schemas']['SalesTotals']
+
+/** Narrows the sales list; any filter left null is not applied. */
+export type SalesQuery = {
+  teamId: string | null
+  closerId: string | null
+  limit: number
+  offset: number
+}
 
 /** An inclusive range of business days, each as `YYYY-MM-DD`. */
 export type DateRange = { start: string; end: string }
 
 /**
- * Zones an administrator can ask the funnel to count in.
+ * The leads added in a range of days, by the furthest stage each reached. A
+ * Super Admin may name one team; anyone else always gets their own.
  *
- * Any IANA name the server knows is valid; this is only the menu. The reply's
- * zone is always offered too, so a configured business day outside the list
- * still appears as the current choice.
- */
-export const REPORT_TIMEZONES = [
-  BUSINESS_TIMEZONE,
-  'America/Chicago',
-  'America/Denver',
-  'America/Los_Angeles',
-  'America/Phoenix',
-  'UTC',
-  'Europe/London',
-  'Asia/Karachi',
-] as const
-
-/** Menu options for a funnel reply — curated list plus the zone on screen. */
-export function reportTimezoneOptions(current: string): string[] {
-  if ((REPORT_TIMEZONES as readonly string[]).includes(current)) {
-    return [...REPORT_TIMEZONES]
-  }
-  return [current, ...REPORT_TIMEZONES]
-}
-
-/**
- * Funnel counts for a range of business days.
- *
- * Omit `timezone` on the first read so the server names the configured
- * business day. Pass one after that when someone deliberately picks another
- * region — the same dates mean a different cohort under a different zone.
+ * No `timezone` is sent: the server counts in the signed-in user's own zone
+ * and names it in the reply.
  */
 export async function fetchFunnel(
   range: DateRange,
-  token: string,
-  timezone?: string
+  teamId: string | null,
+  token: string
 ): Promise<HistoricalFunnel> {
   const query = new URLSearchParams(range)
-  if (timezone) query.set('timezone', timezone)
+  if (teamId) query.set('team_id', teamId)
   const res = await fetch(apiUrl(`/reporting/funnel?${query}`), {
     headers: { Authorization: `Bearer ${token}` },
   })
@@ -63,18 +53,19 @@ export async function fetchFunnel(
 }
 
 /**
- * One page of the interactions behind a funnel number.
+ * One page of the leads behind a funnel number.
  *
  * Takes the funnel rather than its dates, and unlike `fetchFunnel` does send
  * `timezone`: the aggregate names the zone it counted in, and only sending that
- * back keeps `total` equal to the figure on screen.
+ * back, with the same team, keeps `total` equal to the figure on screen.
  */
 export async function fetchFunnelStage(
   stage: FunnelStage,
   funnel: HistoricalFunnel,
+  teamId: string | null,
   page: { limit: number; offset: number },
   token: string
-): Promise<FunnelInteractionList> {
+): Promise<FunnelLeadList> {
   const query = new URLSearchParams({
     start: funnel.start,
     end: funnel.end,
@@ -82,15 +73,55 @@ export async function fetchFunnelStage(
     limit: String(page.limit),
     offset: String(page.offset),
   })
+  if (teamId) query.set('team_id', teamId)
   const res = await fetch(apiUrl(`/reporting/funnel/${stage}?${query}`), {
     headers: { Authorization: `Bearer ${token}` },
   })
   if (!res.ok) throw await authError(res)
-  return res.json() as Promise<FunnelInteractionList>
+  return res.json() as Promise<FunnelLeadList>
 }
 
-/** The calendar day `date` falls on in `timeZone` (Eastern when omitted). */
-export function businessDay(date: Date, timeZone: string = BUSINESS_TIMEZONE): string {
+/**
+ * Every team's figures for a range of days, or one team's when `teamId` is set.
+ *
+ * Super Admin only. Like `fetchFunnel`, no `timezone` is sent: the server
+ * counts in the user's own zone and names it in the reply.
+ */
+export async function fetchTeamStats(
+  range: DateRange,
+  teamId: string | null,
+  token: string
+): Promise<TeamStatsReport> {
+  const query = new URLSearchParams(range)
+  if (teamId) query.set('team_id', teamId)
+  const res = await fetch(apiUrl(`/reporting/teams?${query}`), {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) throw await authError(res)
+  return res.json() as Promise<TeamStatsReport>
+}
+
+/**
+ * One page of the sales made in a range of days, newest first, with totals across
+ * every matching sale. Super Admin only; like the others, no `timezone` is sent.
+ */
+export async function fetchSales(
+  range: DateRange,
+  { teamId, closerId, limit, offset }: SalesQuery,
+  token: string
+): Promise<SalesReport> {
+  const query = new URLSearchParams({ ...range, limit: String(limit), offset: String(offset) })
+  if (teamId) query.set('team_id', teamId)
+  if (closerId) query.set('closer_id', closerId)
+  const res = await fetch(apiUrl(`/reporting/sales?${query}`), {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) throw await authError(res)
+  return res.json() as Promise<SalesReport>
+}
+
+/** The calendar day `date` falls on in `timeZone` (the user's zone when omitted). */
+export function businessDay(date: Date, timeZone: string = displayTimeZone()): string {
   // en-CA writes YYYY-MM-DD, which is what the API takes.
   return new Intl.DateTimeFormat('en-CA', { timeZone }).format(date)
 }
@@ -104,7 +135,13 @@ function dayBefore(isoDay: string): string {
 }
 
 /** Yesterday through today — the window the reports page opens on. */
-export function defaultRange(timeZone: string = BUSINESS_TIMEZONE): DateRange {
+export function defaultRange(timeZone: string = displayTimeZone()): DateRange {
   const today = businessDay(new Date(), timeZone)
   return { start: dayBefore(today), end: today }
+}
+
+/** The first of this month through today, the window team stats opens on. */
+export function monthToDate(timeZone: string = displayTimeZone()): DateRange {
+  const today = businessDay(new Date(), timeZone)
+  return { start: `${today.slice(0, 8)}01`, end: today }
 }

@@ -67,9 +67,10 @@ Contract (typed in `lib/generated/schema.d.ts`):
   that user, so a refresh token must never be sent twice.
 - `POST /auth/logout` `{refresh_token}` → 204, whether or not the token was live.
 - `GET /auth/me` (Bearer token) → `{id, email, name, active, roles, team_id, created_at}`
-- `RoleName = "fronter" | "closer" | "administrator" | "super_admin"` — a user can
-  hold multiple roles; frontend picks the landing route by priority
-  (`super_admin` > `administrator` > `closer` > `fronter`), see `lib/auth.ts`.
+- `RoleName = "fronter" | "closer" | "administrator" | "qa_manager" | "qa_lead" |
+  "qa_agent" | "super_admin"`. A user can hold multiple roles; frontend picks the
+  landing route by priority (`super_admin` > `administrator` > `qa_manager` >
+  `closer` > `fronter` > `qa_lead` > `qa_agent`), see `lib/auth.ts`.
   Super Admin inherits every Team Admin `/admin` surface (`roleSatisfies`).
 - Every error response is `{detail, code, fields?}`, read with `readApiError()`.
   Branch on `code`, never on `detail`: `auth.not_authenticated` (token missing,
@@ -125,6 +126,12 @@ Frontend pieces:
   fronters and closers, `ADMIN_NAV` for administrators. Each item carries its
   own `isActive(pathname)`. A new page goes under its role's segment and into
   that role's list.
+- **A Super Admin's list is `SUPER_ADMIN_NAV`**: Users, Teams, Campaigns,
+  Reports, Team stats and QA. Reports is there because its drill-down is how they
+  reach a lead's full view. Exceptions stays out: without the dialer it is empty.
+- **QA desks.** A QA Manager works from `/admin` with QA and Users. A QA Lead and
+  a QA Agent work from `/qa`, which `deskRoleFromPath()` resolves to whichever of
+  the two they hold (`qaDeskRole()`).
 - **Somebody may hold more than one role**, and the nav only ever shows the desk
   they are on, so the sidebar identity doubles as a desk menu — `heldDesks()` in
   `lib/auth.ts` lists every desk held, the current one ticked. A single-role
@@ -155,10 +162,45 @@ The administrator dashboard (`/admin`) is fed by `lib/liveStatus.ts`:
 - Under MSW there's no socket to mock, so it polls the snapshot every 15s.
 - "Live" means the newest snapshot arrived within three push intervals,
   timed by arrival — a socket kept open by pings can still carry stale figures.
-- Times show in the business time zone the snapshot names (`timezone`), with its
-  abbreviation, so they read in the same day as the counts.
+- Times show in the user's own zone, with its abbreviation. The counters read
+  `funnel_today_by_timezone`, which carries today in every zone a user can
+  choose, so one push gives each viewer their own day.
+
+## Fronter desk
+
+`/fronter` (`components/fronter/FronterDeskScreen.tsx`) is where a fronter works
+leads by hand: New lead, and one Leads table, read from `GET /leads/search`
+through `searchLeads()` in `lib/leads.ts`.
+
+- **The list is the team's leads not yet with a closer.** A lead leaves it once
+  a closer accepts it or it is sold, by the same per-lead stage Reports counts.
+  Longest waiting first: since the latest fronter disposition, or since the lead
+  was added.
+- **It opens on Callback,** so the desk still starts as the callback list did.
+  The Disposition select also offers All, No disposition yet (uploaded and
+  untouched leads) and each fronter disposition, matched against the lead's
+  latest one. It applies as soon as it changes.
+- **No Search button.** The box searches 300ms after typing stops, from the
+  first character, and matches part of the name, and part of the phone too when
+  it is a number: one digit already searches phones, one letter names. A search
+  with a letter in it stays on names, or its stray digits would match nearly
+  every phone. Any filter change goes back to page one, and only the newest
+  reply is drawn, so a slow one can't replace it. The table reloads every 30
+  seconds: each load is a full query on a busy team.
+- **The table's heading names what it shows** (Scheduled callbacks, All leads,
+  Leads with no disposition yet, Marked No Answer), so it never repeats the
+  page's own "Leads".
+- **Opening a lead creates nothing.** `LeadEditDialog` asks for a call through
+  `openLeadCall()` (`POST /leads/{id}/calls`) only when a save records a
+  disposition or a transfer. The backend answers with the lead's latest call
+  while nothing is recorded on it or it waits on a callback, and a new call
+  otherwise; New lead follows the same rule for a phone already on the team.
+  A save that only edits the lead is a PATCH and nothing more, which is why the
+  dialog starts with no disposition picked unless the lead is a callback.
 
 ## Fronter Active Call
+
+Not linked from the desk or the sidebar since the dialer queue was removed.
 
 `/fronter/workspace/?id=<interactionId>` is where a fronter works a call —
 `components/workspace/ActiveCallScreen.tsx`, composing the checklist, the
@@ -193,116 +235,182 @@ disposition picker and the transfer panel.
   since un-ticking a suppression the fronter just asserted is the one direction
   that loses something.
 
+## Closer cart
+
+`components/closer/CartPaymentCard.tsx`, above the closer's disposition card;
+the API calls and rules are in `lib/cart.ts`.
+
+- **Unlocks once the transfer is accepted.** Before that the API would refuse
+  the save: only the closer who accepted the call may write its cart.
+- **Account, routing and CVV show only while focused**, and read `•••• 1234`
+  (or `•••`) once the closer leaves the field. They live in component state
+  alone, never storage or logs.
+- **The full numbers never come back.** `GET /interactions/{id}/cart` gives at
+  most the last four digits. A saved cart shows read-only, masked, with an
+  **Edit cart** button. In the form, a saved number shows as its placeholder
+  (`•••• 4242`); left blank it is kept (the request leaves it out), and typing
+  replaces it. The CVV is checked by the API and discarded.
+- **Money goes as strings** (`"1800.00"`), formatted on blur and shown through
+  `formatMoney`. `CURRENCY` in `lib/format.ts` is the one place the currency is
+  set: the API stores amounts without one.
+- `checkCart` mirrors the API's rules so most mistakes show inline before a
+  save; the mock handler reuses it, so the two cannot drift.
+- **A sale needs a saved cart.** The API refuses an outcome with `counts_as_sale`
+  until the call has one, and `CloserDispositionCard` says so first: Save
+  Disposition turns off with a short note. `cartSaved` is `null` until the cart
+  has loaded, so a sold call doesn't flash the note and a failed load leaves the
+  decision to the server. Other outcomes need no cart, and the policy number
+  stays optional because it can be added once it's issued.
+
+## Closer callbacks
+
+The closer's Queue page lists **Callbacks** under the transfer queue
+(`components/queue/QueueScreen.tsx`, `GET /queue/callbacks`): the calls this
+closer accepted whose latest closer outcome is Callback Scheduled, oldest first.
+
+- **Open goes back to the same call.** The workspace loads its cart and saved
+  outcome, and saving another outcome records the next closer version on that
+  call, which takes it off the list. No new call is made.
+- **No clock on a call with an outcome.** The header timer counts from the
+  accept, so it shows only while the call is still being worked.
+- **It loads on its own and refreshes every 30 seconds**, so a queue error never
+  hides it, and the reverse.
+
 ## Reporting
 
-`/admin/reports` reads `GET /reporting/funnel` through `lib/reporting.ts` for an
-inclusive range of business days — Attempts, Connects, Qualified, Transfer
-Attempts.
+`/admin/reports` reads `GET /reporting/funnel` through `fetchFunnel()` in
+`lib/reporting.ts` for an inclusive range of business days: Leads, Qualified,
+Transferred and Sold, counting the **leads added in the dates, each at the
+furthest stage it has reached**.
 
-- **No `timezone` is sent.** A business day is the server's to define; the reply
-  names the zone it counted in, and the page shows it beside the window as the
-  abbreviation ("EDT"), the way the live dashboard writes times. The page opens
-  on today in that zone — except on the very first request, where nothing has
-  named the zone yet, so it uses the browser's day and corrects itself if the
-  reply disagrees, staying on the loading state so a day nobody asked for is
+- **It counts leads, not interactions.** Each fronter form save opens another
+  interaction and an uploaded lead has none, so interactions stopped matching
+  leads; Attempts and Connects are gone. A lead counts once: Sold when any call's
+  own latest closer outcome is a sale, Transferred when a closer accepted any of
+  its calls (or it is sold), Qualified when its latest fronter outcome across all
+  calls qualifies it (or it got further). So each bar sits inside the one before,
+  and each is drawn as a share of Leads, with that share printed beside the
+  count. ADR 0003 in the backend defines it all.
+- **Qualified can read higher than Team stats' Qualified, and that is correct.**
+  Team stats files a lead under its latest fronter outcome, so a transferred lead
+  called back later sits under Callback there; here it has still reached
+  Qualified. Transferred and Sold always match Team stats for the same dates.
+- **Transferred doesn't claim the closer reached the lead.** The dialer bridge
+  isn't recorded. The page says what each bar means in a line under the chart
+  rather than in hover text, which a screen reader never reads.
+- **No `timezone` is sent.** The server counts in the signed-in user's own zone
+  (see Settings) and names it in the reply, and the page shows it beside the
+  window as the abbreviation ("EDT", "PKT"). The page opens on today in the
+  user's zone. If a reply ever names another zone and those days disagree, it
+  corrects itself, staying on the loading state so a day nobody asked for is
   never drawn. A window the user picked is never corrected.
-- **The bars needn't narrow.** All four counts share one cohort, so Attempts
-  bounds the rest, but Qualified doesn't require a call leg — with the dialer
-  events unmapped, Connects sits at 0 under a non-zero Qualified. Bars measure
-  against the largest count and the page prints what the server sent; never
-  reshape a figure to keep a funnel silhouette.
-- **Transferred is the last bar — one word from the API key to the column
-  heading.** The stage key, the bar label and the drill-down header are all
-  "transferred"; only the database underneath speaks of the transfer being
-  *accepted*, because `status` has six values and `accepted` is one of them.
-  The bar does **not** claim the closer *reached* the lead — the dialer bridge
-  isn't recorded, and that is the PRD's separate "closer connected" stage. Its
-  `event_at` is `Transfer.answered_at`, deliberately not an `accepted_at`: the
-  column is stamped on a rejection too, and the stage's status filter is what
-  narrows it. Connects is a stand-in too, and the page says all of this in a
-  line under the chart rather than in hover text, which a screen reader never
-  reads.
-- **There is no Transfer Attempts bar, and re-adding one needs a reason.** It
-  counted every offer including the ones nobody took, and over all seeded
-  history it never once diverged from Qualified — the only outcome the transfer
-  gate accepts is the only one that counts as qualified, so the two measured the
-  same set. What it hid was the gap that matters: roughly half of all offers are
-  rejected or time out, which is what Transferred now exposes. The offered count
-  still exists — `transfer_attempts()` in the backend feeds the dashboard's
-  "Transfers Offered/Rejected" counter, read from `transfers_offered` — it is
-  just not a funnel stage. That field used to be `transfers_initiated`, which
-  named one of the six transfer statuses while counting offers of every status.
-- **Qualified is the fronter's verdict, not the presence of a form.** It counts
-  interactions whose latest *fronter* disposition carries `counts_as_qualified`
-  on the catalogue row. It used to count `exists(Qualification)`, which answered
-  a different question — what the fronter *captured* — and so counted a form
-  filled in for a lead who plainly didn't qualify. A `Qualification` row is
-  still that record, and is written whenever anything was captured; the
-  disposition is what says the lead passed.
-- **`counts_as_qualified` and `allows_transfer` are two columns on purpose.**
-  One catalogue row carries both today, so the two bars will read close
-  together — in this business a qualified lead is handed over at once. That is
-  not a reason to collapse them: the client may yet say "Callback Requested is
-  transferable but unproven", or the reverse, and the funnel must not move
-  because a gating decision changed. Never read `allows_transfer` for a metric,
-  or `counts_as_qualified` for a gate.
-- **Which other dispositions carry either flag is the client's to decide.** Only
-  "Qualified - Transferred" is confirmed. Don't set a flag to make the funnel's
-  shape look better — the business semantics settle the flags, then the seed is
-  generated to obey them. Same open question ADR 0003 records for
-  `counts_as_sale`.
-- **Every bar opens onto its own records.** The bars are buttons; the selected
-  one scopes the list beneath the chart, which reads
-  `GET /reporting/funnel/{stage}` through `fetchFunnelStage()`. Attempts is the
-  default because it is the cohort the other three narrow, so the page opens on
-  everything in the window. A bar reading zero stays clickable — opening it and
-  finding nothing is how a zero gets confirmed instead of wondered about. An
-  empty window renders no list card at all, because the chart already says the
-  range is empty.
-- **The list is ordered by the stage's own event, not by the interaction's
-  creation** — rows behind Transferred sorted by when the *call* started answer
-  a question that bar didn't ask. `event_at` carries that instant: creation for
-  Attempts, the earliest call leg for Connects, the qualifying disposition for
-  Qualified, the accepted transfer's `answered_at` for Transferred. A second
-  column headed from `STAGE_TIME_LABEL` shows it, except on Attempts where
-  creation *is* the event. `created_at` stays beside it as the cohort key, so
-  the two columns disagreeing is correct rather than a bug: a handoff can
-  outlive the day of the call that made it. Ordering is fixed per stage; there
-  is no sort control.
-- **The drill-down sends `timezone`; the aggregate deliberately doesn't.** Not
-  an inconsistency. Dates alone don't say which 24 hours they mean: the server
-  reads them in a zone, and the same days under another one are a different
-  cohort (`2026-09-23` is 25 interactions in `America/New_York` and 39 in
-  `Asia/Karachi`). The aggregate asks without one so the server picks and
-  *names* the business zone; the list passes that name back, which is the only
-  thing making its `total` the same figure as the bar above it. So the list is
-  handed the funnel that came back, never the range that was asked for — on the
-  first read those disagree, and only the reply carries a zone.
-- **The list's times are drawn in the business zone, not the reader's.** The
-  exception to the rule under "Exceptions and interaction detail" below, and for
-  that rule's own reason: it says interaction timestamps use the local zone
-  *because those answers carry no business zone the way `/reporting/*` does* —
-  and this one does, in `timezone`. Drawn locally instead, a row's date is
-  simply the wrong day: from `Asia/Karachi`, 209 of 670 rows carry a different
-  date from the business day the figure above them counted, and near the edge a
-  row can show a date outside the window in the card's own heading. A list of
-  the records behind a number must not disagree with it about when. So
-  `formatDateTimeIn(created_at, list.timezone)`, and the caption is
-  `formatZone()` — the same abbreviation the window above the chart carries.
-- **A row carries the lead's phone because nothing else on it is human.**
-  `FunnelInteraction` is `id`, `lead_id`, `created_at` plus `lead_phone` and
-  `lead_source`, the last two joined on in the backend. A page of uuids and
-  timestamps identifies nothing to a reader, and leads have no name column to
-  offer instead. The alternative was one `GET /leads/{id}` per row — eleven
-  requests to fill a page against one. `lead_source` rides the same join and
-  nothing renders it yet: the join that carries the phone carries it for free,
-  so the contract only had to change once.
+- **A Super Admin picks a team, or All teams; a Team Admin gets no picker.** The
+  server keeps a Team Admin to their own team, so a picker would only offer a
+  choice that 403s. The team list is `listTeams()`, read only for a Super Admin.
+- **Every bar opens onto its own leads.** The bars are buttons; the selected one
+  scopes the list beneath the chart, `FunnelLeads`, which reads
+  `GET /reporting/funnel/{stage}` through `fetchFunnelStage()`. Leads is the
+  default. A bar reading zero stays clickable, so a zero gets confirmed instead
+  of wondered about. An empty window renders no list card at all, because the
+  chart already says the range is empty.
+- **The list is the funnel that came back, with the same team.** It sends the
+  reply's `timezone` and the page's team, which is the only thing making its
+  `total` the same figure as the bar above it; so it is handed the funnel that
+  came back, never the range that was asked for. Its times are drawn in that
+  zone too, with `formatZone()` as the caption.
+- **A row is a lead:** name (the phone when there is none) and phone, team, date
+  added, stage reached ("Added" for a lead that got no further), and its latest
+  fronter and closer outcomes, `-` when there are none. Newest added first.
+- **Only a Super Admin can open a lead,** through Open, which goes to
+  `/admin/reports/lead/?id=…`. A Team Admin gets Summary in the same column:
+  `LeadSummaryDialog`, reading `GET /leads/{id}/summary`, says who worked the lead,
+  where it stands, and for a sale its figures. It has no card details, form
+  answers or timeline. The row supplies the name, phone and stage, and the dialog
+  is `dismissible`, because a read-only view has nothing to lose.
+
+## Lead detail
+
+`/admin/reports/lead/?id=…` reads `GET /leads/{id}/history` through
+`fetchLeadHistory()` in `lib/leads.ts`: everything recorded on one lead, on one
+page.
+
+- **Super Admin only, twice:** `RequireRole role="super_admin"` and the API's 403.
+- **Under `/admin/reports`, not `/admin/leads`,** so the sidebar's Reports item
+  stays lit; Reports is its only way in, so the back link always goes there.
+  `?id=` rather than a path segment, because the static export can't prerender
+  one page per lead.
+- **Top to bottom:** the lead card (two thirds) beside Where it stands, then the
+  fronter's form beside each call's cart, then History. Lead information comes
+  first because it is what a reader opened the page for; History is the long
+  part, so it is last and paged.
+- **Labels sit beside their values** (`Pairs` / `Pair`), never at the far ends
+  of a wide card, and two pairs share a row where there is room.
+- **Where it stands is the API's status, shown, not worked out here:** the
+  callback list and the closer-on-a-call rule are the backend's own, so this page
+  and the queues can't disagree. Waiting for a closer and On a call show only
+  when they are true.
+- **The form card shows what the lead card doesn't:** consent, DNC and any other
+  answers, through the same `snapshotExtras()` and `snapshotValue()` as the
+  interaction screen's Qualification panel, minus the lead's own fields
+  (`ON_THE_LEAD`), which the form also carries.
+- **A cart is masked, and a Super Admin can ask to see its full numbers.** Show
+  full numbers calls `POST /interactions/{id}/cart/reveal` through
+  `revealCartNumbers()` in `lib/cart.ts`, which the API records in the audit
+  trail every time, so it is asked only on a click and never on load. The numbers
+  swap in on the same rows and Hide numbers puts the mask back; a reload starts
+  masked. There is no CVV to show: it is never stored.
+- **History is a table, oldest first, ten to a page.** One line per event: time,
+  what happened with its pills, the detail, and who. An outcome that replaced an
+  earlier one on the same call says "Changed from …" rather than "Corrected": a
+  worked callback is saved as the call's next version just like a correction, and
+  the API can't tell them apart.
+- **History leaves some things out on purpose.** Form saves and offers that timed
+  out stay on record and in the API, but `shownInHistory()` in `lib/leads.ts` keeps
+  them off the table. This page also never names a lead's calls: they are how the
+  app groups saves, not something a reader needs.
+- **Not here, because nothing records it:** a callback's time or owner (callbacks
+  go to the whole team), and dialer data such as call legs and raw events, which
+  stay on the interaction detail screen. Reports no longer links there.
+
+## Team stats
+
+`/admin/team-stats` reads `GET /reporting/teams` through `fetchTeamStats()` and
+`GET /reporting/sales` through `fetchSales()`, both in `lib/reporting.ts`. Super
+Admin only, in all three places: the sidebar item, `RequireRole
+role="super_admin"`, and the API's 403.
+
+- **The team table counts the leads added during the dates, and where each one
+  stands now.** Each lead counts once: No answer, Callback and Qualified by its
+  latest fronter outcome, Transferred if a closer accepted a transfer on any of
+  its calls, Sold if the latest closer outcome on any of its calls is a sale. A
+  range's figures keep moving as its leads are worked. An "All teams" row sits
+  under the teams.
+- **Conversion is Sold over Leads.** A cell shows the rate, a bar to compare
+  teams by eye, then "8 of 100". It cannot pass 100%. "n/a" means no leads.
+- **The sales list goes by the day of the sale**, not the day the lead came in,
+  so its count can differ from the table's Sold. Newest first, paged on the
+  server (`ServerPaging`, 50 to a page), with totals across every matching sale.
+  A sale with no cart shows `-` for its amounts and adds nothing to the sums. No
+  card values or policy number come back.
+- **The agent filter belongs to the sales list**: closers from `listUsers()`,
+  narrowed to the chosen team's. Changing the team resets it, and changing any
+  filter goes back to the first page. The list loads and fails on its own, so a
+  sales error never hides the team table.
+- **The page opens on this month so far** (`monthToDate()`) and, like Reports,
+  sends no `timezone`. It needs no correction step, because the user's zone is
+  set before the page renders.
+- **The filters have a card of their own at the top**, shared by the table and
+  the sales list. Tiles carry the totals. The team table is shown whole
+  (`paginate={false}`), the Team column takes the slack (`width` on its column),
+  the "All teams" row is shaded and bold, and a team with no leads in the range
+  is drawn in grey.
 
 ## Exceptions and interaction detail
 
 `/admin/exceptions` works the reconciliation queue through `lib/exceptions.ts`;
 `/admin/interactions/[interactionId]` is the record behind a row, read through
-`lib/interactionDetail.ts`. Administrator-only, like the rest of `/admin`.
+`lib/interactionDetail.ts`. Exceptions is open to every administrator; the
+detail screen is Super Admin only.
 
 - **Reconciliation makes no call to VICIdial.** It is a self-consistency audit of
   the CRM's own tables against the raw event inbox, swept every five minutes by
@@ -335,16 +443,19 @@ Attempts.
   panel is empty and explains itself. This is the screen an administrator opens
   precisely because they do not trust the data; invented rows with plausible
   timestamps would be indistinguishable from real ones.
-- **The detail screen is shared, and carries no exception chrome.** No reason
-  badge, no resolve control — a reader arriving from the reports funnel has no
-  exception and must not see gaps where one would have been. The back link is
-  driven by `?from=`, mapped in one `ORIGINS` record in
-  `components/admin/InteractionDetailScreen.tsx` — `exceptions` and `funnel`
-  today; a new caller adds its entry and passes the param. An unrecognised or
-  absent `from` falls back to the dashboard, which is what a bookmarked link
-  gets.
-- **It lights no sidebar item**, because it now has two ways in and lighting
-  either one would be wrong half the time. `isActive` for Exceptions matches
+- **The detail screen carries no exception chrome.** No reason badge, no
+  resolve control. The back link is driven by `?from=`, mapped in one `ORIGINS`
+  record in `components/admin/InteractionDetailScreen.tsx`, `exceptions` only
+  since Reports opens leads instead; a new caller adds its entry and passes the
+  param. An unrecognised or absent `from` falls back to the dashboard, which is
+  what a bookmarked link gets.
+- **It is a lead's full view, so it is the Super Admin's alone.** The API
+  refuses a Team Admin the interaction, its dispositions, its qualification, a
+  single transfer and the three panels, and the page sits behind
+  `RequireRole role="super_admin"`.
+  Its way in, "Open interaction detail" on an exception, shows for Super Admins
+  only; a Team Admin keeps the rows.
+- **It lights no sidebar item.** `isActive` for Exceptions matches
   `/admin/exceptions` only. The back link is what says where the reader came
   from, which is the same `?from=` the heading is built out of.
 - **Times here name the zone they are drawn in**, because these answers carry
@@ -377,9 +488,13 @@ state or team. Administrator-only, like the rest of `/admin`.
 - **An email address cannot be changed** — `UpdateUserRequest` carries name,
   roles, active and `team_id`, and nothing else. The field is shown disabled
   rather than hidden, so nobody goes looking for it.
-- **Team is Super Admin only.** It is required when adding and can be changed
-  when editing; the edit sends `team_id` in the same PATCH as the rest, and only
-  when it changed. Picking a different team shows a note that the move takes
+- **Team is set by a Super Admin, or by a QA Manager when adding.** A Super
+  Admin must pick it when adding and can change it when editing; the edit sends
+  `team_id` in the same PATCH as the rest, and only when it changed. A QA Manager
+  picks it only when adding staff, from `/qa/summary`, since they may not read
+  `/teams`; moving someone stays the Super Admin's. Super Admin and QA Manager
+  accounts have no team: ticking either role makes it the only one and hides the
+  field, and `qa_manager` is fixed once the account exists. Picking a different team shows a note that the move takes
   effect on save and that anyone on a call should record its outcome first. The
   API does not block a move mid-call. Team Admins never see the field: the API
   puts their users on their own team and refuses `team_id` from them.
@@ -403,6 +518,90 @@ state or team. Administrator-only, like the rest of `/admin`.
 - Failures land on the input they name: the API's `fields` array is mapped onto
   the matching control (a duplicate address shows under Email), and anything
   unnamed falls back to the dialog's `<Alert>`.
+- **A Super Admin can reset someone's password** from Edit User's Password
+  section, which switches the same dialog to a reset step (Back keeps any unsaved
+  edits): `PUT /auth/users/{id}/password` with a password they type and tell the
+  person. Every session that person has ends, so they are signed out within the
+  15-minute access token. Super Admin only, and never your own account
+  (`user.cannot_reset_own_password`); your own goes through Settings.
+
+## QA
+
+QA reviews sales. Every sold call is a QA item in its team's queue, through
+`lib/qa.ts` (`/qa/items`, `/qa/summary`, `/qa/agents`, and the assignee and status
+routes).
+
+- **Who sees what:**
+  - a Super Admin and a QA Manager see every team at `/admin/qa`: count tiles for
+    all teams together, a Teams table with each team's counts (its name filters
+    the queue), then the queue;
+  - a QA Lead sees their team at `/qa` ("QA · <team>"), and assigns each sale from
+    the "Assigned to" dropdown in its row, which saves on change. It opens on
+    Unassigned whenever anything is waiting;
+  - the count tiles are the Users screen's `StatCard`, in the order the work goes
+    (Unassigned, Open, Disputed, Resolve Dispute, Closed). Each one filters the
+    queue, and clicking the selected one clears it. Unassigned means not closed
+    and nobody has it, the same as the API's `assignee=none`;
+  - a QA Agent sees only what is assigned to them at `/qa`, as "Assigned to me".
+    They never call `/qa/summary` or `/qa/agents`, which answer them 403.
+- **Assigning** is the QA Lead's (and Super Admin's). A QA Manager sees the
+  assignee as text. The API only accepts an active QA Agent on the sale's team.
+- **The sale page** (`/admin/qa/item?id=`, `/qa/item?id=`) is `QaItemScreen`: a
+  Review card with the status, one button per move the role may make
+  (`movesFor()` mirrors the API's flow: Open to Disputed or Closed, Disputed to
+  Resolve Dispute, Resolve Dispute to Closed; a QA Agent moves only while Open),
+  and the assignee. A "Reason" box above the buttons goes with whichever move is
+  made; the API takes it as optional, and the screen does not say so. Then a
+  Review history card (who assigned it, who moved it, when, and the reason),
+  which the API reads back from the audit trail. Below it is `LeadRecord` from
+  `LeadDetailScreen`, the same cards as the Super Admin lead page; only a Super
+  Admin gets "Show full numbers".
+- **Mocks** keep a fixed set of five sales per team in memory; each lead id is one
+  `mockLeadHistory` reads as sold, so a sale opens onto its full history. Quinn QA
+  (QA Manager, no team), Leo Lead and Aria Agent (Default Team) sign in with
+  `password1`.
+
+## Policy lookup
+
+`/admin/policies` (Team Admin and Super Admin) takes a CSV or Excel file with one
+policy number per row and shows the sale behind each, through `lib/policies.ts`
+(`POST /reporting/policy-lookup`).
+
+- **The API reads the file:** the first column, a header row and blank rows
+  passed over, case and surrounding spaces ignored, up to 5,000 numbers and 1 MB.
+  A file it cannot read comes back as a 422 naming `file`, and its message shows
+  under the upload. A Team Admin only finds their own team's sales; another
+  team's reads as not found.
+- **The upload** is one drop zone: drag a file in, or Choose file, then Look up.
+- **Results** have a header naming the file, with Download results, then three
+  `StatCard` tiles, Matched, Not found and Skipped, that each show their own table,
+  20 to a page in the browser. Matched shows each lead's phone; a Super Admin also
+  sees the team and gets an Open button for the lead's full view.
+- **Download results** is built in the browser (`policyResultCsv`): every uploaded
+  number with its status, lead, phone and sale, in the upload's order, so no row
+  column is needed. It starts with a byte order mark so Excel reads it as UTF-8,
+  and a cell a spreadsheet would run as a formula gets a leading apostrophe.
+- **Mocks** know `POL-10001` to `POL-10030`, spread across the mock teams. An
+  Excel upload gets a fixed sample answer, since the mock does not unpack it.
+
+## Settings
+
+`/admin/settings`, `/fronter/settings` and `/closer/settings` all render one
+`SettingsScreen`, so each desk keeps its own nav around it. The Settings row in
+the sidebar's bottom section links to the current desk's page.
+
+- **Time zone.** Eastern (`America/New_York`) or Pakistan (`Asia/Karachi`),
+  saved with `PATCH /auth/me`. Every formatter in `lib/format.ts` draws in it,
+  and the server counts "today" and report days in it. `CurrentUserProvider`
+  sets it before rendering and keys its children by it, so saving a new zone
+  redraws every screen. Eastern shows as EDT or EST on its own; Karachi is
+  labelled "PKT" by `zoneAbbreviation`, because Intl calls it "GMT+5".
+- **Password.** `POST /auth/password/change` with the current one. The API ends
+  every session and hands this device a new pair, which `changePassword` in
+  `lib/session.ts` stores while holding the refresh lock, so no renewal can
+  send the old token in the meantime. Another signed-in device still holds an
+  ended token, and its next refresh makes the API end every session, this one
+  included: the success message says the user may need to sign in again here.
 
 ## Campaigns
 
@@ -500,14 +699,25 @@ password ever gets set. The first two are one component —
 - Visual theme (as of the Figma "CRM - Auto Warranty" file, superseding the
   earlier dark/teal theme): light (`bg-paper` / `tokens.paper` `#FCFCFC`),
   `ink` (`#1C2430`) for headings/dark surfaces, `navy` (`#1F3A5F`) for
-  primary CTAs, `slate` (`#8A94A3`) for borders/placeholders/secondary text.
+  primary CTAs on default desks (see the accent note below), `slate` (`#8A94A3`) for borders/placeholders/secondary text.
   `status-red` / `status-green` / `status-gold` / `status-blue` are
   accent/status colors only, not for primary CTAs. Keep `tokens` in
   `lib/theme.ts` and Tailwind color keys in sync when adding colors. Font is
   Inter, loaded via `next/font/google` in `app/layout.tsx` (`--font-inter`),
   on a 61/49/39/32/23/20/18/16/14/13px type scale (base 16, ~1.125 ratio,
-  120% line-height). `Button` takes a `variant` prop (`primary` navy-filled /
+  120% line-height). `Button` takes a `variant` prop (`primary` accent-filled /
   `secondary` slate-outlined) and a `size` prop (`default` / `small`).
+- **The accent follows the desk.** Team Admin is green, Fronter yellow, Closer
+  orange; Super Admin and the QA desks keep navy. `styles/globals.css` is the
+  only place the role colours are written, as `--accent*` tokens. `Sidebar` sets
+  `data-accent` on `<html>` from `deskAccent()` in `lib/auth.ts`, on `<html>`
+  because dialogs and menus render under `<body>`. The accent reaches primary
+  buttons, the sidebar and the page header rule, and nothing else: links, focus
+  rings and status pills keep their colours. MUI's `palette.primary` stays navy
+  on purpose, because radios and other MUI parts read it and yellow on white
+  fails contrast. Accents are deep fills with light text, like navy, except
+  yellow, which turns olive when darkened, so it stays light and takes navy
+  text. Use `--accent-text`, never `--accent`, for text on white.
 - Errors (auth failures, form validation) render inline via `<Alert>` /
   `role="alert"` — never fail silently or let an unhandled rejection crash
   the page.

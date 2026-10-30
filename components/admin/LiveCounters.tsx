@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { OutlineIcon } from '@/components/icons/OutlineIcon'
+import { displayTimeZone } from '@/lib/format'
 import type { LiveStatus } from '@/lib/liveStatus'
 
 const PHONE =
@@ -8,7 +9,11 @@ const PHONE =
 type Counter = { label: string; value: string; icon: ReactNode; hint?: string }
 
 export function LiveCounters({ snapshot }: { snapshot: LiveStatus }) {
-  const { transfers_offered, transfers_rejected } = snapshot.funnel_today
+  // This viewer's day: one push carries today in every zone a user can choose.
+  const today =
+    (snapshot.funnel_today_by_timezone ?? []).find((entry) => entry.timezone === displayTimeZone())
+      ?.funnel ?? snapshot.funnel_today
+  const { transfers_offered, transfers_rejected } = today
   const counters: Counter[] = [
     {
       label: 'Agents Logged In',

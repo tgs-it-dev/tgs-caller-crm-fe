@@ -14,9 +14,25 @@ function opens(roles: readonly Role[], role: Role, exact: boolean): boolean {
   return exact ? roles.includes(role) : roleSatisfies(roles, role)
 }
 
-function useAuthorization(role?: Role, exact = false): { status: GateStatus; retry: () => void } {
+function opensGate(
+  held: readonly Role[],
+  gate: { role?: Role; anyOf?: readonly Role[]; exact: boolean },
+): boolean {
+  if (gate.anyOf && gate.anyOf.length > 0) {
+    return gate.anyOf.some((role) => opens(held, role, gate.exact))
+  }
+  if (gate.role) return opens(held, gate.role, gate.exact)
+  return true
+}
+
+function useAuthorization(
+  role?: Role,
+  exact = false,
+  anyOf?: readonly Role[],
+): { status: GateStatus; retry: () => void } {
   const router = useRouter()
   const { status: userStatus, user, refresh } = useCurrentUser()
+  const gate = { role, anyOf, exact }
 
   useEffect(() => {
     if (!readToken()) {
@@ -33,17 +49,18 @@ function useAuthorization(role?: Role, exact = false): { status: GateStatus; ret
     }
 
     // Super Admin inherits Team Admin gates unless the page is exact; fronter/closer stay exact.
-    if (userStatus === 'ready' && role && !opens(user.roles, role, exact)) {
+    // QA Manager is never treated as Team Admin — pages that both may open pass `anyOf`.
+    if (userStatus === 'ready' && !opensGate(user.roles, gate)) {
       router.replace('/login')
     }
-  }, [router, role, exact, user, userStatus])
+  }, [router, role, exact, anyOf, user, userStatus])
 
   // No token (never signed in, or wiped after 401): redirect is in flight.
   if (!readToken()) return { status: 'checking', retry: refresh }
   if (userStatus === 'loading') return { status: 'checking', retry: refresh }
   // Token still present → transient failure; Retry reuses the provider fetch.
   if (userStatus === 'error') return { status: 'error', retry: refresh }
-  if (role && !opens(user.roles, role, exact)) return { status: 'checking', retry: refresh }
+  if (!opensGate(user.roles, gate)) return { status: 'checking', retry: refresh }
 
   return { status: 'authorized', retry: refresh }
 }
@@ -75,15 +92,23 @@ function AuthGate({
 
 export function RequireRole({
   role,
+  anyOf,
   exact = false,
   children,
 }: {
-  role: Role
+  /** Single required role. Ignored when `anyOf` is set. */
+  role?: Role
+  /**
+   * Open the page when any of these roles is held (via `roleSatisfies` unless
+   * `exact`). Use for surfaces shared by Team Admin and QA Manager without
+   * collapsing those roles into each other.
+   */
+  anyOf?: readonly Role[]
   /** The role must be held as such: Super Admin does not inherit this page. */
   exact?: boolean
   children: ReactNode
 }) {
-  const { status, retry } = useAuthorization(role, exact)
+  const { status, retry } = useAuthorization(role, exact, anyOf)
   return (
     <AuthGate status={status} onRetry={retry}>
       {children}

@@ -99,7 +99,11 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Change your own settings
+         * @description Change the signed-in user's own time zone.
+         */
+        patch: operations["update_me_auth_me_patch"];
         trace?: never;
     };
     "/auth/password/change": {
@@ -199,10 +203,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List users (administrators only) */
+        /** List users (administrators and QA Managers) */
         get: operations["list_users_auth_users_get"];
         put?: never;
-        /** Create a user (administrators only) */
+        /** Create a user (administrators and QA Managers) */
         post: operations["create_user_auth_users_post"];
         delete?: never;
         options?: never;
@@ -217,7 +221,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get a user (administrators only) */
+        /** Get a user (administrators and QA Managers) */
         get: operations["get_user_auth_users__user_id__get"];
         put?: never;
         post?: never;
@@ -225,7 +229,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Update a user (administrators only)
+         * Update a user (administrators and QA Managers)
          * @description Patch name, roles, active and/or team.
          *
          *     Changing the team is Super Admin only, follows the same rules as
@@ -249,13 +253,37 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Send a fresh invitation (administrators only)
+         * Send a fresh invitation (administrators and QA Managers)
          * @description Issue another invitation, superseding any the user has not used.
          *
          *     202 rather than 204: the link exists the moment this returns, but the email
          *     carrying it has not gone out yet.
          */
         post: operations["invite_user_auth_users__user_id__invite_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/users/{user_id}/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set a user's password (Super Admin only)
+         * @description Replace someone's password so the Super Admin can tell them the new one.
+         *
+         *     Every session they have ends, as with any reset. Not for your own account:
+         *     `/auth/password/change` asks for the current password, so a borrowed session
+         *     cannot take the account over.
+         */
+        put: operations["set_user_password_auth_users__user_id__password_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -274,8 +302,8 @@ export interface paths {
          * Assign a user to a team (Super Admin only)
          * @description Pin the user to exactly one team (PUT set / replace).
          *
-         *     Locked contract: a second assign replaces ``team_id``; ``super_admin``
-         *     targets are rejected (company-wide scope is no ``user_teams`` row).
+         *     Locked contract: a second assign replaces ``team_id``; ``super_admin`` and
+         *     ``qa_manager`` targets are rejected (company-wide scope is no ``user_teams`` row).
          */
         put: operations["assign_user_team_auth_users__user_id__team_put"];
         post?: never;
@@ -536,17 +564,68 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Call legs recorded for an interaction
-         * @description Administrator-only, like the rest of the review view.
+         * Call legs recorded for an interaction (Super Admin only)
+         * @description Super Admin only, like the rest of the review view.
          *
          *     An empty list is the expected answer today and not an error: nothing
          *     populates call_legs while the dialer's push carries no call id, so this
-         *     reads empty until that mapping lands. See ADR 0004. Team-scoped for Team
-         *     Admin; Super Admin may open any interaction.
+         *     reads empty until that mapping lands. See ADR 0004.
          */
         get: operations["list_call_legs_interactions__interaction_id__call_legs_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/interactions/{interaction_id}/cart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fetch the cart for a call, masked
+         * @description The closer who accepted the call, or a Super Admin. Null before anything is saved.
+         */
+        get: operations["read_cart_interactions__interaction_id__cart_get"];
+        /**
+         * Save the cart for a call (its closer)
+         * @description Create or update the cart, for the closer who accepted the call.
+         *
+         *     The account and routing numbers are encrypted before they are stored, and
+         *     the response carries at most their last four digits. Either one left out
+         *     keeps the number already saved, so a change to the amounts need not retype
+         *     them. A CVV is checked, then discarded.
+         */
+        put: operations["save_cart_interactions__interaction_id__cart_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/interactions/{interaction_id}/cart/reveal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Show a cart's full account and routing numbers (Super Admin only)
+         * @description Decrypt the call's cart for the Super Admin asking, and record that they saw it.
+         *
+         *     A POST because each reveal writes an audit row; the numbers never go into
+         *     that row, and the reply is never cached. Null before anything is saved.
+         */
+        post: operations["reveal_cart_numbers_interactions__interaction_id__cart_reveal_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -592,13 +671,12 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Raw inbound events recorded against an interaction
+         * Raw inbound events recorded against an interaction (Super Admin only)
          * @description The payloads this interaction was derived from, newest first.
          *
          *     Only events the worker linked. One stored before the link existed, one still
          *     unprocessed, and one identifying no interaction all read as absent, so an
          *     empty list means none were recorded rather than none arrived.
-         *     Team-scoped for Team Admin.
          */
         get: operations["list_events_interactions__interaction_id__events_get"];
         put?: never;
@@ -617,12 +695,11 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Transfer history for an interaction
+         * Transfer history for an interaction (Super Admin only)
          * @description Every attempt, not just the live one.
          *
          *     A rejected or timed-out transfer releases the interaction to be retried, so
          *     the attempts are the history somebody reviewing this came to see.
-         *     Team-scoped for Team Admin.
          */
         get: operations["list_transfers_interactions__interaction_id__transfers_get"];
         put?: never;
@@ -645,18 +722,19 @@ export interface paths {
         put?: never;
         /**
          * Create a lead
-         * @description Create a lead, or return the one that already owns this number.
+         * @description Create a lead from the fronter form, or return the existing phone match.
          *
-         *     The phone may be sent in any format; it is matched and stored in E.164.
-         *     Responds 201 in both cases — compare `created_at` to tell a new lead from a
-         *     returning caller.
+         *     Body: ``phone_no``, first/last name, vehicle make/year/model, and VIN
+         *     and/or license plate. ``source`` is always ``manual``. ``team_id`` comes
+         *     from the caller's ``user_teams`` row (not the body). ``fronter_id`` is the
+         *     caller.
          *
-         *     A newly created lead also opens a fronter-queue opportunity (Interaction +
-         *     DialerQueueEntry) so that team's fronters can see it without a dialer event.
-         *     The queue row's campaign name comes from the team's campaign catalogue.
-         *     Re-posting an existing number does not enqueue again.
-         *
-         *     Team Admins create on their own team; Super Admins must pass ``team_id``.
+         *     ``phone_no`` may be any common format; it is matched and stored as E.164.
+         *     Responds 201 in both cases — compare ``created_at`` to tell a new lead from
+         *     a returning caller. Form fields are stored only on insert; use PATCH to
+         *     update. Returns the ``interaction_id`` to disposition or transfer on: the
+         *     lead's latest call while nothing is recorded on it or it waits on a callback,
+         *     otherwise a new one.
          */
         post: operations["create_lead_leads_post"];
         delete?: never;
@@ -680,13 +758,12 @@ export interface paths {
          *
          *     ``multipart/form-data`` with ``file`` plus optional ``team_id`` /
          *     ``campaign_id`` (same scoping as single create). Source is always
-         *     ``manual``.
+         *     ``manual``. Bulk does not set fronter form fields.
          *
          *     **File-level** refusals (before any row is written): empty file
          *     (``lead.bulk_empty``), missing/wrong header (``lead.bulk_bad_header``),
          *     non-UTF-8 body (``lead.bulk_invalid_encoding``), too many data rows or
-         *     bytes (``lead.bulk_too_large``), and the usual team / campaign codes from
-         *     Phase 2.
+         *     bytes (``lead.bulk_too_large``), and the usual team / campaign codes.
          *
          *     **Row-level** outcomes are always returned in the 200 body
          *     (``created`` | ``existing`` | ``suppressed`` | ``invalid`` |
@@ -721,6 +798,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/leads/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The team's leads not yet with a closer, by phone, name and disposition
+         * @description Longest waiting first: since the latest fronter disposition, or since the
+         *     lead was added. A lead leaves the list once a closer accepts it or it is sold.
+         *     Summary fields only.
+         */
+        get: operations["search_leads_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/leads/{lead_id}": {
         parameters: {
             query?: never;
@@ -730,6 +829,78 @@ export interface paths {
         };
         /** Fetch one lead */
         get: operations["get_lead_leads__lead_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update fronter form fields on a lead
+         * @description Overwrite personal, vehicle, and VIN / license-plate fields.
+         */
+        patch: operations["patch_lead_leads__lead_id__patch"];
+        trace?: never;
+    };
+    "/leads/{lead_id}/calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * The call to record a disposition or transfer for this lead on
+         * @description The lead's latest call while nothing is recorded on it or it waits on a
+         *     callback; otherwise a new one. The same rule ``POST /leads`` follows.
+         */
+        post: operations["open_lead_call_leads__lead_id__calls_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/leads/{lead_id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Everything recorded on a lead, and everything that happened to it (Super Admin only)
+         * @description The lead, where it stands now, what was entered on it, and one timeline.
+         *
+         *     The timeline runs across all its calls, oldest first, with every correction,
+         *     every cart save and every edit to the lead. A cart shows what its closer sees:
+         *     the last four digits of each number, never a full one, and no CVV, which is
+         *     never stored.
+         */
+        get: operations["get_lead_history_leads__lead_id__history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/leads/{lead_id}/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who worked a lead, where it stands, and its sale figures
+         * @description What a Team Admin sees of a lead on their team.
+         *
+         *     No card details, form answers or timeline: those stay on the full lead view.
+         */
+        get: operations["get_lead_summary_leads__lead_id__summary_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -746,10 +917,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * This agent's dispositions and transfers for today's business day
+         * This agent's dispositions and transfers for today, in their time zone
          * @description My Stats for the signed-in fronter or closer.
          *
-         *     Scoped to the caller and to the configured business day — never another
+         *     Scoped to the caller and to today in their own time zone: never another
          *     agent's rows, never yesterday's. An empty day is empty arrays and zero
          *     counts, not 404. Includes summary integers for the My Stats cards
          *     (``calls_today``, ``sales``, ``calls_transferred``). Fronter: dispositions
@@ -757,6 +928,123 @@ export interface paths {
          *     recorded and transfers they answered.
          */
         get: operations["stats_today_me_stats_today_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/qa/agents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The QA Agents a sale can be assigned to */
+        get: operations["list_agents_qa_agents_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/qa/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sales for QA to review
+         * @description The longest waiting first. A QA Agent only ever gets their own.
+         */
+        get: operations["list_items_qa_items_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/qa/items/{interaction_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A sale to review, with everything recorded on its lead
+         * @description The cart shows what its closer sees: the last four digits of each number.
+         */
+        get: operations["get_item_qa_items__interaction_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/qa/items/{interaction_id}/assignee": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Assign a sale to a QA Agent on its team, or to nobody */
+        put: operations["assign_item_qa_items__interaction_id__assignee_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/qa/items/{interaction_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Move a sale's review to another status
+         * @description Open moves to Disputed or Closed, Disputed to Resolve Dispute, and that to Closed.
+         *
+         *     Each move can carry the reason for it. A QA Agent moves only their own sales,
+         *     and only while they are open.
+         */
+        put: operations["change_item_status_qa_items__interaction_id__status_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/qa/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Each team's sales by review status
+         * @description Every team for a QA Manager or Super Admin, or a QA Lead's own.
+         */
+        get: operations["get_summary_qa_summary_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -781,6 +1069,9 @@ export interface paths {
          *     There is no update endpoint by design: a correction is another version, so
          *     what a closer was shown stays readable afterwards. Once a transfer is in
          *     flight the interaction is frozen and this returns 409.
+         *
+         *     Response includes ``customer`` (lead personal / vehicle / identity) and
+         *     merges those fields into ``snapshot_json`` on write.
          */
         post: operations["create_qualification_post"];
         delete?: never;
@@ -799,6 +1090,9 @@ export interface paths {
         /**
          * Fetch the current qualification for an interaction
          * @description The highest version — earlier ones stay on record but are not the answer.
+         *
+         *     Includes ``customer`` so the closer card can render Personal / Vehicle /
+         *     Identity without a separate lead fetch.
          */
         get: operations["get_latest_qualification__interaction_id__get"];
         put?: never;
@@ -826,44 +1120,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/queue/fronter/{interaction_id}": {
+    "/queue/callbacks": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * A closer's callbacks, to work again on the same call
+         * @description The calls this closer accepted whose latest closer outcome is Callback Scheduled.
+         *
+         *     Saving another outcome on the call takes it off the list. A Super Admin sees
+         *     every closer's.
+         */
+        get: operations["get_closer_callbacks_queue_callbacks_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * Update or leave a fronter dialer-queue entry
-         * @description UI/demo control before VICIdial drives status and leave.
-         *
-         *     ``left: true`` sets ``left_at`` so the row drops off GET /queue?role=fronter.
-         *     Empty body is rejected by the request schema (422). Accept uses
-         *     ``POST /queue/fronter/{interaction_id}/accept``.
-         */
-        patch: operations["patch_fronter_queue_entry_queue_fronter__interaction_id__patch"];
-        trace?: never;
-    };
-    "/queue/fronter/{interaction_id}/accept": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Fronter accepts a dialer-queue lead
-         * @description Claim the open row so other fronters no longer see it on their queue.
-         */
-        post: operations["accept_fronter_queue_entry_queue_fronter__interaction_id__accept_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -951,15 +1224,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Funnel counts for a range of business days
-         * @description Counts for interactions created in the window, narrowing at each stage.
+         * The leads added in a range of business days, by the furthest stage reached
+         * @description Leads, Qualified, Transferred and Sold for the leads added in the window.
          *
-         *     Both dates are inclusive days, so one day is start == end. Each number has a
-         *     matching drill-down at /reporting/funnel/{stage}.
-         *
-         *     Administrators only. An agent's own numbers are a different report, and one
-         *     the schema cannot produce yet — interactions, call legs and qualifications
-         *     record no user.
+         *     Each lead counts once, at the furthest stage it has reached, so each stage
+         *     sits inside the one before. Both dates are inclusive days, so one day is
+         *     start == end. Each number lists its leads at /reporting/funnel/{stage}.
+         *     Administrators only.
          */
         get: operations["funnel_reporting_funnel_get"];
         put?: never;
@@ -978,12 +1249,11 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The interactions behind one funnel number
-         * @description The records the number is made of, newest first.
+         * The leads behind one funnel number
+         * @description The leads the number is made of, newest first, with the stage each has reached.
          *
-         *     `total` is produced by the same select the aggregate counts, so it always
-         *     equals the figure this stage reports — pass the same window, timezone and
-         *     team_id the aggregate was read with.
+         *     `total` always equals the figure this stage reports when read with the same
+         *     window, timezone and team_id.
          */
         get: operations["funnel_drilldown_reporting_funnel__stage__get"];
         put?: never;
@@ -1013,6 +1283,78 @@ export interface paths {
          *     0002 lists which.
          */
         get: operations["live_status_reporting_live_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reporting/policy-lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Find the sale behind each policy number in an uploaded list
+         * @description Matched, not found and skipped numbers, each with its row in the file.
+         *
+         *     A Team Admin finds only their own team's sales: a number sold on another team
+         *     reads as not found. Case and surrounding spaces never stop a match.
+         */
+        post: operations["policy_lookup_reporting_policy_lookup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reporting/sales": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sales made in a range of business days, with their totals (Super Admin only)
+         * @description Each sale's amounts, newest first, and the totals across every matching sale.
+         *
+         *     A sale counts on the day the closer recorded it. A sale whose call has no
+         *     cart is listed and counted, with no amounts. Nothing that identifies a
+         *     payment is returned.
+         */
+        get: operations["sales_reporting_sales_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reporting/teams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Each team's figures for a range of business days (Super Admin only)
+         * @description Each team's leads added in the window and where they stand now, with conversion.
+         *
+         *     No answer, Callback and Qualified are each lead's latest fronter outcome, so
+         *     they never overlap; transferred and sold follow the same leads, and
+         *     conversion is sold over leads. An inactive team is listed only when it has
+         *     figures or is asked for.
+         */
+        get: operations["team_figures_reporting_teams_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1183,17 +1525,6 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /**
-         * AcceptFronterQueueRequest
-         * @description Body for POST /queue/fronter/{interaction_id}/accept.
-         */
-        AcceptFronterQueueRequest: {
-            /**
-             * Fronter User Id
-             * Format: uuid
-             */
-            fronter_user_id: string;
-        };
         /** AcceptInvitationRequest */
         AcceptInvitationRequest: {
             /** Password */
@@ -1211,7 +1542,7 @@ export interface components {
              * Role
              * @enum {string}
              */
-            role: "fronter" | "closer" | "administrator" | "super_admin";
+            role: "fronter" | "closer" | "administrator" | "qa_manager" | "qa_lead" | "qa_agent" | "super_admin";
             /**
              * Since
              * Format: date-time
@@ -1282,12 +1613,12 @@ export interface components {
         Body_bulk_upload_leads_leads_bulk_post: {
             /**
              * Campaign Id
-             * @description Campaign whose name labels fronter queue rows for newly created leads. Same resolution rules as POST /leads.
+             * @description Optional campaign check when any eligible phone is new on the team (same resolution rules as before dialer-queue removal).
              */
             campaign_id?: string | null;
             /**
              * File
-             * @description CSV file. Required header column: phone. Optional: name (queue label only). At most 1000 data rows and 1048576 bytes.
+             * @description CSV file. Required header column: phone. Optional: name (ignored for storage; form fields are not mapped in bulk). At most 1000 data rows and 1048576 bytes.
              */
             file: string;
             /**
@@ -1295,6 +1626,14 @@ export interface components {
              * @description Team the leads join. Same rules as POST /leads: Super Admin must name one; Team Admin may omit (own membership) and cannot name another.
              */
             team_id?: string | null;
+        };
+        /** Body_policy_lookup_reporting_policy_lookup_post */
+        Body_policy_lookup_reporting_policy_lookup_post: {
+            /**
+             * File
+             * @description A CSV or Excel (.xlsx) file with one policy number per row.
+             */
+            file: string;
         };
         /**
          * CallLegItem
@@ -1400,6 +1739,85 @@ export interface components {
             team_ids?: string[] | null;
         };
         /**
+         * CartNumbersResponse
+         * @description A cart's full account and routing numbers, for a Super Admin who asked to see them.
+         */
+        CartNumbersResponse: {
+            /** Account Number */
+            account_number: string;
+            /** Routing Number */
+            routing_number: string | null;
+        };
+        /**
+         * CartResponse
+         * @description A saved cart, masked: at most the last four digits of each number.
+         */
+        CartResponse: {
+            /** Account Last4 */
+            account_last4: string;
+            /** Down Payment */
+            down_payment: string;
+            /** Expiry */
+            expiry: string | null;
+            /**
+             * Interaction Id
+             * Format: uuid
+             */
+            interaction_id: string;
+            /** Monthly Payment */
+            monthly_payment: string;
+            /** Policy Number */
+            policy_number: string | null;
+            /** Routing Last4 */
+            routing_last4: string | null;
+            /**
+             * Saved By User Id
+             * Format: uuid
+             */
+            saved_by_user_id: string;
+            /** Total Payment */
+            total_payment: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * CartSaveRequest
+         * @description Leave out the account or routing number to keep the one already saved.
+         */
+        CartSaveRequest: {
+            /**
+             * Account Number
+             * @description 4 to 19 digits; spaces and dashes are ignored. Required on the first save; left out later, the saved one is kept
+             */
+            account_number?: string | null;
+            /**
+             * Cvv
+             * @description 3 or 4 digits. Checked, then discarded: never stored
+             */
+            cvv?: string | null;
+            /** Down Payment */
+            down_payment: number | string;
+            /**
+             * Expiry
+             * @description MM/YY, not in the past
+             */
+            expiry?: string | null;
+            /** Monthly Payment */
+            monthly_payment: number | string;
+            /** Policy Number */
+            policy_number?: string | null;
+            /**
+             * Routing Number
+             * @description 9 digits. Left out, the saved one is kept; null removes it
+             */
+            routing_number?: string | null;
+            /** Total Payment */
+            total_payment: number | string;
+        };
+        /**
          * ChangePasswordRequest
          * @description Proving you know the current one is what makes this different from a reset.
          */
@@ -1408,6 +1826,45 @@ export interface components {
             current_password: string;
             /** New Password */
             new_password: string;
+        };
+        /**
+         * CloserCallbackItem
+         * @description A call a closer set as a callback, to be worked again on the same call.
+         */
+        CloserCallbackItem: {
+            /** Closer Name */
+            closer_name: string;
+            /**
+             * Closer User Id
+             * Format: uuid
+             */
+            closer_user_id: string;
+            /**
+             * Interaction Id
+             * Format: uuid
+             */
+            interaction_id: string;
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
+            /** Lead Name */
+            lead_name: string;
+            /** Lead Phone */
+            lead_phone: string;
+            /**
+             * Scheduled At
+             * Format: date-time
+             */
+            scheduled_at: string;
+            /** Team Name */
+            team_name: string;
+            /**
+             * Transfer Id
+             * Format: uuid
+             */
+            transfer_id: string;
         };
         /** CloserQueueItem */
         CloserQueueItem: {
@@ -1468,10 +1925,10 @@ export interface components {
             /** Password */
             password?: string | null;
             /** Roles */
-            roles: ("fronter" | "closer" | "administrator" | "super_admin")[];
+            roles: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_lead" | "qa_agent" | "super_admin")[];
             /**
              * Team Id
-             * @description Team the account joins: a Team Admin's own team, which they may leave out. A Super Admin must name one, except for a super_admin account.
+             * @description Team the account joins: a Team Admin's own team, which they may leave out. A Super Admin or QA Manager must name one, except for a super_admin or qa_manager account, which covers every team and has none. qa_lead and qa_agent always need a team.
              */
             team_id?: string | null;
         };
@@ -1500,6 +1957,11 @@ export interface components {
              * @description Whether this outcome means the lead qualified. Separate from allows_transfer on purpose — a transferable disposition is not necessarily a qualified one.
              */
             counts_as_qualified: boolean;
+            /**
+             * Counts As Sale
+             * @description Whether this outcome is a sale. The server refuses one until the call has a saved cart; clients use it to say so first.
+             */
+            counts_as_sale: boolean;
             /**
              * Id
              * Format: uuid
@@ -1536,8 +1998,11 @@ export interface components {
         DuplicatePhoneResponse: {
             /** Lead Count */
             lead_count: number;
-            /** Phone Normalized */
-            phone_normalized: string;
+            /**
+             * Phone No
+             * @description Shared phone in E.164.
+             */
+            phone_no: string;
             /**
              * Suppressed
              * @description Whether this number is on the company-wide DNC / suppression list.
@@ -1589,38 +2054,40 @@ export interface components {
             email: string;
         };
         /**
-         * FronterQueueItem
-         * @description Wire shape for an open fronter-queue row.
+         * FronterCallbackItem
+         * @description Wire shape for a fronter callback-list row.
          *
-         *     Also the PATCH / accept response: the post-update snapshot. Leaving the
-         *     queue does not add a left_at field here — the client sent ``left: true``,
-         *     and a later GET omits the row because ``left_at IS NULL`` filters it out.
+         *     Current fronter-stage disposition is ``Callback``. Display name comes from
+         *     the lead's first/last name (phone when those are unset).
          */
-        FronterQueueItem: {
-            /** Campaign Name */
-            campaign_name: string;
+        FronterCallbackItem: {
             /**
-             * Fronter User Id
-             * @description Null until accepted; then the fronter who claimed the row
+             * Actor User Id
+             * Format: uuid
              */
-            fronter_user_id?: string | null;
-            /** Id */
+            actor_user_id: string;
+            /** Disposition Label */
+            disposition_label: string;
+            /**
+             * Dispositioned At
+             * Format: date-time
+             */
+            dispositioned_at: string;
+            /**
+             * Id
+             * Format: uuid
+             * @description Interaction id
+             */
             id: string;
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
             /** Lead Name */
             lead_name: string;
             /** Lead Phone */
             lead_phone: string;
-            /**
-             * Queued At
-             * Format: date-time
-             */
-            queued_at: string;
-            /**
-             * Status
-             * @description ringing | waiting | accepted
-             * @enum {string}
-             */
-            status: "ringing" | "waiting" | "accepted";
         };
         /** FunnelCounts */
         FunnelCounts: {
@@ -1649,51 +2116,19 @@ export interface components {
             transfers_rejected: number;
         };
         /**
-         * FunnelInteraction
-         * @description One row behind a funnel number.
-         *
-         *     Thin, but not bare. InteractionDetailResponse nests a qualification, which is
-         *     right for one interaction and wasteful repeated down a page of them — so
-         *     nothing nested belongs here. The lead's name, phone and source are scalars
-         *     off one join (name from dialer_queue_entries, phone fallback when no queue
-         *     row), and they are what a reader recognises: a page of uuids and timestamps
-         *     identifies nothing. Carrying them saves the client reading every lead one at
-         *     a time, which is the whole reason they are here.
-         *
-         *     ``event_at`` is the stage's own instant — creation for Attempts, the
-         *     earliest call leg for Connects, the qualifying fronter disposition for
-         *     Qualified, the closer's acceptance for Transferred — so the drill-down
-         *     list can order and label by what the bar counted, not only by when the
-         *     call started.
-         *
-         *     Disposition id/label pairs are the latest per stage (highest version);
-         *     null when that stage has no disposition yet. Scalars only — same reason
-         *     lead fields are not nested.
+         * FunnelLead
+         * @description One lead behind a funnel number.
          */
-        FunnelInteraction: {
-            /** Closer Disposition Id */
-            closer_disposition_id: string | null;
-            /** Closer Disposition Label */
-            closer_disposition_label: string | null;
+        FunnelLead: {
+            /** Closer Outcome */
+            closer_outcome: string | null;
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
-            /**
-             * Event At
-             * Format: date-time
-             */
-            event_at: string;
-            /** Fronter Disposition Id */
-            fronter_disposition_id: string | null;
-            /** Fronter Disposition Label */
-            fronter_disposition_label: string | null;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
+            /** Fronter Outcome */
+            fronter_outcome: string | null;
             /**
              * Lead Id
              * Format: uuid
@@ -1704,15 +2139,22 @@ export interface components {
             /** Lead Phone */
             lead_phone: string;
             /**
-             * Lead Source
+             * Stage
              * @enum {string}
              */
-            lead_source: "vicidial" | "ghl" | "manual";
+            stage: "leads" | "qualified" | "transferred" | "sold";
+            /**
+             * Team Id
+             * Format: uuid
+             */
+            team_id: string;
+            /** Team Name */
+            team_name: string;
         };
-        /** FunnelInteractionListResponse */
-        FunnelInteractionListResponse: {
+        /** FunnelLeadListResponse */
+        FunnelLeadListResponse: {
             /** Items */
-            items: components["schemas"]["FunnelInteraction"][];
+            items: components["schemas"]["FunnelLead"][];
             /** Limit */
             limit: number;
             /** Offset */
@@ -1729,23 +2171,23 @@ export interface components {
         };
         /**
          * HistoricalFunnel
-         * @description Counts for one window, narrowing at each stage.
+         * @description The leads added in one window, by the furthest stage each has reached.
          *
-         *     Not FunnelCounts: that is the live dashboard's snapshot of today, has no
-         *     connects, and carries a sales figure this endpoint cannot yet produce.
+         *     Each stage sits inside the one before: a sold lead is also transferred and
+         *     qualified.
          */
         HistoricalFunnel: {
-            /** Attempts */
-            attempts: number;
-            /** Connects */
-            connects: number;
             /**
              * End
              * Format: date
              */
             end: string;
+            /** Leads */
+            leads: number;
             /** Qualified */
             qualified: number;
+            /** Sold */
+            sold: number;
             /**
              * Start
              * Format: date
@@ -2090,23 +2532,187 @@ export interface components {
              */
             failed: number;
         };
-        /** LeadCreateRequest */
+        /**
+         * LeadCallResponse
+         * @description The call to record this lead's next disposition or transfer on.
+         */
+        LeadCallResponse: {
+            /**
+             * Interaction Id
+             * Format: uuid
+             */
+            interaction_id: string;
+        };
+        /**
+         * LeadCreateRequest
+         * @description Fronter (or admin) lead-form create body.
+         *
+         *     Required: personal + vehicle + VIN and/or license plate + ``phone_no``.
+         *     ``source`` is always ``manual`` (set by the endpoint). ``fronter_id`` and
+         *     ``team_id`` come from the authenticated user (``user_teams``) — not the body.
+         */
         LeadCreateRequest: {
+            /** First Name */
+            first_name: string;
+            /** Last Name */
+            last_name: string;
             /**
-             * Campaign Id
-             * @description Campaign whose name labels the fronter queue row. Must be active and linked to the lead's team. When omitted, the team's sole active campaign is used; if the team has none, a source-based label is used.
+             * License Plate
+             * @description License plate. Required when vin is omitted.
              */
-            campaign_id?: string | null;
+            license_plate?: string | null;
             /**
-             * Name
-             * @description Optional display name for the fronter queue. When omitted, the normalized phone is used. Not stored on the lead row yet.
+             * Phone No
+             * @description Phone as entered; stored as E.164 in ``phone_no``.
              */
-            name?: string | null;
+            phone_no: string;
+            /** Vehicle Make */
+            vehicle_make: string;
+            /** Vehicle Model */
+            vehicle_model: string;
+            /** Vehicle Year */
+            vehicle_year: number;
             /**
-             * Phone
-             * @description Raw phone as received; the server normalizes it to E.164.
+             * Vin
+             * @description VIN. Required when license_plate is omitted.
              */
-            phone: string;
+            vin?: string | null;
+        };
+        /**
+         * LeadHistoryAmounts
+         * @description What one cart save recorded.
+         */
+        LeadHistoryAmounts: {
+            /** Down Payment */
+            down_payment: string;
+            /** Monthly Payment */
+            monthly_payment: string;
+            /** Policy Number */
+            policy_number: string | null;
+            /** Total Payment */
+            total_payment: string;
+        };
+        /**
+         * LeadHistoryCart
+         * @description A call's cart as its closer sees it: the last four digits of each number, never more.
+         */
+        LeadHistoryCart: {
+            /** Account Last4 */
+            account_last4: string;
+            /** Down Payment */
+            down_payment: string;
+            /** Expiry */
+            expiry: string | null;
+            /**
+             * Interaction Id
+             * Format: uuid
+             */
+            interaction_id: string;
+            /** Monthly Payment */
+            monthly_payment: string;
+            /** Policy Number */
+            policy_number: string | null;
+            /** Routing Last4 */
+            routing_last4: string | null;
+            /**
+             * Saved At
+             * Format: date-time
+             */
+            saved_at: string;
+            /** Saved By */
+            saved_by: string | null;
+            /** Total Payment */
+            total_payment: string;
+        };
+        /** LeadHistoryChange */
+        LeadHistoryChange: {
+            /** After */
+            after: string | null;
+            /** Before */
+            before: string | null;
+            /** Field */
+            field: string;
+        };
+        /**
+         * LeadHistoryEvent
+         * @description One thing that happened to the lead. Fields that do not apply to a kind are empty.
+         */
+        LeadHistoryEvent: {
+            /** Actor Name */
+            actor_name?: string | null;
+            amounts?: components["schemas"]["LeadHistoryAmounts"] | null;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Call */
+            call?: number | null;
+            /**
+             * Changes
+             * @default []
+             */
+            changes: components["schemas"]["LeadHistoryChange"][];
+            /** Closer Name */
+            closer_name?: string | null;
+            /** Interaction Id */
+            interaction_id?: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "added" | "lead_edited" | "fronter_outcome" | "qualification" | "transfer_offered" | "transfer_accepted" | "transfer_rejected" | "cart_saved" | "closer_outcome" | "sold" | "do_not_call";
+            /** Outcome */
+            outcome?: string | null;
+            /** Previous Outcome */
+            previous_outcome?: string | null;
+            /** Reason */
+            reason?: string | null;
+            /** Transfer Status */
+            transfer_status?: ("initiated" | "offered" | "accepted" | "rejected" | "timeout" | "failed") | null;
+            /** Version */
+            version?: number | null;
+        };
+        /**
+         * LeadHistoryForm
+         * @description The fronter's latest form across all the lead's calls.
+         */
+        LeadHistoryForm: {
+            consent: components["schemas"]["ConsentDnc"];
+            /**
+             * Saved At
+             * Format: date-time
+             */
+            saved_at: string;
+            /** Saved By */
+            saved_by: string | null;
+            /** Snapshot */
+            snapshot: {
+                [key: string]: unknown;
+            };
+            /** Version */
+            version: number;
+        };
+        /** LeadHistoryLead */
+        LeadHistoryLead: {
+            /** Added By Name */
+            added_by_name: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Lead Name */
+            lead_name: string;
+            /** License Plate */
+            license_plate: string | null;
+            /** Phone No */
+            phone_no: string;
             /**
              * Source
              * @enum {string}
@@ -2114,9 +2720,74 @@ export interface components {
             source: "vicidial" | "ghl" | "manual";
             /**
              * Team Id
-             * @description Team the lead joins. A Super Admin must name one; a Team Admin may leave it out (their membership is used) and cannot name another.
+             * Format: uuid
              */
-            team_id?: string | null;
+            team_id: string;
+            /** Team Name */
+            team_name: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Vehicle Make */
+            vehicle_make: string | null;
+            /** Vehicle Model */
+            vehicle_model: string | null;
+            /** Vehicle Year */
+            vehicle_year: number | null;
+            /** Vin */
+            vin: string | null;
+        };
+        /** LeadHistoryOutcome */
+        LeadHistoryOutcome: {
+            /** Actor Name */
+            actor_name: string | null;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Outcome */
+            outcome: string;
+        };
+        /**
+         * LeadHistoryResponse
+         * @description A lead's details, where it stands, what was entered, and everything that happened.
+         *
+         *     The events run oldest first across all its calls. A cart shows what its closer
+         *     sees: never a full account or routing number, and a CVV is never stored.
+         */
+        LeadHistoryResponse: {
+            /** Carts */
+            carts: components["schemas"]["LeadHistoryCart"][];
+            /** Events */
+            events: components["schemas"]["LeadHistoryEvent"][];
+            form: components["schemas"]["LeadHistoryForm"] | null;
+            lead: components["schemas"]["LeadHistoryLead"];
+            status: components["schemas"]["LeadHistoryStatus"];
+        };
+        /**
+         * LeadHistoryStatus
+         * @description Where the lead stands now.
+         */
+        LeadHistoryStatus: {
+            /** Awaiting Closer */
+            awaiting_closer: boolean;
+            callback: components["schemas"]["LeadHistoryOutcome"] | null;
+            /** Calls */
+            calls: number;
+            /** Do Not Call */
+            do_not_call: boolean;
+            latest_closer: components["schemas"]["LeadHistoryOutcome"] | null;
+            latest_fronter: components["schemas"]["LeadHistoryOutcome"] | null;
+            /**
+             * Stage
+             * @enum {string}
+             */
+            stage: "leads" | "qualified" | "transferred" | "sold";
+            /** With Closer */
+            with_closer: string | null;
         };
         /** LeadListResponse */
         LeadListResponse: {
@@ -2136,13 +2807,32 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** First Name */
+            first_name?: string | null;
+            /**
+             * Fronter Id
+             * @description Fronter (or form creator) who created the lead. Null for dialer/GHL ingest.
+             */
+            fronter_id?: string | null;
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Phone Normalized */
-            phone_normalized: string;
+            /**
+             * Interaction Id
+             * @description Interaction opened for this form create so the fronter can disposition or transfer. Null on list/get and bulk.
+             */
+            interaction_id?: string | null;
+            /** Last Name */
+            last_name?: string | null;
+            /** License Plate */
+            license_plate?: string | null;
+            /**
+             * Phone No
+             * @description Lead phone in E.164.
+             */
+            phone_no: string;
             /**
              * Source
              * @enum {string}
@@ -2153,6 +2843,102 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+            /** Vehicle Make */
+            vehicle_make?: string | null;
+            /** Vehicle Model */
+            vehicle_model?: string | null;
+            /** Vehicle Year */
+            vehicle_year?: number | null;
+            /** Vin */
+            vin?: string | null;
+        };
+        /**
+         * LeadSearchItem
+         * @description A lead in the fronter's list: who it is and its latest fronter disposition.
+         */
+        LeadSearchItem: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Latest Disposition */
+            latest_disposition: string | null;
+            /** Latest Disposition At */
+            latest_disposition_at: string | null;
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
+            /** Lead Name */
+            lead_name: string;
+            /** Phone No */
+            phone_no: string;
+        };
+        /** LeadSearchResponse */
+        LeadSearchResponse: {
+            /** Items */
+            items: components["schemas"]["LeadSearchItem"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * LeadSummaryResponse
+         * @description Who worked a lead and where it stands. The full record stays with a Super Admin.
+         */
+        LeadSummaryResponse: {
+            sale: components["schemas"]["LeadSummarySale"] | null;
+            status: components["schemas"]["LeadHistoryStatus"];
+        };
+        /**
+         * LeadSummarySale
+         * @description A sale's figures, with nothing that identifies a payment.
+         */
+        LeadSummarySale: {
+            /** Down Payment */
+            down_payment: string;
+            /** Monthly Payment */
+            monthly_payment: string;
+            /** Policy Number */
+            policy_number: string | null;
+            /**
+             * Sold At
+             * Format: date-time
+             */
+            sold_at: string;
+            /** Total Payment */
+            total_payment: string;
+        };
+        /**
+         * LeadUpdateRequest
+         * @description Full fronter-form update for an existing lead.
+         */
+        LeadUpdateRequest: {
+            /** First Name */
+            first_name: string;
+            /** Last Name */
+            last_name: string;
+            /**
+             * License Plate
+             * @description License plate. Required when vin is omitted.
+             */
+            license_plate?: string | null;
+            /** Vehicle Make */
+            vehicle_make: string;
+            /** Vehicle Model */
+            vehicle_model: string;
+            /** Vehicle Year */
+            vehicle_year: number;
+            /**
+             * Vin
+             * @description VIN. Required when license_plate is omitted.
+             */
+            vin?: string | null;
         };
         /** LiveStatusResponse */
         LiveStatusResponse: {
@@ -2165,6 +2951,11 @@ export interface components {
             agents: components["schemas"]["AgentLiveStatus"][];
             funnel_today: components["schemas"]["FunnelCounts"];
             /**
+             * Funnel Today By Timezone
+             * @description Today in each zone a user can choose, so every viewer reads their own day.
+             */
+            funnel_today_by_timezone: components["schemas"]["ZoneFunnelCounts"][];
+            /**
              * Generated At
              * Format: date-time
              */
@@ -2176,7 +2967,7 @@ export interface components {
             pending_transfers: number;
             /**
              * Timezone
-             * @description The business time zone. funnel_today is its day; show times in it too, so the page reads as one day.
+             * @description The business time zone. funnel_today is its day.
              */
             timezone: string;
         };
@@ -2190,6 +2981,257 @@ export interface components {
             /** Password */
             password: string;
         };
+        /**
+         * PolicyLookupResponse
+         * @description A policy with two sales lists both under ``matches``.
+         */
+        PolicyLookupResponse: {
+            /** Matches */
+            matches: components["schemas"]["PolicySale"][];
+            /** Skipped */
+            skipped: components["schemas"]["PolicySkipped"][];
+            summary: components["schemas"]["PolicyLookupSummary"];
+            /** Unmatched */
+            unmatched: components["schemas"]["PolicyNumberRow"][];
+        };
+        /**
+         * PolicyLookupSummary
+         * @description Numbers read (no header, no blank rows); matched, unmatched and skipped add up to it.
+         */
+        PolicyLookupSummary: {
+            /** Matched */
+            matched: number;
+            /** Rows */
+            rows: number;
+            /** Skipped */
+            skipped: number;
+            /** Unmatched */
+            unmatched: number;
+        };
+        /**
+         * PolicyNumberRow
+         * @description An uploaded policy number with no sale behind it that the caller may see.
+         */
+        PolicyNumberRow: {
+            /** Policy Number */
+            policy_number: string;
+            /** Row */
+            row: number;
+        };
+        /**
+         * PolicySale
+         * @description A sale found for one of the uploaded policy numbers.
+         */
+        PolicySale: {
+            /** Closer Name */
+            closer_name: string;
+            /** Down Payment */
+            down_payment: string;
+            /**
+             * Interaction Id
+             * Format: uuid
+             */
+            interaction_id: string;
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
+            /** Lead Name */
+            lead_name: string;
+            /** Lead Phone */
+            lead_phone: string;
+            /** Monthly Payment */
+            monthly_payment: string;
+            /** Policy Number */
+            policy_number: string;
+            /** Row */
+            row: number;
+            /**
+             * Sold At
+             * Format: date-time
+             */
+            sold_at: string;
+            /**
+             * Team Id
+             * Format: uuid
+             */
+            team_id: string;
+            /** Team Name */
+            team_name: string;
+            /** Total Payment */
+            total_payment: string;
+        };
+        /**
+         * PolicySkipped
+         * @description A row left out of the lookup, and why.
+         */
+        PolicySkipped: {
+            /** First Row */
+            first_row?: number | null;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "duplicate" | "too_long";
+            /** Row */
+            row: number;
+            /** Value */
+            value: string;
+        };
+        /** QaAgentListResponse */
+        QaAgentListResponse: {
+            /** Items */
+            items: components["schemas"]["QaAgentResponse"][];
+        };
+        /** QaAgentResponse */
+        QaAgentResponse: {
+            /** Name */
+            name: string;
+            /**
+             * Team Id
+             * Format: uuid
+             */
+            team_id: string;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+        };
+        /**
+         * QaAssignRequest
+         * @description Null takes the sale off whoever has it.
+         */
+        QaAssignRequest: {
+            /** Assignee User Id */
+            assignee_user_id: string | null;
+        };
+        /**
+         * QaHistoryEvent
+         * @description One step of a sale's review.
+         */
+        QaHistoryEvent: {
+            /** Actor Name */
+            actor_name: string | null;
+            /** Assignee Name */
+            assignee_name?: string | null;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "assigned" | "status_changed";
+            /** Note */
+            note?: string | null;
+            /** Previous Status */
+            previous_status?: ("open" | "disputed" | "resolve_dispute" | "closed") | null;
+            /** Status */
+            status?: ("open" | "disputed" | "resolve_dispute" | "closed") | null;
+        };
+        /**
+         * QaItemDetailResponse
+         * @description The sale under review, its review so far, and everything recorded on its lead.
+         */
+        QaItemDetailResponse: {
+            /** History */
+            history: components["schemas"]["QaHistoryEvent"][];
+            item: components["schemas"]["QaItemResponse"];
+            lead: components["schemas"]["LeadHistoryResponse"];
+        };
+        /** QaItemListResponse */
+        QaItemListResponse: {
+            /** Items */
+            items: components["schemas"]["QaItemResponse"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * QaItemResponse
+         * @description One sale for QA to review.
+         */
+        QaItemResponse: {
+            /** Assignee Name */
+            assignee_name: string | null;
+            /** Assignee User Id */
+            assignee_user_id: string | null;
+            /** Closer Name */
+            closer_name: string;
+            /** Closer Outcome */
+            closer_outcome: string;
+            /**
+             * Closer Outcome At
+             * Format: date-time
+             */
+            closer_outcome_at: string;
+            /**
+             * Interaction Id
+             * Format: uuid
+             */
+            interaction_id: string;
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
+            /** Lead Name */
+            lead_name: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "open" | "disputed" | "resolve_dispute" | "closed";
+            /**
+             * Team Id
+             * Format: uuid
+             */
+            team_id: string;
+            /** Team Name */
+            team_name: string;
+        };
+        /** QaStatusRequest */
+        QaStatusRequest: {
+            /** Note */
+            note?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "open" | "disputed" | "resolve_dispute" | "closed";
+        };
+        /** QaSummaryResponse */
+        QaSummaryResponse: {
+            /** Teams */
+            teams: components["schemas"]["QaTeamSummary"][];
+        };
+        /** QaTeamSummary */
+        QaTeamSummary: {
+            /** Closed */
+            closed: number;
+            /** Disputed */
+            disputed: number;
+            /** Open */
+            open: number;
+            /** Resolve Dispute */
+            resolve_dispute: number;
+            /**
+             * Team Id
+             * Format: uuid
+             */
+            team_id: string;
+            /** Team Name */
+            team_name: string;
+            /** Unassigned */
+            unassigned: number;
+        };
         /** QualificationCreateRequest */
         QualificationCreateRequest: {
             consent_dnc: components["schemas"]["ConsentDnc"];
@@ -2200,11 +3242,41 @@ export interface components {
             interaction_id: string;
             /**
              * Snapshot Json
-             * @description The fronter's answers. Frozen once the transfer occurs.
+             * @description The fronter's answers. Personal / vehicle / identity from the lead are merged in on capture. Frozen once the transfer occurs.
              */
             snapshot_json: {
                 [key: string]: unknown;
             };
+        };
+        /**
+         * QualificationCustomer
+         * @description Lead / customer fields for the interaction this qualification belongs to.
+         *
+         *     Form-captured rows have personal + vehicle + VIN and/or plate; dialer/bulk
+         *     rows may only have ``phone_no`` until a fronter fills the rest.
+         */
+        QualificationCustomer: {
+            /** First Name */
+            first_name?: string | null;
+            /** Last Name */
+            last_name?: string | null;
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
+            /** License Plate */
+            license_plate?: string | null;
+            /** Phone No */
+            phone_no: string;
+            /** Vehicle Make */
+            vehicle_make?: string | null;
+            /** Vehicle Model */
+            vehicle_model?: string | null;
+            /** Vehicle Year */
+            vehicle_year?: number | null;
+            /** Vin */
+            vin?: string | null;
         };
         /** QualificationResponse */
         QualificationResponse: {
@@ -2214,6 +3286,7 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            customer: components["schemas"]["QualificationCustomer"];
             /**
              * Id
              * Format: uuid
@@ -2315,6 +3388,95 @@ export interface components {
             /** Resolved */
             resolved: boolean;
         };
+        /**
+         * SaleItem
+         * @description A sale and its amounts. Nothing from the cart that identifies a payment.
+         */
+        SaleItem: {
+            /** Closer Name */
+            closer_name: string;
+            /**
+             * Closer User Id
+             * Format: uuid
+             */
+            closer_user_id: string;
+            /** Down Payment */
+            down_payment: string | null;
+            /**
+             * Interaction Id
+             * Format: uuid
+             */
+            interaction_id: string;
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
+            /** Lead Name */
+            lead_name: string;
+            /** Monthly Payment */
+            monthly_payment: string | null;
+            /**
+             * Sold At
+             * Format: date-time
+             */
+            sold_at: string;
+            /**
+             * Team Id
+             * Format: uuid
+             */
+            team_id: string;
+            /** Team Name */
+            team_name: string;
+            /** Total Payment */
+            total_payment: string | null;
+        };
+        /** SalesReportResponse */
+        SalesReportResponse: {
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /** Items */
+            items: components["schemas"]["SaleItem"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /** Timezone */
+            timezone: string;
+            /** Total */
+            total: number;
+            totals: components["schemas"]["SalesTotals"];
+        };
+        /**
+         * SalesTotals
+         * @description Every matching sale; a sale with no cart counts but adds no amount.
+         */
+        SalesTotals: {
+            /** Count */
+            count: number;
+            /** Down Payment */
+            down_payment: string;
+            /** Monthly Payment */
+            monthly_payment: string;
+            /** Total Payment */
+            total_payment: string;
+        };
+        /**
+         * SetUserPasswordRequest
+         * @description A Super Admin choosing someone else's password, to tell them in person.
+         */
+        SetUserPasswordRequest: {
+            /** Password */
+            password: string;
+        };
         /** TeamCreateRequest */
         TeamCreateRequest: {
             /**
@@ -2344,6 +3506,31 @@ export interface components {
              */
             team_id: string;
         };
+        /**
+         * TeamFigures
+         * @description One team's figures, or every team's added up: the leads added in the window,
+         *     and where each of them stands now.
+         *
+         *     The three outcomes are each lead's latest fronter outcome, so they never
+         *     overlap. Transferred and sold sit inside qualified in the usual flow, but a
+         *     lead marked Callback on a later call still counts as transferred.
+         */
+        TeamFigures: {
+            /** Callback */
+            callback: number;
+            /** Conversion Rate */
+            conversion_rate: number | null;
+            /** Leads */
+            leads: number;
+            /** No Answer */
+            no_answer: number;
+            /** Qualified */
+            qualified: number;
+            /** Sold */
+            sold: number;
+            /** Transferred */
+            transferred: number;
+        };
         /** TeamListResponse */
         TeamListResponse: {
             /** Items */
@@ -2370,6 +3557,48 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /** TeamStats */
+        TeamStats: {
+            /** Callback */
+            callback: number;
+            /** Conversion Rate */
+            conversion_rate: number | null;
+            /** Leads */
+            leads: number;
+            /** No Answer */
+            no_answer: number;
+            /** Qualified */
+            qualified: number;
+            /** Sold */
+            sold: number;
+            /**
+             * Team Id
+             * Format: uuid
+             */
+            team_id: string;
+            /** Team Name */
+            team_name: string;
+            /** Transferred */
+            transferred: number;
+        };
+        /** TeamStatsResponse */
+        TeamStatsResponse: {
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /** Teams */
+            teams: components["schemas"]["TeamStats"][];
+            /** Timezone */
+            timezone: string;
+            total: components["schemas"]["TeamFigures"];
         };
         /**
          * TeamUpdateRequest
@@ -2545,25 +3774,16 @@ export interface components {
             updated_at: string;
         };
         /**
-         * UpdateFronterQueueEntryRequest
-         * @description Partial update for a fronter dialer-queue row (UI/demo before VICIdial).
-         *
-         *     At least one of ``status`` or ``left`` must be set. ``left`` is only
-         *     ``true`` (or omitted): ``false`` is rejected so "stay queued" is never
-         *     spelled as a no-op boolean. Accept uses its own route — status here stays
-         *     ``ringing`` | ``waiting``.
+         * UpdateMeRequest
+         * @description What a signed-in user may change about their own account.
          */
-        UpdateFronterQueueEntryRequest: {
+        UpdateMeRequest: {
             /**
-             * Left
-             * @description true leaves the queue (sets left_at); omit to stay open
+             * Timezone
+             * @description The zone their times are shown in and their days are counted in.
+             * @enum {string}
              */
-            left?: true | null;
-            /**
-             * Status
-             * @description ringing | waiting
-             */
-            status?: ("ringing" | "waiting") | null;
+            timezone: "America/New_York" | "Asia/Karachi";
         };
         /** UpdateUserRequest */
         UpdateUserRequest: {
@@ -2572,7 +3792,7 @@ export interface components {
             /** Name */
             name?: string | null;
             /** Roles */
-            roles?: ("fronter" | "closer" | "administrator" | "super_admin")[] | null;
+            roles?: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_lead" | "qa_agent" | "super_admin")[] | null;
             /**
              * Team Id
              * @description Super Admin only: moves the user to this team, saved with the rest of the change. Leave it out to keep their team.
@@ -2615,9 +3835,24 @@ export interface components {
             /** Name */
             name: string;
             /** Roles */
-            roles: ("fronter" | "closer" | "administrator" | "super_admin")[];
+            roles: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_lead" | "qa_agent" | "super_admin")[];
             /** Team Id */
             team_id?: string | null;
+            /**
+             * Timezone
+             * @description The zone this user's times are shown in and their days are counted in.
+             * @enum {string}
+             */
+            timezone: "America/New_York" | "Asia/Karachi";
+        };
+        /** ZoneFunnelCounts */
+        ZoneFunnelCounts: {
+            funnel: components["schemas"]["FunnelCounts"];
+            /**
+             * Timezone
+             * @enum {string}
+             */
+            timezone: "America/New_York" | "Asia/Karachi";
         };
     };
     responses: never;
@@ -2832,6 +4067,48 @@ export interface operations {
             };
         };
     };
+    update_me_auth_me_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateMeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     change_password_auth_password_change_post: {
         parameters: {
             query?: never;
@@ -3006,7 +4283,7 @@ export interface operations {
                 /** @description Filter by account state */
                 active?: boolean | null;
                 /** @description Filter by role held */
-                role?: ("fronter" | "closer" | "administrator" | "super_admin") | null;
+                role?: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_lead" | "qa_agent" | "super_admin") | null;
                 /** @description Members of this team only (Super Admins never match) */
                 team_id?: string | null;
                 /** @description Substring of email or name */
@@ -3186,6 +4463,48 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    set_user_password_auth_users__user_id__password_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetUserPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3836,6 +5155,130 @@ export interface operations {
             };
         };
     };
+    read_cart_interactions__interaction_id__cart_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CartResponse"] | null;
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    save_cart_interactions__interaction_id__cart_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CartSaveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CartResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    reveal_cart_numbers_interactions__interaction_id__cart_reveal_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CartNumbersResponse"] | null;
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     list_dispositions_interactions__interaction_id__dispositions_get: {
         parameters: {
             query?: never;
@@ -4008,7 +5451,8 @@ export interface operations {
             query?: {
                 limit?: number;
                 offset?: number;
-                phone_normalized?: string | null;
+                /** @description Filter by phone (any format; matched as E.164) */
+                phone_no?: string | null;
                 /** @description A Super Admin names one team's leads, or leaves it out for every team; anyone else may only name their own team. */
                 team_id?: string | null;
             };
@@ -4172,6 +5616,51 @@ export interface operations {
             };
         };
     };
+    search_leads_search_get: {
+        parameters: {
+            query?: {
+                /** @description Part of the name, and of the phone too when it is a number. */
+                q?: string | null;
+                /** @description A fronter disposition the lead's latest one must be, or none for a lead nobody has given one. */
+                disposition?: string | "none" | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSearchResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_lead_leads__lead_id__get: {
         parameters: {
             query?: never;
@@ -4190,6 +5679,170 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeadResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    patch_lead_leads__lead_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    open_lead_call_leads__lead_id__calls_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadCallResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_lead_history_leads__lead_id__history_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadHistoryResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_lead_summary_leads__lead_id__summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSummaryResponse"];
                 };
             };
             /** @description Client Error */
@@ -4231,6 +5884,259 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TodaysStatsResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_agents_qa_agents_get: {
+        parameters: {
+            query?: {
+                /** @description One team only. A QA Lead may name only their own. */
+                team_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QaAgentListResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_items_qa_items_get: {
+        parameters: {
+            query?: {
+                /** @description One team only. A QA Lead may name only their own. */
+                team_id?: string | null;
+                status?: ("open" | "disputed" | "resolve_dispute" | "closed") | null;
+                /** @description The QA Agent reviewing it, or none for a sale not closed that nobody has. */
+                assignee?: string | "none" | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QaItemListResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_item_qa_items__interaction_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QaItemDetailResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    assign_item_qa_items__interaction_id__assignee_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QaAssignRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QaItemResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    change_item_status_qa_items__interaction_id__status_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QaStatusRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QaItemResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_summary_qa_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QaSummaryResponse"];
                 };
             };
             /** @description Client Error */
@@ -4338,7 +6244,7 @@ export interface operations {
     get_queue_queue_get: {
         parameters: {
             query: {
-                /** @description Which queue to return: fronter (dialer) or closer (transfers) */
+                /** @description Which list to return: fronter (callback list) or closer (transfers) */
                 role: "fronter" | "closer";
                 /** @description Closer queue only. A Super Admin names one team's transfers, or leaves it out for every team; anyone else may only name their own team. */
                 team_id?: string | null;
@@ -4355,7 +6261,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["FronterQueueItem"][] | components["schemas"]["CloserQueueItem"][];
+                    "application/json": components["schemas"]["FronterCallbackItem"][] | components["schemas"]["CloserQueueItem"][];
                 };
             };
             /** @description Client Error */
@@ -4378,20 +6284,14 @@ export interface operations {
             };
         };
     };
-    patch_fronter_queue_entry_queue_fronter__interaction_id__patch: {
+    get_closer_callbacks_queue_callbacks_get: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                interaction_id: string;
-            };
+            path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateFronterQueueEntryRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -4399,51 +6299,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["FronterQueueItem"];
-                };
-            };
-            /** @description Client Error */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Server Error */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    accept_fronter_queue_entry_queue_fronter__interaction_id__accept_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                interaction_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AcceptFronterQueueRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FronterQueueItem"];
+                    "application/json": components["schemas"]["CloserCallbackItem"][];
                 };
             };
             /** @description Client Error */
@@ -4599,7 +6455,7 @@ export interface operations {
             query: {
                 start: string;
                 end: string;
-                /** @description IANA name deciding which day the dates mean, e.g. America/New_York. Defaults to the configured business day, so figures stay comparable between people unless someone deliberately asks for another region's. */
+                /** @description IANA name deciding which day the dates mean, e.g. America/New_York. Defaults to the caller's own time zone, so people who share a zone see the same figures for the same dates. */
                 timezone?: string | null;
                 /** @description A Super Admin names one team, or leaves it out for the whole company. Anyone else always gets their own team; naming another is refused with 403 team.forbidden. */
                 team_id?: string | null;
@@ -4644,7 +6500,7 @@ export interface operations {
             query: {
                 start: string;
                 end: string;
-                /** @description IANA name deciding which day the dates mean, e.g. America/New_York. Defaults to the configured business day, so figures stay comparable between people unless someone deliberately asks for another region's. */
+                /** @description IANA name deciding which day the dates mean, e.g. America/New_York. Defaults to the caller's own time zone, so people who share a zone see the same figures for the same dates. */
                 timezone?: string | null;
                 /** @description A Super Admin names one team, or leaves it out for the whole company. Anyone else always gets their own team; naming another is refused with 403 team.forbidden. */
                 team_id?: string | null;
@@ -4653,7 +6509,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                stage: "attempts" | "connects" | "qualified" | "transferred";
+                stage: "leads" | "qualified" | "transferred" | "sold";
             };
             cookie?: never;
         };
@@ -4665,7 +6521,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["FunnelInteractionListResponse"];
+                    "application/json": components["schemas"]["FunnelLeadListResponse"];
                 };
             };
             /** @description Client Error */
@@ -4707,6 +6563,142 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LiveStatusResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    policy_lookup_reporting_policy_lookup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_policy_lookup_reporting_policy_lookup_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyLookupResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    sales_reporting_sales_get: {
+        parameters: {
+            query: {
+                start: string;
+                end: string;
+                /** @description IANA name deciding which day the dates mean, e.g. America/New_York. Defaults to the caller's own time zone, so people who share a zone see the same figures for the same dates. */
+                timezone?: string | null;
+                /** @description One team's sales, or every team's when left out. */
+                team_id?: string | null;
+                /** @description Only the sales this closer recorded. */
+                closer_id?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesReportResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    team_figures_reporting_teams_get: {
+        parameters: {
+            query: {
+                start: string;
+                end: string;
+                /** @description IANA name deciding which day the dates mean, e.g. America/New_York. Defaults to the caller's own time zone, so people who share a zone see the same figures for the same dates. */
+                timezone?: string | null;
+                /** @description One team's figures, or every team's when left out. */
+                team_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamStatsResponse"];
                 };
             };
             /** @description Client Error */

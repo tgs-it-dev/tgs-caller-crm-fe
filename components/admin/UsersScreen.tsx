@@ -11,8 +11,10 @@ import { DataTable, type DataColumn } from '@/components/ui/DataTable'
 import { Input } from '@/components/ui/Input'
 import { PageShell } from '@/components/ui/PageShell'
 import { Select } from '@/components/ui/Select'
-import { AuthError, isSuperAdmin, type Role } from '@/lib/auth'
+import { StatCard } from '@/components/ui/StatCard'
+import { AuthError, isQaManager, isSuperAdmin, isTeamAdmin, type Role } from '@/lib/auth'
 import { waitForMocking } from '@/lib/mockReady'
+import { getQaSummary } from '@/lib/qa'
 import { withSession } from '@/lib/session'
 import { listTeams, type Team } from '@/lib/teams'
 import { tokens } from '@/lib/theme'
@@ -26,10 +28,13 @@ import {
 type LoadState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; users: User[]; teams: Team[] }
+  | { status: 'ready'; users: User[]; teams: TeamOption[] }
 
 /** The dialog's subject: a user to edit, null to add one, or closed. */
 type Editing = { user: User | null } | null
+
+/** All the Team column, filter and form read of a team. */
+type TeamOption = Pick<Team, 'id' | 'name'>
 
 type StaffRole = Exclude<Role, 'super_admin'>
 
@@ -42,10 +47,29 @@ const STAFF_ROLES = ASSIGNABLE_ROLES.filter(
   (role): role is StaffRole => role !== 'super_admin',
 )
 
-const ROLE_BADGE_TONE: Record<StaffRole, 'teal' | 'amber' | 'neutral'> = {
+const ROLE_BADGE_TONE: Record<StaffRole, 'teal' | 'amber' | 'neutral' | 'red'> = {
   administrator: 'amber',
+  qa_manager: 'red',
+  qa_lead: 'amber',
+  qa_agent: 'teal',
   closer: 'teal',
   fronter: 'neutral',
+}
+
+/** Role filter options for the signed-in actor's scope. */
+function filterableRoles(actorRoles: readonly Role[]): StaffRole[] {
+  if (isSuperAdmin(actorRoles)) return STAFF_ROLES
+  if (isQaManager(actorRoles) && !isTeamAdmin(actorRoles)) {
+    return STAFF_ROLES.filter(
+      (role) => role === 'qa_manager' || role === 'qa_lead' || role === 'qa_agent',
+    )
+  }
+  if (isTeamAdmin(actorRoles)) {
+    return STAFF_ROLES.filter(
+      (role) => role === 'administrator' || role === 'closer' || role === 'fronter',
+    )
+  }
+  return STAFF_ROLES
 }
 
 /** Rotating badge colours so each team is visually distinct in the Team column. */
@@ -132,53 +156,16 @@ function matchesFilters(
 }
 
 /** Roster counts for the team scope — used by the quick-filter strip. */
-function rosterFigures(users: User[]) {
+function rosterFigures(users: User[], qaView: boolean) {
   return {
     total: users.length,
     active: users.filter((user) => user.active).length,
     inactive: users.filter((user) => !user.active).length,
-    admins: users.filter((user) => user.roles.includes('administrator')).length,
+    // Fourth chip: Team Admins for SA/TA, QA Agents for a QA Manager desk.
+    focus: users.filter((user) =>
+      qaView ? user.roles.includes('qa_agent') : user.roles.includes('administrator'),
+    ).length,
   }
-}
-
-/**
- * Metric card matching LiveCounters / StatTile: white tile, icon+label on
- * top, figure at the foot. Clicking filters the list; selected = navy border.
- */
-function StatCard({
-  label,
-  count,
-  icon,
-  selected,
-  onClick,
-}: {
-  label: string
-  count: number
-  icon: ReactNode
-  selected: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={selected}
-      className={[
-        'flex flex-col justify-between rounded-xl border-hairline bg-white p-5 text-left transition-colors',
-        selected
-          ? 'border-navy shadow-[0_0_0_1px_#1F3A5F]'
-          : 'border-slate hover:border-navy/40',
-      ].join(' ')}
-    >
-      <p className="flex items-center gap-2 text-sm leading-[120%] text-body-text">
-        <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center [&_svg]:h-5 [&_svg]:w-5">
-          {icon}
-        </span>
-        {label}
-      </p>
-      <p className="mt-6 text-[32px] font-semibold leading-none text-ink tabular-nums">{count}</p>
-    </button>
-  )
 }
 
 /** Removable active-filter pill under the toolbar (HubSpot filter bar). */
@@ -207,6 +194,13 @@ export function UsersScreen() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('')
   const [search, setSearch] = useState('')
   const saView = Boolean(signedIn && isSuperAdmin(signedIn.roles))
+  // QA Manager desk (not also a Team Admin / SA) — narrower list and create ceiling.
+  const qaView = Boolean(
+    signedIn && isQaManager(signedIn.roles) && !isSuperAdmin(signedIn.roles) && !isTeamAdmin(signedIn.roles),
+  )
+  // A Super Admin and a QA Manager both work across teams, so both see them.
+  const seesTeams = saView || qaView
+  const roleOptions = signedIn ? filterableRoles(signedIn.roles) : STAFF_ROLES
 
   useEffect(() => {
     let cancelled = false
@@ -215,10 +209,15 @@ export function UsersScreen() {
       .then(() =>
         withSession(async (token) => {
           const list = await listUsers(token, {
-            teamId: saView && teamFilter ? teamFilter : null,
+            teamId: seesTeams && teamFilter ? teamFilter : null,
           })
-          // Team names label the SA Team column + filter; Team Admin does not need the catalogue.
-          const teams = saView ? (await listTeams(token)).items : []
+          // Team names label the Team column + filter. A QA Manager may not read
+          // /teams, so their names come from the QA summary; a Team Admin needs none.
+          const teams: TeamOption[] = saView
+            ? (await listTeams(token)).items
+            : qaView
+              ? (await getQaSummary(token)).map((team) => ({ id: team.team_id, name: team.team_name }))
+              : []
           return { list, teams }
         })
       )
@@ -234,7 +233,7 @@ export function UsersScreen() {
     return () => {
       cancelled = true
     }
-  }, [reloads, saView, teamFilter])
+  }, [reloads, saView, qaView, seesTeams, teamFilter])
 
   const isSelf = (user: User) => user.id === signedIn?.id
 
@@ -249,7 +248,7 @@ export function UsersScreen() {
   const sortedUsers = useMemo(() => {
     if (load.status !== 'ready') return []
     const rows = load.users
-    if (!saView) {
+    if (!seesTeams) {
       return [...rows].sort((a, b) => a.name.localeCompare(b.name))
     }
     return [...rows].sort((a, b) => {
@@ -259,11 +258,11 @@ export function UsersScreen() {
       if (byTeam !== 0) return byTeam
       return a.name.localeCompare(b.name)
     })
-  }, [load, saView, teamNameById])
+  }, [load, seesTeams, teamNameById])
 
   // Quick-filter counts stay on the team-scoped roster so picking a view never
   // zeroes out the other chips the way filtered-table stats would.
-  const figures = useMemo(() => rosterFigures(sortedUsers), [sortedUsers])
+  const figures = useMemo(() => rosterFigures(sortedUsers, qaView), [sortedUsers, qaView])
 
   const visibleUsers = useMemo(
     () =>
@@ -282,16 +281,18 @@ export function UsersScreen() {
     setTeamFilter('')
   }
 
-  /** HubSpot view chips: one dimension at a time for status / admin. */
-  function selectView(view: 'all' | 'active' | 'inactive' | 'admins') {
+  const focusRole: StaffRole = qaView ? 'qa_agent' : 'administrator'
+
+  /** HubSpot view chips: one dimension at a time for status / focus role. */
+  function selectView(view: 'all' | 'active' | 'inactive' | 'focus') {
     setSearch('')
     if (view === 'all') {
       setRoleFilter('')
       setStatusFilter('')
       return
     }
-    if (view === 'admins') {
-      setRoleFilter('administrator')
+    if (view === 'focus') {
+      setRoleFilter(focusRole)
       setStatusFilter('')
       return
     }
@@ -300,9 +301,9 @@ export function UsersScreen() {
   }
 
   // null when role + status are combined in a way that isn't one of the views.
-  const activeView: 'all' | 'active' | 'inactive' | 'admins' | null =
-    roleFilter === 'administrator' && !statusFilter
-      ? 'admins'
+  const activeView: 'all' | 'active' | 'inactive' | 'focus' | null =
+    roleFilter === focusRole && !statusFilter
+      ? 'focus'
       : statusFilter === 'active' && !roleFilter
         ? 'active'
         : statusFilter === 'inactive' && !roleFilter
@@ -325,7 +326,7 @@ export function UsersScreen() {
       header: 'Role',
       render: (user) => <RoleBadges roles={user.roles} />,
     },
-    ...(saView
+    ...(seesTeams
       ? [
           {
             id: 'team_name',
@@ -453,11 +454,11 @@ export function UsersScreen() {
               onClick={() => selectView('inactive')}
             />
             <StatCard
-              label="Team admins"
-              count={figures.admins}
+              label={qaView ? 'QA agents' : 'Team admins'}
+              count={figures.focus}
               icon={<UserCog color={tokens.slate} strokeWidth={2} aria-hidden />}
-              selected={activeView === 'admins'}
-              onClick={() => selectView('admins')}
+              selected={activeView === 'focus'}
+              onClick={() => selectView('focus')}
             />
           </div>
 
@@ -510,7 +511,7 @@ export function UsersScreen() {
                         onChange={(event) => setRoleFilter(event.target.value as RoleFilter)}
                       >
                         <option value="">All roles</option>
-                        {STAFF_ROLES.map((role) => (
+                        {roleOptions.map((role) => (
                           <option key={role} value={role}>
                             {roleLabel(role)}
                           </option>
@@ -531,7 +532,7 @@ export function UsersScreen() {
                         <option value="inactive">Inactive</option>
                       </Select>
                     </div>
-                    {saView && (
+                    {seesTeams && (
                       <div className="w-[168px]">
                         <Select
                           size="small"

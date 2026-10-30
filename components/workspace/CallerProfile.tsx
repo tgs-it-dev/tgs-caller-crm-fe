@@ -11,7 +11,7 @@ export function CallerProfile({ interaction }: { interaction: InteractionDetail 
       </div>
       <div className="min-w-0 flex-1">
         <h1 className="text-2xl font-semibold tracking-tight text-white">
-          {formatPhone(interaction.lead.phone_normalized)}
+          {formatPhone(interaction.lead.phone_no)}
         </h1>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-neutral-400">
           <span>Source: {SOURCE_LABEL[interaction.lead.source]}</span>
