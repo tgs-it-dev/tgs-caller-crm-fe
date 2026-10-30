@@ -32,9 +32,6 @@ import {
   type AvailableCloserItem,
 } from '@/lib/transfers'
 
-const FORM_TRANSFER_OVERRIDE =
-  'Lead form transfer — vehicle details updated on callback edit'
-
 function bannerFor(err: AuthError): string {
   if (err.status === 404 || err.code === 'lead.not_found') {
     return 'This lead is no longer available.'
@@ -203,7 +200,6 @@ export function LeadEditDialog({
         {
           interaction_id: interactionId,
           fronter_user_id: fronterUserId,
-          override_reason: FORM_TRANSFER_OVERRIDE,
           ...(selectedCloserUserId ? { closer_user_id: selectedCloserUserId } : {}),
         },
         token

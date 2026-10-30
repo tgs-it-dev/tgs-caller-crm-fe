@@ -88,10 +88,13 @@ function SavedCart({ saved }: { saved: CartResponse }) {
 export function CartPaymentCard({
   interactionId,
   enabled,
+  onCartLoaded,
 }: {
   interactionId: string
   /** The transfer is accepted, so this closer may save the cart. */
   enabled: boolean
+  /** Whether the call has a saved cart, once that is known. */
+  onCartLoaded: (saved: boolean) => void
 }) {
   const [load, setLoad] = useState<LoadState>({ status: enabled ? 'loading' : 'locked' })
   const [form, setForm] = useState<CartForm>(EMPTY_CART_FORM)
@@ -126,6 +129,7 @@ export function CartPaymentCard({
         if (cancelled) return
         setLoad({ status: 'ready', saved })
         setForm(saved ? formFromCart(saved) : EMPTY_CART_FORM)
+        onCartLoaded(Boolean(saved))
       })
       .catch((err) => {
         if (!cancelled) setLoad({ status: 'error', message: loadMessage(err) })
@@ -134,7 +138,7 @@ export function CartPaymentCard({
     return () => {
       cancelled = true
     }
-  }, [interactionId, enabled])
+  }, [interactionId, enabled, onCartLoaded])
 
   const saved = load.status === 'ready' ? load.saved : null
   const showForm = !saved || editing
@@ -189,6 +193,7 @@ export function CartPaymentCard({
       setLoad({ status: 'ready', saved: next })
       setForm(formFromCart(next))
       setEditing(false)
+      onCartLoaded(true)
     } catch (err) {
       const named = problemsFromError(err)
       if (named) setProblems(named)

@@ -13,6 +13,7 @@ export function CloserDispositionCard({
   isSaving = false,
   disabled = false,
   savedLabel = null,
+  cartSaved = null,
   error = null,
 }: {
   options: DispositionResponse[]
@@ -23,9 +24,13 @@ export function CloserDispositionCard({
   disabled?: boolean
   /** Latest closer disposition label already on the interaction record. */
   savedLabel?: string | null
+  /** Whether this call has a saved cart; null until that is known. */
+  cartSaved?: boolean | null
   error?: string | null
 }) {
-  const canSave = Boolean(dispositionId) && !disabled && !isSaving
+  const selected = options.find((option) => option.id === dispositionId)
+  const needsCart = Boolean(selected?.counts_as_sale) && cartSaved === false
+  const canSave = Boolean(dispositionId) && !disabled && !isSaving && !needsCart
 
   return (
     <div className="flex h-full flex-col rounded-xl border-hairline border-slate bg-white p-6">
@@ -57,6 +62,12 @@ export function CloserDispositionCard({
             </option>
           ))}
         </Select>
+
+        {needsCart && (
+          <p className="text-sm leading-[150%] text-body-text">
+            Save the cart before recording a sale.
+          </p>
+        )}
 
         {error && <Alert>{error}</Alert>}
       </div>

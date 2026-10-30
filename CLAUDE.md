@@ -255,6 +255,12 @@ the API calls and rules are in `lib/cart.ts`.
   set: the API stores amounts without one.
 - `checkCart` mirrors the API's rules so most mistakes show inline before a
   save; the mock handler reuses it, so the two cannot drift.
+- **A sale needs a saved cart.** The API refuses an outcome with `counts_as_sale`
+  until the call has one, and `CloserDispositionCard` says so first: Save
+  Disposition turns off with a short note. `cartSaved` is `null` until the cart
+  has loaded, so a sold call doesn't flash the note and a failed load leaves the
+  decision to the server. Other outcomes need no cart, and the policy number
+  stays optional because it can be added once it's issued.
 
 ## Closer callbacks
 
@@ -350,10 +356,14 @@ page.
   swap in on the same rows and Hide numbers puts the mask back; a reload starts
   masked. There is no CVV to show: it is never stored.
 - **History is a table, oldest first, ten to a page.** One line per event: time,
-  the call when there is more than one, what happened with its pills, the detail,
-  and who. An outcome that replaced an earlier one on the same call says
-  "Changed from …" rather than "Corrected": a worked callback is saved as the
-  call's next version just like a correction, and the API can't tell them apart.
+  what happened with its pills, the detail, and who. An outcome that replaced an
+  earlier one on the same call says "Changed from …" rather than "Corrected": a
+  worked callback is saved as the call's next version just like a correction, and
+  the API can't tell them apart.
+- **History leaves some things out on purpose.** Form saves and offers that timed
+  out stay on record and in the API, but `shownInHistory()` in `lib/leads.ts` keeps
+  them off the table. This page also never names a lead's calls: they are how the
+  app groups saves, not something a reader needs.
 - **Not here, because nothing records it:** a callback's time or owner (callbacks
   go to the whole team), and dialer data such as call legs and raw events, which
   stay on the interaction detail screen. Reports no longer links there.

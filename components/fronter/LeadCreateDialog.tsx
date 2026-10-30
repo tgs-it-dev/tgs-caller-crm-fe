@@ -29,9 +29,6 @@ const PHONE_PROBLEMS: Record<string, string> = {
   'lead.phone_suppressed': 'This number is on the company do-not-call list.',
 }
 
-const FORM_TRANSFER_OVERRIDE =
-  'Lead form transfer — vehicle details captured on create'
-
 function bannerFor(err: AuthError): string {
   if (err.code === 'lead.team_required') {
     return 'You are not on a team yet, so you cannot create leads.'
@@ -205,7 +202,6 @@ export function LeadCreateDialog({
         {
           interaction_id: interactionId,
           fronter_user_id: fronterUserId,
-          override_reason: FORM_TRANSFER_OVERRIDE,
           ...(selectedCloserUserId ? { closer_user_id: selectedCloserUserId } : {}),
         },
         token

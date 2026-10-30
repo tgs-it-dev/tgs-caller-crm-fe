@@ -16,6 +16,7 @@ import { SOURCE_LABEL } from '@/lib/leadSource'
 import {
   fetchLeadHistory,
   isLeadNotFound,
+  shownInHistory,
   type LeadHistory,
   type LeadHistoryEvent,
 } from '@/lib/leads'
@@ -64,7 +65,6 @@ const ON_THE_LEAD = new Set([...Object.keys(FIELD_LABEL), 'phone'])
 
 /** How a transfer ended, when the next event doesn't already say so. */
 const UNANSWERED: Partial<Record<string, { label: string; tone: 'red' | 'caution' }>> = {
-  timeout: { label: 'Timed out', tone: 'red' },
   failed: { label: 'Failed', tone: 'red' },
   initiated: { label: 'Waiting', tone: 'caution' },
   offered: { label: 'Waiting', tone: 'caution' },
@@ -206,7 +206,6 @@ function WhereItStands({ status }: { status: Status }) {
         <Pair label="Do not call">
           {status.do_not_call ? <Badge tone="red">Do not call</Badge> : 'No'}
         </Pair>
-        <Pair label="Calls">{status.calls}</Pair>
       </Pairs>
     </Card>
   )
@@ -227,7 +226,7 @@ function FronterForm({ form }: { form: LeadHistory['form'] }) {
   return (
     <Card
       title="Fronter form"
-      caption={`Version ${form.version}, saved ${formatDateTime(form.saved_at)}${by}`}
+      caption={`Saved ${formatDateTime(form.saved_at)}${by}`}
     >
       <Pairs>
         <Pair
@@ -264,7 +263,7 @@ type Reveal =
   | { status: 'error' }
 
 /** A call's cart, masked until a Super Admin asks to see the full numbers. */
-function CartCard({ cart, call, revealable }: { cart: Cart; call?: number; revealable: boolean }) {
+function CartCard({ cart, revealable }: { cart: Cart; revealable: boolean }) {
   const [reveal, setReveal] = useState<Reveal>({ status: 'hidden' })
   const shown = reveal.status === 'shown' ? reveal.numbers : null
   const by = cart.saved_by ? ` by ${cart.saved_by}` : ''
@@ -300,7 +299,7 @@ function CartCard({ cart, call, revealable }: { cart: Cart; call?: number; revea
 
   return (
     <Card
-      title={call ? `Cart and payment · Call ${call}` : 'Cart and payment'}
+      title="Cart and payment"
       caption={`Saved ${formatDateTime(cart.saved_at)}${by}`}
       actions={revealable ? toggle : undefined}
     >
@@ -342,22 +341,10 @@ function Carts({ history, revealable }: { history: LeadHistory; revealable: bool
       </Card>
     )
   }
-  // Named by call only when there is more than one call to tell apart.
-  const callOf = (cart: Cart) => {
-    if (history.status.calls < 2) return undefined
-    const onCall = history.events.find((event) => event.interaction_id === cart.interaction_id)
-    return onCall?.call ?? undefined
-  }
-
   return (
     <div className="flex min-w-0 flex-col gap-5 [&>*]:flex-1">
       {history.carts.map((cart) => (
-        <CartCard
-          key={cart.interaction_id}
-          cart={cart}
-          call={callOf(cart)}
-          revealable={revealable}
-        />
+        <CartCard key={cart.interaction_id} cart={cart} revealable={revealable} />
       ))}
     </div>
   )
@@ -413,18 +400,7 @@ function describe(event: LeadHistoryEvent): {
           </Badge>
         )
       }
-      if (event.reason) {
-        badges.push(
-          <Badge key="override" tone="amber">
-            Checks skipped
-          </Badge>
-        )
-      }
-      return {
-        text: `Transfer offered to ${event.closer_name ?? 'any closer'}`,
-        badges,
-        detail: event.reason ?? undefined,
-      }
+      return { text: `Transfer offered to ${event.closer_name ?? 'any closer'}`, badges }
     }
     case 'transfer_accepted':
       badges.push(
@@ -473,7 +449,7 @@ function describe(event: LeadHistoryEvent): {
   }
 }
 
-function historyColumns(calls: number): DataColumn<Row>[] {
+function historyColumns(): DataColumn<Row>[] {
   return [
     {
       id: 'time',
@@ -482,16 +458,6 @@ function historyColumns(calls: number): DataColumn<Row>[] {
         <span className="whitespace-nowrap tabular-nums">{formatDateTime(row.at)}</span>
       ),
     },
-    // Only when there is more than one call to tell apart.
-    ...(calls > 1
-      ? [
-          {
-            id: 'call',
-            header: 'Call',
-            render: (row: Row) => (row.call ? `Call ${row.call}` : '-'),
-          },
-        ]
-      : []),
     {
       id: 'event',
       header: 'Event',
@@ -521,7 +487,9 @@ function historyColumns(calls: number): DataColumn<Row>[] {
 }
 
 function History({ history }: { history: LeadHistory }) {
-  const rows: Row[] = history.events.map((event, index) => ({ ...event, id: String(index) }))
+  const rows: Row[] = history.events
+    .filter(shownInHistory)
+    .map((event, index) => ({ ...event, id: String(index) }))
   return (
     <DataTable
       title="History"
@@ -532,7 +500,7 @@ function History({ history }: { history: LeadHistory }) {
         </span>
       }
       rows={rows}
-      columns={historyColumns(history.status.calls)}
+      columns={historyColumns()}
       getRowId={(row) => row.id}
       getRowSx={(row) => (row.kind === 'sold' ? { backgroundColor: tokens.strip } : undefined)}
       emptyMessage="Nothing has happened to this lead yet."

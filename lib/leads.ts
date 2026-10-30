@@ -57,6 +57,12 @@ export function fetchLeadHistory(leadId: string, token: string): Promise<LeadHis
   return json<LeadHistory>(`/leads/${encodeURIComponent(leadId)}/history`, token)
 }
 
+/** What History lists. Form saves and offers nobody took stay on record, unlisted. */
+export function shownInHistory(event: LeadHistoryEvent): boolean {
+  if (event.kind === 'qualification') return false
+  return !(event.kind === 'transfer_offered' && event.transfer_status === 'timeout')
+}
+
 /**
  * One page of the team's leads not yet with a closer, longest waiting first.
  * `q` is part of a name, or of a phone when it is a number; sent from one character.
