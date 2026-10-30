@@ -279,6 +279,19 @@ export function LeadCreateForm({
           <Input
             label={
               <>
+                Model
+                <RequiredMark />
+              </>
+            }
+            value={values.vehicle_model}
+            onChange={(e) => onChange({ vehicle_model: e.target.value })}
+            error={Boolean(problems.vehicle_model)}
+            helperText={problems.vehicle_model}
+            maxLength={LEAD_FIELD_MAX}
+          />
+          <Input
+            label={
+              <>
                 Year
                 <RequiredMark />
               </>
@@ -290,19 +303,6 @@ export function LeadCreateForm({
             helperText={problems.vehicle_year}
             min={VEHICLE_YEAR_MIN}
             max={VEHICLE_YEAR_MAX}
-          />
-          <Input
-            label={
-              <>
-                Model
-                <RequiredMark />
-              </>
-            }
-            value={values.vehicle_model}
-            onChange={(e) => onChange({ vehicle_model: e.target.value })}
-            error={Boolean(problems.vehicle_model)}
-            helperText={problems.vehicle_model}
-            maxLength={LEAD_FIELD_MAX}
           />
         </div>
       </Section>
