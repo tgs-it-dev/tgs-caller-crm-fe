@@ -255,6 +255,12 @@ the API calls and rules are in `lib/cart.ts`.
   set: the API stores amounts without one.
 - `checkCart` mirrors the API's rules so most mistakes show inline before a
   save; the mock handler reuses it, so the two cannot drift.
+- **A sale needs a saved cart.** The API refuses an outcome with `counts_as_sale`
+  until the call has one, and `CloserDispositionCard` says so first: Save
+  Disposition turns off with a short note. `cartSaved` is `null` until the cart
+  has loaded, so a sold call doesn't flash the note and a failed load leaves the
+  decision to the server. Other outcomes need no cart, and the policy number
+  stays optional because it can be added once it's issued.
 
 ## Closer callbacks
 

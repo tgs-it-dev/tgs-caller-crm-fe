@@ -1618,6 +1618,8 @@ type MockDisposition = {
   allows_transfer: boolean
   /** Does this outcome mean the lead qualified? Counted by the funnel. */
   counts_as_qualified: boolean
+  /** Is this outcome a sale? It then needs a saved cart. */
+  counts_as_sale: boolean
 }
 
 type MockInteractionDisposition = {
@@ -1641,11 +1643,11 @@ type MockInteractionDisposition = {
  * matches "Do Not Call" to tick the DNC flag, so a mock-only spelling would
  * break that link in mock mode alone.
  */
-const HANDS_OVER = { allows_transfer: true, counts_as_qualified: true }
-const ENDS_THE_CALL = { allows_transfer: false, counts_as_qualified: false }
+const HANDS_OVER = { allows_transfer: true, counts_as_qualified: true, counts_as_sale: false }
+const ENDS_THE_CALL = { allows_transfer: false, counts_as_qualified: false, counts_as_sale: false }
 
 const MOCK_DISPOSITION_CATALOG: MockDisposition[] = [
-  { id: 'disp-closer-sale', label: 'Sale', stage: 'closer', ...ENDS_THE_CALL },
+  { id: 'disp-closer-sale', label: 'Sale', stage: 'closer', ...ENDS_THE_CALL, counts_as_sale: true },
   { id: 'disp-closer-callback', label: 'Callback Scheduled', stage: 'closer', ...ENDS_THE_CALL },
   { id: 'disp-closer-not-interested', label: 'Not Qualified', stage: 'closer', ...ENDS_THE_CALL },
   { id: 'disp-closer-dnc', label: 'Do Not Call', stage: 'closer', ...ENDS_THE_CALL },
@@ -4084,6 +4086,17 @@ export const handlers = [
     const catalog = MOCK_DISPOSITION_CATALOG.find((d) => d.id === body.disposition_id)
     if (!catalog) {
       return res(ctx.status(422), ctx.json({ detail: 'Unknown disposition.' }))
+    }
+    if (catalog.counts_as_sale && !MOCK_CARTS.has(interactionId)) {
+      const message = 'save the cart before recording a sale'
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody(message, 'validation_error', [
+            { field: 'disposition_id', in: 'body', message },
+          ])
+        )
+      )
     }
 
     const existing = MOCK_INTERACTION_DISPOSITIONS.get(interactionId) ?? []

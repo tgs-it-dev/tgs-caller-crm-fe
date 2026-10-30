@@ -275,6 +275,8 @@ function CloserActiveCallWorkspace({
   const { user, status: userStatus } = useCurrentUser()
   const [workspace, dispatch] = useReducer(workspaceReducer, initialWorkspace)
   const [isSaving, setIsSaving] = useState(false)
+  // Null until the cart has loaded, so a failed load leaves the call to the server.
+  const [cartSaved, setCartSaved] = useState<boolean | null>(null)
 
   const {
     snapshot,
@@ -411,6 +413,7 @@ function CloserActiveCallWorkspace({
           <CartPaymentCard
             interactionId={interactionId}
             enabled={!isLoading && transferStatus === 'accepted'}
+            onCartLoaded={setCartSaved}
           />
           <CloserDispositionCard
             options={options}
@@ -420,6 +423,7 @@ function CloserActiveCallWorkspace({
             isSaving={isSaving}
             disabled={dispositionLocked}
             savedLabel={savedLabel}
+            cartSaved={cartSaved}
             error={saveError ?? lockedMessage}
           />
         </div>

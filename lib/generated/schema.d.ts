@@ -1936,6 +1936,11 @@ export interface components {
              */
             counts_as_qualified: boolean;
             /**
+             * Counts As Sale
+             * @description Whether this outcome is a sale. The server refuses one until the call has a saved cart; clients use it to say so first.
+             */
+            counts_as_sale: boolean;
+            /**
              * Id
              * Format: uuid
              */
