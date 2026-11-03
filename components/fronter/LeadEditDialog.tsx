@@ -37,7 +37,7 @@ function bannerFor(err: AuthError): string {
     return 'This lead is no longer available.'
   }
   if (err.code === 'transfer.no_closer_available') {
-    return 'No closers available right now. Pick someone free, or clear the pin for any closer.'
+    return 'That closer cannot take transfers. Choose another.'
   }
   if (err.code === 'transfer.disposition_not_transferable') {
     return err.message
@@ -58,8 +58,8 @@ const FIELD_KEYS = [
 ] as const
 
 /**
- * Edit a lead from the fronter's list: PATCH form fields, optionally record a
- * disposition, and transfer when it allows one. The call is asked for only when
+ * Edit a lead from the fronter's list: PATCH form fields, record the outcome,
+ * and transfer when it allows one. The call is asked for only when
  * a disposition or transfer is saved, so opening a lead never starts one.
  */
 export function LeadEditDialog({
@@ -150,7 +150,8 @@ export function LeadEditDialog({
     lead: LeadResponse,
     disposition: DispositionResponse,
     fronterUserId: string,
-    interactionId: string
+    interactionId: string,
+    closerUserId: string
   ): Promise<LeadCreateResult> {
     const year = Number(values.vehicle_year.trim())
     const make = values.vehicle_make.trim()
@@ -198,16 +199,13 @@ export function LeadEditDialog({
         {
           interaction_id: interactionId,
           fronter_user_id: fronterUserId,
-          ...(selectedCloserUserId ? { closer_user_id: selectedCloserUserId } : {}),
+          closer_user_id: closerUserId,
         },
         token
       )
     )
 
-    const closerName =
-      selectedCloserUserId == null
-        ? null
-        : (closers?.find((row) => row.user_id === selectedCloserUserId)?.name ?? null)
+    const closerName = closers?.find((row) => row.user_id === closerUserId)?.name ?? null
 
     return {
       next: 'transferred',
@@ -226,14 +224,11 @@ export function LeadEditDialog({
     }
 
     const found = validateLeadCreateForm(values, { phoneRequired: false })
+    if (!selected) found.disposition_id = 'Choose an outcome.'
+    else if (transferNow && !selectedCloserUserId) found.closer = 'Choose a closer.'
     setProblems(found)
     setBanner(null)
     if (Object.keys(found).length > 0) return
-
-    if (transferNow && closers && !closers.some((row) => row.status === 'available')) {
-      setProblems({ closer: 'No closers are available right now.' })
-      return
-    }
 
     setSaving(true)
     try {
@@ -259,7 +254,9 @@ export function LeadEditDialog({
         withInteraction,
         selected,
         currentUser.user.id,
-        interactionId
+        interactionId,
+        // Checked before saving: Transferred cannot be saved without a closer.
+        selectedCloserUserId!
       )
       onSaved(result)
     } catch (err) {

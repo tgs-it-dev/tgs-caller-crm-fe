@@ -954,7 +954,7 @@ function mockLeadHistory(leadId: string): LeadHistory | null {
       kind: 'fronter_outcome',
       at: at(12),
       actor_name: fronter,
-      outcome: 'Qualified - Transferred',
+      outcome: 'Transferred',
       version: 2,
       previous_outcome: 'Callback',
     })
@@ -1491,8 +1491,8 @@ let transferSeq = 0
 
 const MOCK_TRANSFERS = new Map<string, TransferResponse>()
 
-/** Shared by GET /transfers/closers and the POST /transfers availability gate. */
-const MOCK_AVAILABLE_CLOSERS: AvailableCloserItem[] = [
+/** Shared by GET /transfers/closers and the POST /transfers closer check. */
+const MOCK_AVAILABLE_CLOSERS: Omit<AvailableCloserItem, 'waiting'>[] = [
   {
     user_id: '5a1f0c3e-0001-4000-8000-000000000001',
     name: 'Carl Closer',
@@ -1620,6 +1620,8 @@ type MockDisposition = {
   counts_as_qualified: boolean
   /** Is this outcome a sale? It then needs a saved cart. */
   counts_as_sale: boolean
+  /** Kept for the calls that name it, but no longer offered to agents. */
+  retired?: boolean
 }
 
 type MockInteractionDisposition = {
@@ -1635,7 +1637,7 @@ type MockInteractionDisposition = {
 
 /**
  * Labels and flags mirror `tgs-caller-crm-be/scripts/seed.py`. Only
- * "Qualified - Transferred" carries either flag, because only that row is
+ * "Transferred" carries either flag, because only that row is
  * confirmed — the rest of the taxonomy is the client's to settle, and a mock
  * that guessed would let the UI through a state the real API refuses.
  *
@@ -1651,11 +1653,11 @@ const MOCK_DISPOSITION_CATALOG: MockDisposition[] = [
   { id: 'disp-closer-callback', label: 'Callback Scheduled', stage: 'closer', ...ENDS_THE_CALL },
   { id: 'disp-closer-not-interested', label: 'Not Qualified', stage: 'closer', ...ENDS_THE_CALL },
   { id: 'disp-closer-dnc', label: 'Do Not Call', stage: 'closer', ...ENDS_THE_CALL },
-  { id: 'disp-fronter-qualified', label: 'Qualified - Transferred', stage: 'fronter', ...HANDS_OVER },
-  { id: 'disp-fronter-not-interested', label: 'Not Interested', stage: 'fronter', ...ENDS_THE_CALL },
+  { id: 'disp-fronter-qualified', label: 'Transferred', stage: 'fronter', ...HANDS_OVER },
+  { id: 'disp-fronter-not-interested', label: 'Not Interested', stage: 'fronter', ...ENDS_THE_CALL, retired: true },
   { id: 'disp-fronter-callback', label: 'Callback', stage: 'fronter', ...ENDS_THE_CALL },
-  { id: 'disp-fronter-dnc', label: 'Do Not Call', stage: 'fronter', ...ENDS_THE_CALL },
-  { id: 'disp-fronter-invalid', label: 'Wrong Number', stage: 'fronter', ...ENDS_THE_CALL },
+  { id: 'disp-fronter-dnc', label: 'Do Not Call', stage: 'fronter', ...ENDS_THE_CALL, retired: true },
+  { id: 'disp-fronter-invalid', label: 'Wrong Number', stage: 'fronter', ...ENDS_THE_CALL, retired: true },
 ]
 
 const MOCK_INTERACTION_DISPOSITIONS = new Map<string, MockInteractionDisposition[]>()
@@ -1745,13 +1747,7 @@ type MyStatsDispositionSeed = {
   counts_as_qualified: boolean
 }
 
-const MY_STATS_LABELS = [
-  'Qualified - Transferred',
-  'Not Interested',
-  'Callback',
-  'Do Not Call',
-  'Wrong Number',
-] as const
+const MY_STATS_LABELS = ['Transferred', 'Callback'] as const
 
 const CLOSER_STATS_LABELS = [
   'Sale',
@@ -1820,7 +1816,7 @@ function seedMyStatsForUser(
     stage === 'closer'
       ? dispositions.map((row) => row.interaction_id)
       : dispositions
-          .filter((row) => row.label === 'Qualified - Transferred')
+          .filter((row) => row.label === 'Transferred')
           .filter((_, i) => i % 2 === 0)
           .map((row) => row.interaction_id)
 
@@ -3850,7 +3846,14 @@ export const handlers = [
   }),
 
   rest.get('/transfers/closers', (_req, res, ctx) => {
-    return res(ctx.status(200), ctx.json({ items: MOCK_AVAILABLE_CLOSERS }))
+    const pending = [...MOCK_TRANSFERS.values()].filter(
+      (row) => row.status === 'initiated' || row.status === 'offered'
+    )
+    const items: AvailableCloserItem[] = MOCK_AVAILABLE_CLOSERS.map((row) => ({
+      ...row,
+      waiting: pending.filter((transfer) => transfer.closer_user_id === row.user_id).length,
+    }))
+    return res(ctx.status(200), ctx.json({ items }))
   }),
 
   rest.post('/transfers', async (req, res, ctx) => {
@@ -3879,24 +3882,23 @@ export const handlers = [
       )
     }
 
-    // Omit → any free closer. Set → pin; busy / unknown → same 422 as the API.
-    const pinnedId = body.closer_user_id ?? null
-    if (pinnedId) {
-      const pinned = MOCK_AVAILABLE_CLOSERS.find((row) => row.user_id === pinnedId)
-      if (!pinned || pinned.status !== 'available') {
-        return res(
-          ctx.status(422),
-          ctx.json({
-            detail: 'no closer available for transfer',
-            code: 'transfer.no_closer_available',
-          })
-        )
-      }
-    } else if (!MOCK_AVAILABLE_CLOSERS.some((row) => row.status === 'available')) {
+    // A closer must be named, busy or free; an unknown one gets the API's 422.
+    const pinnedId = body.closer_user_id
+    if (!pinnedId) {
       return res(
         ctx.status(422),
         ctx.json({
-          detail: 'no closer available for transfer',
+          detail: 'Field required',
+          code: 'validation_error',
+          fields: [{ field: 'closer_user_id', message: 'Field required' }],
+        })
+      )
+    }
+    if (!MOCK_AVAILABLE_CLOSERS.some((row) => row.user_id === pinnedId)) {
+      return res(
+        ctx.status(422),
+        ctx.json({
+          detail: 'that closer cannot be sent a transfer',
           code: 'transfer.no_closer_available',
         })
       )
@@ -3958,40 +3960,16 @@ export const handlers = [
     return res(ctx.status(200), ctx.json(transfer))
   }),
 
-  rest.post('/transfers/:transferId/reject', async (req, res, ctx) => {
-    const transferId = req.params.transferId as string
-    const body = (await req.json()) as { closer_user_id: string }
-    const existing = MOCK_TRANSFERS.get(transferId)
-    if (!existing) {
-      return res(
-        ctx.status(404),
-        ctx.json({ detail: 'transfer not found', code: 'transfer.not_found' })
-      )
-    }
-    if (existing.status !== 'initiated' && existing.status !== 'offered') {
-      return res(
-        ctx.status(409),
-        ctx.json({
-          detail: `this transfer is already ${existing.status}`,
-          code: 'transfer.not_answerable',
-        })
-      )
-    }
-
-    const now = new Date().toISOString()
-    const transfer: TransferResponse = {
-      ...existing,
-      status: 'rejected',
-      closer_user_id: body.closer_user_id,
-      updated_at: now,
-    }
-    MOCK_TRANSFERS.set(transferId, transfer)
-
-    const queueIdx = MOCK_CLOSER_QUEUE.findIndex((row) => row.id === transferId)
-    if (queueIdx >= 0) MOCK_CLOSER_QUEUE.splice(queueIdx, 1)
-
-    return res(ctx.status(200), ctx.json(transfer))
-  }),
+  // As the API: an offer waits in its closer's queue until they accept it.
+  rest.post('/transfers/:transferId/reject', (_req, res, ctx) =>
+    res(
+      ctx.status(403),
+      ctx.json({
+        detail: 'a transfer cannot be rejected; it waits until the closer accepts it',
+        code: 'auth.forbidden',
+      })
+    )
+  ),
 
   rest.get('/transfers/:transferId', (req, res, ctx) => {
     const transfer = MOCK_TRANSFERS.get(req.params.transferId as string)
@@ -4008,8 +3986,8 @@ export const handlers = [
     const stage = req.url.searchParams.get('stage')
     const items =
       stage === 'fronter' || stage === 'closer'
-        ? MOCK_DISPOSITION_CATALOG.filter((d) => d.stage === stage)
-        : MOCK_DISPOSITION_CATALOG
+        ? MOCK_DISPOSITION_CATALOG.filter((d) => d.stage === stage && !d.retired)
+        : MOCK_DISPOSITION_CATALOG.filter((d) => !d.retired)
     return res(ctx.status(200), ctx.json({ items }))
   }),
 
