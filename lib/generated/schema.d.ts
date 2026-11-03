@@ -1455,8 +1455,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List closers for the Active Call Transfer panel
-         * @description Returns active closers on the caller's team, with availability matching the transfer gate (``transfer.no_closer_available``). Pass a row's ``user_id`` as optional ``closer_user_id`` on ``POST /transfers`` to pin the offer; omit it for auto-assign.
+         * List the closers a transfer can name
+         * @description Returns active closers on the caller's team, whether each is on a call, and how many offers are waiting for them. Send a row's ``user_id`` as ``closer_user_id`` on ``POST /transfers``.
          */
         get: operations["list_closers_transfers_closers_get"];
         put?: never;
@@ -1511,8 +1511,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Closer rejects a transfer
-         * @description Rejecting releases the interaction: the fronter can requalify and retry.
+         * Refused: a transfer cannot be rejected
+         * @description Always 403. An offer waits in its closer's queue until they accept it.
          */
         post: operations["reject_transfers__transfer_id__reject_post"];
         delete?: never;
@@ -1591,7 +1591,7 @@ export interface components {
             name: string;
             /**
              * Status
-             * @description available means free for a new transfer; on_call means busy on an accepted transfer not yet closer-dispositioned — the same rule as transfer.no_closer_available.
+             * @description available means no call in progress; on_call means an accepted transfer not yet closer-dispositioned. Either can be sent a transfer.
              * @enum {string}
              */
             status: "available" | "on_call";
@@ -1600,12 +1600,17 @@ export interface components {
              * Format: uuid
              */
             user_id: string;
+            /**
+             * Waiting
+             * @description Offers waiting in this closer's queue for them to accept.
+             */
+            waiting: number;
         };
         /** AvailableClosersResponse */
         AvailableClosersResponse: {
             /**
              * Items
-             * @description Active closers only. Empty when nobody is staffed — transfer would then return transfer.no_closer_available. Use a row's user_id as optional closer_user_id on POST /transfers to pin the offer.
+             * @description Active closers only. Empty when the team has none, and a transfer then has nobody to name. Send a row's user_id as closer_user_id on POST /transfers.
              */
             items: components["schemas"]["AvailableCloserItem"][];
         };
@@ -3715,8 +3720,11 @@ export interface components {
         };
         /** TransferCreateRequest */
         TransferCreateRequest: {
-            /** Closer User Id */
-            closer_user_id?: string | null;
+            /**
+             * Closer User Id
+             * Format: uuid
+             */
+            closer_user_id: string;
             /**
              * Fronter User Id
              * Format: uuid

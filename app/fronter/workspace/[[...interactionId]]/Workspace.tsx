@@ -40,15 +40,27 @@ type LoadState =
   | { status: 'error'; message: string }
   | { status: 'ready'; interaction: InteractionDetail }
 
-export function Workspace({ interactionId }: { interactionId: string }) {
+export function Workspace({
+  interactionId,
+  closerUserId,
+}: {
+  interactionId: string
+  closerUserId?: string
+}) {
   return (
     <RequireRole role="fronter">
-      <WorkspaceContent interactionId={interactionId} />
+      <WorkspaceContent interactionId={interactionId} closerUserId={closerUserId} />
     </RequireRole>
   )
 }
 
-function WorkspaceContent({ interactionId }: { interactionId: string }) {
+function WorkspaceContent({
+  interactionId,
+  closerUserId,
+}: {
+  interactionId: string
+  closerUserId?: string
+}) {
   const { user } = useCurrentUser()
   const [load, setLoad] = useState<LoadState>({ status: 'loading' })
   const [snapshot, setSnapshot] = useState<QualificationSnapshot>(EMPTY_SNAPSHOT)
@@ -155,9 +167,10 @@ function WorkspaceContent({ interactionId }: { interactionId: string }) {
       if (!user) {
         throw new Error('Unable to identify the current agent. Please refresh and try again.')
       }
+      if (!closerUserId) throw new Error('Choose a closer to transfer to.')
 
       const transfer = await createTransfer(
-        { interaction_id: interactionId, fronter_user_id: user.id },
+        { interaction_id: interactionId, fronter_user_id: user.id, closer_user_id: closerUserId },
         token
       )
       setTransferStatus(transfer.status)

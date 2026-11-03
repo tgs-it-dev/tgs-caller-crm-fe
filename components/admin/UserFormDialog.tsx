@@ -1,6 +1,7 @@
 'use client'
 
 import { useId, useState, type FormEvent } from 'react'
+import MuiAlert from '@mui/material/Alert'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import Radio from '@mui/material/Radio'
 import RadioGroup from '@mui/material/RadioGroup'
@@ -17,6 +18,7 @@ import { AuthError, isQaManager, isSuperAdmin, isTeamAdmin, type Role } from '@/
 import { newPasswordProblem } from '@/lib/passwords'
 import { withSession } from '@/lib/session'
 import type { Team } from '@/lib/teams'
+import { listAvailableClosers } from '@/lib/transfers'
 import {
   createUser,
   grantableRoles,
@@ -68,6 +70,16 @@ const sameRoles = (a: Role[], b: Role[]) =>
 /** These cover every team, so an account holding one has no team and no other role. */
 const COMPANY_WIDE: readonly Role[] = ['super_admin', 'qa_manager']
 
+/** Offers waiting on this closer, or 0 when that cannot be read, so a save is never blocked. */
+async function waitingFor(user: User): Promise<number> {
+  try {
+    const closers = await withSession((token) => listAvailableClosers(token))
+    return closers.find((row) => row.user_id === user.id)?.waiting ?? 0
+  } catch {
+    return 0
+  }
+}
+
 export function UserFormDialog({
   user,
   actorRoles,
@@ -112,12 +124,17 @@ export function UserFormDialog({
   // Changing someone's team stays the Super Admin's; a QA Manager names it for a new account.
   const showTeamField = !companyWide && (canPickTeam || (qaManagerOnly && !user))
   const mustPickTeam = !user && showTeamField
+  const strands =
+    Boolean(user?.active && user.roles.includes('closer')) &&
+    (!active || !roles.includes('closer') || (showTeamField && Boolean(teamId) && teamId !== startingTeam))
   const [signIn, setSignIn] = useState<SignInMethod>('password')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [problems, setProblems] = useState<Record<string, string>>({})
   const [banner, setBanner] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  // Shown once before a save that leaves a closer's waiting offers with nobody to take them.
+  const [strandWarning, setStrandWarning] = useState<string | null>(null)
   // A Super Admin editing someone can switch this dialog to set their password.
   const canResetPassword = Boolean(user) && canPickTeam
   const resetFormId = useId()
@@ -192,6 +209,17 @@ export function UserFormDialog({
         if (!sameRoles(roles, user.roles)) patch.roles = roles
         if (active !== user.active) patch.active = active
         if (showTeamField && teamId && teamId !== startingTeam) patch.team_id = teamId
+        if (strands && !strandWarning) {
+          const waiting = await waitingFor(user)
+          if (waiting > 0) {
+            setStrandWarning(
+              `${user.name} has ${waiting} ${waiting === 1 ? 'lead' : 'leads'} waiting in their queue. ` +
+                `They stay there until ${user.name} can take them again.`
+            )
+            setSaving(false)
+            return
+          }
+        }
         if (Object.keys(patch).length > 0) {
           await withSession((token) => updateUser(user.id, patch, token))
         }
@@ -280,7 +308,7 @@ export function UserFormDialog({
               isLoading={saving}
               loadingText={user ? 'Saving…' : 'Creating…'}
             >
-              {user ? 'Save changes' : 'Create user'}
+              {user ? (strands && strandWarning ? 'Save anyway' : 'Save changes') : 'Create user'}
             </Button>
           </div>
         )
@@ -291,6 +319,11 @@ export function UserFormDialog({
       ) : (
         <form id={formId} onSubmit={submit} noValidate className="space-y-5 pt-1">
           {banner && <Alert>{banner}</Alert>}
+          {strands && strandWarning && (
+            <MuiAlert severity="warning" role="status" sx={{ mb: 0 }}>
+              {strandWarning}
+            </MuiAlert>
+          )}
 
           <Input
             label="Name"

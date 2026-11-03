@@ -28,6 +28,7 @@ const RADIO_SX = {
   '& .MuiSvgIcon-root': { fontSize: 18 },
 } as const
 
+/** Any closer can be picked, on a call or not: the offer waits in their queue. */
 export function ClosersTable({
   closers,
   selectedUserId,
@@ -35,14 +36,14 @@ export function ClosersTable({
   disabled = false,
 }: {
   closers: AvailableCloserItem[]
-  /** `null` = auto-assign (any free closer). */
+  /** `null` until a closer is picked. */
   selectedUserId: string | null
-  onSelect: (userId: string | null) => void
+  onSelect: (userId: string) => void
   disabled?: boolean
 }) {
   return (
     <Table
-      aria-label="Available closers"
+      aria-label="Closers"
       // These rows are single-line, so Figma runs them at 16px vertical
       // padding (52px rows) instead of the 20px the two-line Queue rows take.
       sx={{ '& tbody td': { paddingTop: '16px', paddingBottom: '16px' } }}
@@ -60,26 +61,23 @@ export function ClosersTable({
         {closers.length === 0 ? (
           <TableRow>
             <TableCell colSpan={3} className="text-slate">
-              No closers available right now.
+              No closers on your team.
             </TableCell>
           </TableRow>
         ) : (
           closers.map((closer) => {
-            const free = closer.status === 'available'
             const selected = selectedUserId === closer.user_id
             return (
               <TableRow
                 key={closer.user_id}
-                hover={free && !disabled}
+                hover={!disabled}
                 selected={selected}
                 onClick={() => {
-                  if (disabled || !free) return
-                  // Clicking the selected row again clears the pin → auto-assign.
-                  onSelect(selected ? null : closer.user_id)
+                  if (!disabled) onSelect(closer.user_id)
                 }}
                 sx={{
-                  cursor: free && !disabled ? 'pointer' : 'default',
-                  ...(free && !disabled ? undefined : { opacity: 0.72 }),
+                  cursor: disabled ? 'default' : 'pointer',
+                  ...(disabled ? { opacity: 0.72 } : undefined),
                 }}
               >
                 <TableCell padding="checkbox">
@@ -88,11 +86,11 @@ export function ClosersTable({
                     color="primary"
                     disableRipple
                     checked={selected}
-                    disabled={disabled || !free}
+                    disabled={disabled}
                     value={closer.user_id}
                     slotProps={{
                       input: {
-                        'aria-label': `Pin transfer to ${closer.name}`,
+                        'aria-label': `Transfer to ${closer.name}`,
                       },
                     }}
                     onChange={() => onSelect(closer.user_id)}
@@ -102,7 +100,12 @@ export function ClosersTable({
                 </TableCell>
                 <TableCell>{closer.name}</TableCell>
                 <TableCell align="right">
-                  <Badge tone={STATUS_TONE[closer.status]}>{STATUS_LABEL[closer.status]}</Badge>
+                  <span className="inline-flex items-center gap-2">
+                    {closer.waiting > 0 && (
+                      <span className="text-xs text-slate">{closer.waiting} waiting</span>
+                    )}
+                    <Badge tone={STATUS_TONE[closer.status]}>{STATUS_LABEL[closer.status]}</Badge>
+                  </span>
                 </TableCell>
               </TableRow>
             )

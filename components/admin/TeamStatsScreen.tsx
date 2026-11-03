@@ -90,7 +90,6 @@ const COMPARISON: DataColumn<Row>[] = [
   // The team column takes the slack, so each row's figures sit together.
   { id: 'team', header: 'Team', width: '24%', render: (row) => row.name },
   { id: 'leads', header: 'Leads', align: 'right', render: (row) => row.leads },
-  { id: 'no_answer', header: 'No answer', align: 'right', render: (row) => row.no_answer },
   { id: 'callback', header: 'Callback', align: 'right', render: (row) => row.callback },
   { id: 'qualified', header: 'Qualified', align: 'right', render: (row) => row.qualified },
   { id: 'transferred', header: 'Transferred', align: 'right', render: (row) => row.transferred },
