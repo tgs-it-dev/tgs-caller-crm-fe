@@ -44,6 +44,22 @@ html, body, #__next {
   height: 100%;
 }
 
+/*
+ * CopyGuard sets data-copy-guard on <html> for everyone but a Super Admin, so page
+ * text can't be selected. Fields stay selectable: correcting what was typed needs
+ * it, and iOS Safari can't type into a field that isn't.
+ */
+[data-copy-guard] body {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+[data-copy-guard] input,
+[data-copy-guard] textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 /* Keep decorative stroke icons square — flex rows can squash SVG height. */
 svg[aria-hidden="true"] {
   aspect-ratio: 1 / 1;

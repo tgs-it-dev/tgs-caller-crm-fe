@@ -81,7 +81,6 @@ export function QualificationChecklist({
               </>
             }
             placeholder="TX"
-            autoComplete="address-level1"
             value={form.state}
             onChange={(e) => onChange({ state: sanitizeState(e.target.value) })}
           />

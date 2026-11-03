@@ -4,6 +4,7 @@ import { useRef, useState, type DragEvent } from 'react'
 import Link from 'next/link'
 import MuiButton from '@mui/material/Button'
 import { CircleCheck, Download, FileSpreadsheet, SearchX, TriangleAlert, X } from 'lucide-react'
+import { LeadSummaryDialog } from '@/components/admin/LeadSummaryDialog'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import { Alert } from '@/components/ui/Alert'
 import { Button } from '@/components/ui/Button'
@@ -11,7 +12,7 @@ import { DataTable, type DataColumn } from '@/components/ui/DataTable'
 import { PageShell } from '@/components/ui/PageShell'
 import { StatCard } from '@/components/ui/StatCard'
 import { AuthError, isSuperAdmin } from '@/lib/auth'
-import { formatDateTime, formatMoney, formatPhone } from '@/lib/format'
+import { displayTimeZone, formatDateTime, formatMoney, formatPhone } from '@/lib/format'
 import {
   downloadText,
   lookupPolicies,
@@ -46,7 +47,11 @@ function fileSize(bytes: number) {
   return bytes < 1024 ? `${bytes} bytes` : `${Math.max(1, Math.round(bytes / 1024))} KB`
 }
 
-function matchedColumns(superAdmin: boolean): DataColumn<PolicySale>[] {
+/** A Super Admin gets the amounts and Open, to the lead's full view; a Team Admin gets Summary. */
+function matchedColumns(
+  superAdmin: boolean,
+  onSummary: (sale: PolicySale) => void
+): DataColumn<PolicySale>[] {
   return [
     {
       id: 'policy',
@@ -74,32 +79,37 @@ function matchedColumns(superAdmin: boolean): DataColumn<PolicySale>[] {
       header: 'Sold',
       render: (sale) => <span className="whitespace-nowrap">{formatDateTime(sale.sold_at)}</span>,
     },
-    ...(['total_payment', 'down_payment', 'monthly_payment'] as const).map((key) => ({
-      id: key,
-      header: key === 'total_payment' ? 'Total' : key === 'down_payment' ? 'Down' : 'Monthly',
-      align: 'right' as const,
-      render: (sale: PolicySale) => <span className="tabular-nums">{formatMoney(sale[key])}</span>,
-    })),
-    // A lead's full view is the Super Admin's alone.
     ...(superAdmin
-      ? [
-          {
-            id: 'open',
-            header: '',
-            align: 'right' as const,
-            render: (sale: PolicySale) => (
-              <MuiButton
-                component={Link}
-                href={`/admin/reports/lead/?id=${encodeURIComponent(sale.lead_id)}&from=policies`}
-                variant="outlined"
-                size="small"
-              >
-                Open<span className="sr-only"> {sale.lead_name}</span>
-              </MuiButton>
-            ),
+      ? (['total_payment', 'down_payment', 'monthly_payment'] as const).map((key) => ({
+          id: key,
+          header: key === 'total_payment' ? 'Total' : key === 'down_payment' ? 'Down' : 'Monthly',
+          align: 'right' as const,
+          render: (sale: PolicySale) => {
+            const amount = sale[key]
+            return <span className="tabular-nums">{amount ? formatMoney(amount) : '-'}</span>
           },
-        ]
+        }))
       : []),
+    {
+      id: 'open',
+      header: '',
+      align: 'right',
+      render: (sale) =>
+        superAdmin ? (
+          <MuiButton
+            component={Link}
+            href={`/admin/reports/lead/?id=${encodeURIComponent(sale.lead_id)}&from=policies`}
+            variant="outlined"
+            size="small"
+          >
+            Open<span className="sr-only"> {sale.lead_name}</span>
+          </MuiButton>
+        ) : (
+          <MuiButton variant="outlined" size="small" onClick={() => onSummary(sale)}>
+            Summary<span className="sr-only"> {sale.lead_name}</span>
+          </MuiButton>
+        ),
+    },
   ]
 }
 
@@ -116,7 +126,8 @@ const SKIPPED_COLUMNS: DataColumn<PolicySkipped>[] = [
 
 /**
  * Upload a list of policy numbers and see the sale behind each. A Team Admin
- * finds only their own team's sales; the API reads another team's as not found.
+ * finds only their own team's sales, with no amounts and no download; the API
+ * reads another team's as not found.
  */
 export function PolicyLookupScreen() {
   const { user } = useCurrentUser()
@@ -132,6 +143,7 @@ export function PolicyLookupScreen() {
   const mine = Boolean(user && lastLookup.userId === user.id)
   const [result, setResult] = useState<Result | null>(mine ? lastLookup.result : null)
   const [view, setView] = useState<View>(mine ? lastLookup.view : 'matched')
+  const [summaryOf, setSummaryOf] = useState<PolicySale | null>(null)
 
   function show(next: View) {
     lastLookup.view = next
@@ -315,14 +327,16 @@ export function PolicyLookupScreen() {
                   {summary.rows === 1 ? 'number' : 'numbers'} read
                 </p>
               </div>
-              <MuiButton
-                variant="outlined"
-                size="small"
-                onClick={download}
-                startIcon={<Download className="h-4 w-4" strokeWidth={2} aria-hidden />}
-              >
-                Download results
-              </MuiButton>
+              {superAdmin && (
+                <MuiButton
+                  variant="outlined"
+                  size="small"
+                  onClick={download}
+                  startIcon={<Download className="h-4 w-4" strokeWidth={2} aria-hidden />}
+                >
+                  Download results
+                </MuiButton>
+              )}
             </div>
 
             <div
@@ -347,7 +361,7 @@ export function PolicyLookupScreen() {
                 title="Matched sales"
                 ariaLabel="The sales found for the uploaded policy numbers"
                 rows={result.lookup.matches}
-                columns={matchedColumns(superAdmin)}
+                columns={matchedColumns(superAdmin, setSummaryOf)}
                 getRowId={(sale) => `${sale.row}-${sale.interaction_id}`}
                 emptyMessage="None of these policy numbers matched a sale."
                 pageSize={PAGE_SIZE}
@@ -379,6 +393,15 @@ export function PolicyLookupScreen() {
           </section>
         )}
       </div>
+
+      {summaryOf && (
+        <LeadSummaryDialog
+          key={summaryOf.lead_id}
+          lead={{ ...summaryOf, stage: 'sold' }}
+          timeZone={displayTimeZone()}
+          onClose={() => setSummaryOf(null)}
+        />
+      )}
     </PageShell>
   )
 }

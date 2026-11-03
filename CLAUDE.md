@@ -246,7 +246,10 @@ the API calls and rules are in `lib/cart.ts`.
   most the last four digits. A saved cart shows read-only, masked, with an
   **Edit cart** button. In the form, a saved number shows as its placeholder
   (`•••• 4242`); left blank it is kept (the request leaves it out), and typing
-  replaces it. The CVV is checked by the API and discarded.
+  replaces it. The CVV is stored encrypted like the numbers and never comes back
+  either: the cart says only whether one is saved (`has_cvv`), and the field
+  shows `•••` until the closer types a new account number, which drops it,
+  since a CVV belongs to its card.
 - **Money goes as strings** (`"1800.00"`), formatted on blur and shown through
   `formatMoney`. `CURRENCY` in `lib/format.ts` is the one place the currency is
   set: the API stores amounts without one.
@@ -321,9 +324,11 @@ furthest stage it has reached**.
 - **Only a Super Admin can open a lead,** through Open, which goes to
   `/admin/reports/lead/?id=…`. A Team Admin gets Summary in the same column:
   `LeadSummaryDialog`, reading `GET /leads/{id}/summary`, says who worked the lead,
-  where it stands, and for a sale its figures. It has no card details, form
-  answers or timeline. The row supplies the name, phone and stage, and the dialog
-  is `dismissible`, because a read-only view has nothing to lose.
+  where it stands, the lead details the row doesn't show (vehicle, VIN, plate,
+  source, who added it), and for a sale its policy number and when it sold. It
+  has no card details, amounts or timeline: the API sends none.
+  The row supplies the name, phone and stage, and the dialog is `dismissible`,
+  because a read-only view has nothing to lose.
 
 ## Lead detail
 
@@ -354,8 +359,8 @@ page.
   full numbers calls `POST /interactions/{id}/cart/reveal` through
   `revealCartNumbers()` in `lib/cart.ts`, which the API records in the audit
   trail every time, so it is asked only on a click and never on load. The numbers
-  swap in on the same rows and Hide numbers puts the mask back; a reload starts
-  masked. There is no CVV to show: it is never stored.
+  swap in on the same rows, the CVV with them, and Hide numbers puts the mask
+  back; a reload starts masked.
 - **History is a table, oldest first, ten to a page.** One line per event: time,
   what happened with its pills, the detail, and who. An outcome that replaced an
   earlier one on the same call says "Changed from …" rather than "Corrected": a
@@ -570,14 +575,18 @@ policy number per row and shows the sale behind each, through `lib/policies.ts`
   under the upload. A Team Admin only finds their own team's sales; another
   team's reads as not found.
 - **The upload** is one drop zone: drag a file in, or Choose file, then Look up.
-- **Results** have a header naming the file, with Download results, then three
-  `StatCard` tiles, Matched, Not found and Skipped, that each show their own table,
-  20 to a page in the browser. Matched shows each lead's phone; a Super Admin also
-  sees the team and gets an Open button for the lead's full view.
-- **Download results** is built in the browser (`policyResultCsv`): every uploaded
-  number with its status, lead, phone and sale, in the upload's order, so no row
-  column is needed. It starts with a byte order mark so Excel reads it as UTF-8,
-  and a cell a spreadsheet would run as a formula gets a leading apostrophe.
+- **Results** have a header naming the file, then three `StatCard` tiles,
+  Matched, Not found and Skipped, that each show their own table, 20 to a page in
+  the browser. Matched shows each lead's phone; a Super Admin also sees the team,
+  the amounts and an Open button for the lead's full view.
+- **A Team Admin gets no amounts and no download.** The API sends their amounts
+  as null, and each match has Summary instead of Open: the same
+  `LeadSummaryDialog` as Reports.
+- **Download results** is the Super Admin's, built in the browser
+  (`policyResultCsv`): every uploaded number with its status, lead, phone and
+  sale, in the upload's order, so no row column is needed. It starts with a byte
+  order mark so Excel reads it as UTF-8, and a cell a spreadsheet would run as a
+  formula gets a leading apostrophe.
 - **Mocks** know `POL-10001` to `POL-10030`, spread across the mock teams. An
   Excel upload gets a fixed sample answer, since the mock does not unpack it.
 
@@ -677,6 +686,24 @@ password ever gets set. The first two are one component —
 - Mock handlers seed four tokens — `live-link`, `expired-link`, `used-link`,
   `superseded-link` — and a newly issued invitation logs its URL to the console,
   the mock equivalent of the backend's `log` transport.
+
+## Copy and paste
+
+`components/auth/CopyGuard.tsx`, mounted once in `AppProviders`.
+
+- **Everyone but a Super Admin types every form by hand.** Once signed in, copy,
+  cut, paste, right-click, text selection and dragging do nothing, and nothing on
+  screen says so.
+- **Two things still work:** paste into a password field, for password managers,
+  and dropping a file onto an upload. The sign-in, invite, reset and
+  forgot-password pages are left alone.
+- **Selection is CSS.** The guard sets `data-copy-guard` on `<html>`, and
+  `styles/globals.css` turns selection off under it, except inside fields, where
+  correcting what was typed needs it.
+- **Autofill is off for every role.** `Input` and `Textarea` default
+  `autoComplete` to `off`; only password and sign-in fields name their own.
+- **It discourages, it doesn't prevent.** Developer tools get around it, and no
+  website can stop a screenshot.
 
 ## UI conventions
 

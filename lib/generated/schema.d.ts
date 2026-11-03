@@ -596,10 +596,11 @@ export interface paths {
          * Save the cart for a call (its closer)
          * @description Create or update the cart, for the closer who accepted the call.
          *
-         *     The account and routing numbers are encrypted before they are stored, and
-         *     the response carries at most their last four digits. Either one left out
-         *     keeps the number already saved, so a change to the amounts need not retype
-         *     them. A CVV is checked, then discarded.
+         *     The account and routing numbers and the CVV are encrypted before they are
+         *     stored, and the response carries at most the numbers' last four digits and
+         *     never the CVV. Any of them left out keeps the one already saved, so a change
+         *     to the amounts need not retype them; only a new account number sent without a
+         *     CVV drops the saved one, since it belonged to the old card.
          */
         put: operations["save_cart_interactions__interaction_id__cart_put"];
         post?: never;
@@ -619,7 +620,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Show a cart's full account and routing numbers (Super Admin only)
+         * Show a cart's full account and routing numbers and CVV (Super Admin only)
          * @description Decrypt the call's cart for the Super Admin asking, and record that they saw it.
          *
          *     A POST because each reveal writes an audit row; the numbers never go into
@@ -875,8 +876,7 @@ export interface paths {
          *
          *     The timeline runs across all its calls, oldest first, with every correction,
          *     every cart save and every edit to the lead. A cart shows what its closer sees:
-         *     the last four digits of each number, never a full one, and no CVV, which is
-         *     never stored.
+         *     the last four digits of each number, never a full one, and never the CVV.
          */
         get: operations["get_lead_history_leads__lead_id__history_get"];
         put?: never;
@@ -895,10 +895,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Who worked a lead, where it stands, and its sale figures
+         * A lead, who worked it, where it stands, its fronter form and its sale
          * @description What a Team Admin sees of a lead on their team.
          *
-         *     No card details, form answers or timeline: those stay on the full lead view.
+         *     No card details, amounts or timeline: those stay on the full lead view.
          */
         get: operations["get_lead_summary_leads__lead_id__summary_get"];
         put?: never;
@@ -1304,8 +1304,9 @@ export interface paths {
          * Find the sale behind each policy number in an uploaded list
          * @description Matched, not found and skipped numbers, each with its row in the file.
          *
-         *     A Team Admin finds only their own team's sales: a number sold on another team
-         *     reads as not found. Case and surrounding spaces never stop a match.
+         *     A Team Admin finds only their own team's sales, and without their amounts: a
+         *     number sold on another team reads as not found. Case and surrounding spaces
+         *     never stop a match.
          */
         post: operations["policy_lookup_reporting_policy_lookup_post"];
         delete?: never;
@@ -1745,17 +1746,19 @@ export interface components {
         };
         /**
          * CartNumbersResponse
-         * @description A cart's full account and routing numbers, for a Super Admin who asked to see them.
+         * @description A cart's full account and routing numbers and CVV, for a Super Admin who asked.
          */
         CartNumbersResponse: {
             /** Account Number */
             account_number: string;
+            /** Cvv */
+            cvv: string | null;
             /** Routing Number */
             routing_number: string | null;
         };
         /**
          * CartResponse
-         * @description A saved cart, masked: at most the last four digits of each number.
+         * @description A saved cart, masked: at most the last four digits of each number, and no CVV.
          */
         CartResponse: {
             /** Account Last4 */
@@ -1764,6 +1767,8 @@ export interface components {
             down_payment: string;
             /** Expiry */
             expiry: string | null;
+            /** Has Cvv */
+            has_cvv: boolean;
             /**
              * Interaction Id
              * Format: uuid
@@ -1800,7 +1805,7 @@ export interface components {
             account_number?: string | null;
             /**
              * Cvv
-             * @description 3 or 4 digits. Checked, then discarded: never stored
+             * @description 3 or 4 digits, stored encrypted. Left out, the saved one is kept; null removes it. A new account number sent without one removes the saved one
              */
             cvv?: string | null;
             /** Down Payment */
@@ -2608,6 +2613,8 @@ export interface components {
             down_payment: string;
             /** Expiry */
             expiry: string | null;
+            /** Has Cvv */
+            has_cvv: boolean;
             /**
              * Interaction Id
              * Format: uuid
@@ -2761,7 +2768,7 @@ export interface components {
          * @description A lead's details, where it stands, what was entered, and everything that happened.
          *
          *     The events run oldest first across all its calls. A cart shows what its closer
-         *     sees: never a full account or routing number, and a CVV is never stored.
+         *     sees: never a full account or routing number, and never the CVV.
          */
         LeadHistoryResponse: {
             /** Carts */
@@ -2894,21 +2901,21 @@ export interface components {
         };
         /**
          * LeadSummaryResponse
-         * @description Who worked a lead and where it stands. The full record stays with a Super Admin.
+         * @description The lead, who worked it, where it stands and its fronter form.
+         *
+         *     No card details, amounts or timeline: the full record stays with a Super Admin.
          */
         LeadSummaryResponse: {
+            form: components["schemas"]["LeadHistoryForm"] | null;
+            lead: components["schemas"]["LeadHistoryLead"];
             sale: components["schemas"]["LeadSummarySale"] | null;
             status: components["schemas"]["LeadHistoryStatus"];
         };
         /**
          * LeadSummarySale
-         * @description A sale's figures, with nothing that identifies a payment.
+         * @description When a lead was sold, and its policy. No amounts and nothing from the payment.
          */
         LeadSummarySale: {
-            /** Down Payment */
-            down_payment: string;
-            /** Monthly Payment */
-            monthly_payment: string;
             /** Policy Number */
             policy_number: string | null;
             /**
@@ -2916,8 +2923,6 @@ export interface components {
              * Format: date-time
              */
             sold_at: string;
-            /** Total Payment */
-            total_payment: string;
         };
         /**
          * LeadUpdateRequest
@@ -3031,7 +3036,7 @@ export interface components {
             /** Closer Name */
             closer_name: string;
             /** Down Payment */
-            down_payment: string;
+            down_payment: string | null;
             /**
              * Interaction Id
              * Format: uuid
@@ -3047,7 +3052,7 @@ export interface components {
             /** Lead Phone */
             lead_phone: string;
             /** Monthly Payment */
-            monthly_payment: string;
+            monthly_payment: string | null;
             /** Policy Number */
             policy_number: string;
             /** Row */
@@ -3065,7 +3070,7 @@ export interface components {
             /** Team Name */
             team_name: string;
             /** Total Payment */
-            total_payment: string;
+            total_payment: string | null;
         };
         /**
          * PolicySkipped

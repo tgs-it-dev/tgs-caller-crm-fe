@@ -68,7 +68,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
       onFocus={onFocus}
       name={name}
       placeholder={placeholder}
-      autoComplete={autoComplete}
+      // Off unless a field asks for it: forms are typed by hand, never filled in.
+      autoComplete={autoComplete ?? 'off'}
       autoFocus={autoFocus}
       disabled={disabled}
       required={required}
