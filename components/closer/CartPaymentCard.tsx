@@ -59,7 +59,7 @@ function SectionTitle({ children }: { children: ReactNode }) {
 
 /**
  * The saved cart, laid out like the form it came from. Numbers stay masked, and
- * the CVV only says whether one is saved.
+ * there is no CVV row: it is never saved.
  */
 function SavedCart({ saved }: { saved: CartResponse }) {
   return (
@@ -70,7 +70,6 @@ function SavedCart({ saved }: { saved: CartResponse }) {
           <Row label="Account">•••• {saved.account_last4}</Row>
           <Row label="Routing">{saved.routing_last4 ? `•••• ${saved.routing_last4}` : '-'}</Row>
           <Row label="Expiry">{saved.expiry ?? '-'}</Row>
-          <Row label="CVV">{saved.has_cvv ? '•••' : '-'}</Row>
           <Row label="Policy">{saved.policy_number ?? '-'}</Row>
         </dl>
       </section>
@@ -236,8 +235,6 @@ export function CartPaymentCard({
   }
 
   const savedRouting = saved?.routing_last4
-  // A new account number drops the saved CVV, so it is no longer there to keep.
-  const keepsCvv = Boolean(saved?.has_cvv) && !digitsOf(form.account_number)
 
   return (
     <form
@@ -284,10 +281,7 @@ export function CartPaymentCard({
                   maxLength: 5,
                   placeholder: 'MM/YY',
                 })}
-                {field('cvv', 'CVV (optional)', keepsCvv ? REPLACE_HINT : '3 or 4 digits.', {
-                  maxLength: 4,
-                  placeholder: keepsCvv ? '•••' : undefined,
-                })}
+                {field('cvv', 'CVV (optional)', 'Checked, never stored.', { maxLength: 4 })}
               </div>
               {field(
                 'routing_number',
