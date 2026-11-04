@@ -177,20 +177,18 @@ export function checkCart(
 }
 
 /**
- * The request for a form that passed `checkCart`. A blank account number, routing
- * number or CVV is left out, which keeps the saved one. The API drops a saved CVV
- * when a new account number comes without one.
+ * The request for a form that passed `checkCart`. A blank account or routing
+ * number is left out, which keeps the saved one.
  */
 export function toSaveRequest(form: CartForm): CartSaveRequest {
   const optional = (text: string) => text || null
   const account = digitsOf(form.account_number)
   const routing = digitsOf(form.routing_number)
-  const cvv = digitsOf(form.cvv)
   return {
     ...(account ? { account_number: account } : {}),
     ...(routing ? { routing_number: routing } : {}),
-    ...(cvv ? { cvv } : {}),
     expiry: optional(form.expiry.trim()),
+    cvv: optional(digitsOf(form.cvv)),
     policy_number: optional(form.policy_number.trim()),
     total_payment: toAmount(form.total_payment) ?? '',
     down_payment: toAmount(form.down_payment) ?? '',

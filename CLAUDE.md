@@ -246,10 +246,7 @@ the API calls and rules are in `lib/cart.ts`.
   most the last four digits. A saved cart shows read-only, masked, with an
   **Edit cart** button. In the form, a saved number shows as its placeholder
   (`•••• 4242`); left blank it is kept (the request leaves it out), and typing
-  replaces it. The CVV is stored encrypted like the numbers and never comes back
-  either: the cart says only whether one is saved (`has_cvv`), and the field
-  shows `•••` until the closer types a new account number, which drops it,
-  since a CVV belongs to its card.
+  replaces it. The CVV is checked by the API and discarded.
 - **Money goes as strings** (`"1800.00"`), formatted on blur and shown through
   `formatMoney`. `CURRENCY` in `lib/format.ts` is the one place the currency is
   set: the API stores amounts without one.
@@ -359,8 +356,8 @@ page.
   full numbers calls `POST /interactions/{id}/cart/reveal` through
   `revealCartNumbers()` in `lib/cart.ts`, which the API records in the audit
   trail every time, so it is asked only on a click and never on load. The numbers
-  swap in on the same rows, the CVV with them, and Hide numbers puts the mask
-  back; a reload starts masked.
+  swap in on the same rows and Hide numbers puts the mask back; a reload starts
+  masked. There is no CVV to show: it is never stored.
 - **History is a table, oldest first, ten to a page.** One line per event: time,
   what happened with its pills, the detail, and who. An outcome that replaced an
   earlier one on the same call says "Changed from …" rather than "Corrected": a

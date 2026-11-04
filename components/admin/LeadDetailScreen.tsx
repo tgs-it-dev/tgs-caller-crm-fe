@@ -327,11 +327,6 @@ function CartCard({ cart, revealable }: { cart: Cart; revealable: boolean }) {
         <Pair label="Down payment">{formatMoney(cart.down_payment)}</Pair>
         <Pair label="Expiry">{cart.expiry ?? '-'}</Pair>
         <Pair label="Monthly">{formatMoney(cart.monthly_payment)}</Pair>
-        <Pair label="CVV">
-          <span className="tabular-nums">
-            {shown ? (shown.cvv ?? '-') : cart.has_cvv ? '•••' : '-'}
-          </span>
-        </Pair>
         <Pair label="Policy number">{cart.policy_number ?? '-'}</Pair>
       </Pairs>
     </Card>
