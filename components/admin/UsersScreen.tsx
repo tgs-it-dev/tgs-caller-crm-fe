@@ -14,7 +14,6 @@ import { Select } from '@/components/ui/Select'
 import { StatCard } from '@/components/ui/StatCard'
 import { AuthError, isQaManager, isSuperAdmin, isTeamAdmin, type Role } from '@/lib/auth'
 import { waitForMocking } from '@/lib/mockReady'
-import { getQaSummary } from '@/lib/qa'
 import { withSession } from '@/lib/session'
 import { listTeams, type Team } from '@/lib/teams'
 import { tokens } from '@/lib/theme'
@@ -50,7 +49,6 @@ const STAFF_ROLES = ASSIGNABLE_ROLES.filter(
 const ROLE_BADGE_TONE: Record<StaffRole, 'teal' | 'amber' | 'neutral' | 'red'> = {
   administrator: 'amber',
   qa_manager: 'red',
-  qa_lead: 'amber',
   qa_agent: 'teal',
   closer: 'teal',
   fronter: 'neutral',
@@ -60,9 +58,7 @@ const ROLE_BADGE_TONE: Record<StaffRole, 'teal' | 'amber' | 'neutral' | 'red'> =
 function filterableRoles(actorRoles: readonly Role[]): StaffRole[] {
   if (isSuperAdmin(actorRoles)) return STAFF_ROLES
   if (isQaManager(actorRoles) && !isTeamAdmin(actorRoles)) {
-    return STAFF_ROLES.filter(
-      (role) => role === 'qa_manager' || role === 'qa_lead' || role === 'qa_agent',
-    )
+    return STAFF_ROLES.filter((role) => role === 'qa_manager' || role === 'qa_agent')
   }
   if (isTeamAdmin(actorRoles)) {
     return STAFF_ROLES.filter(
@@ -198,8 +194,8 @@ export function UsersScreen() {
   const qaView = Boolean(
     signedIn && isQaManager(signedIn.roles) && !isSuperAdmin(signedIn.roles) && !isTeamAdmin(signedIn.roles),
   )
-  // A Super Admin and a QA Manager both work across teams, so both see them.
-  const seesTeams = saView || qaView
+  // Only a Super Admin's list spans teams: QA staff have none, and a Team Admin has their own.
+  const seesTeams = saView
   const roleOptions = signedIn ? filterableRoles(signedIn.roles) : STAFF_ROLES
 
   useEffect(() => {
@@ -211,13 +207,8 @@ export function UsersScreen() {
           const list = await listUsers(token, {
             teamId: seesTeams && teamFilter ? teamFilter : null,
           })
-          // Team names label the Team column + filter. A QA Manager may not read
-          // /teams, so their names come from the QA summary; a Team Admin needs none.
-          const teams: TeamOption[] = saView
-            ? (await listTeams(token)).items
-            : qaView
-              ? (await getQaSummary(token)).map((team) => ({ id: team.team_id, name: team.team_name }))
-              : []
+          // Team names label the Super Admin's Team column, filter and picker.
+          const teams: TeamOption[] = saView ? (await listTeams(token)).items : []
           return { list, teams }
         })
       )
