@@ -5,6 +5,8 @@ import Link from 'next/link'
 import MuiButton from '@mui/material/Button'
 import { CircleCheck, Download, FileSpreadsheet, SearchX, TriangleAlert, X } from 'lucide-react'
 import { LeadSummaryDialog } from '@/components/admin/LeadSummaryDialog'
+import { MarkPaidPanel } from '@/components/admin/MarkPaidPanel'
+import { PaidUploadsSection } from '@/components/admin/PaidUploadsSection'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import { Alert } from '@/components/ui/Alert'
 import { Button } from '@/components/ui/Button'
@@ -15,9 +17,12 @@ import { AuthError, isSuperAdmin } from '@/lib/auth'
 import { displayTimeZone, formatDateTime, formatMoney, formatPhone } from '@/lib/format'
 import {
   downloadText,
+  formatMonth,
   lookupPolicies,
+  markPaid,
   policyResultCsv,
   skippedReason,
+  type PaidUpload,
   type PolicyLookup,
   type PolicyNumberRow,
   type PolicySale,
@@ -30,12 +35,14 @@ const PAGE_SIZE = 20
 const NOT_A_LIST = 'Upload a CSV or Excel (.xlsx) file.'
 
 type View = 'matched' | 'unmatched' | 'skipped'
-type Result = { lookup: PolicyLookup; fileName: string }
+/** A lookup, the file it read, and the upload it was saved as once marked Paid. */
+type Result = { lookup: PolicyLookup; file: File; saved: PaidUpload | null }
 
 /**
  * The last lookup, kept in memory while the app is open, so coming back from a
- * lead shows the same results. A reload clears it, and nothing is stored on disk.
- * It is only ever shown to the user who ran it: signing out does not reload.
+ * lead shows the same results and can still be marked Paid. A reload clears it,
+ * and nothing is stored on disk. It is only ever shown to the user who ran it:
+ * signing out does not reload.
  */
 const lastLookup: { userId: string | null; result: Result | null; view: View } = {
   userId: null,
@@ -91,6 +98,16 @@ function matchedColumns(
         }))
       : []),
     {
+      id: 'paid',
+      header: 'Paid',
+      render: (sale) =>
+        sale.paid_month ? (
+          <span className="whitespace-nowrap">{formatMonth(sale.paid_month, 'short')}</span>
+        ) : (
+          <span className="whitespace-nowrap text-slate">Not paid</span>
+        ),
+    },
+    {
       id: 'open',
       header: '',
       align: 'right',
@@ -125,9 +142,11 @@ const SKIPPED_COLUMNS: DataColumn<PolicySkipped>[] = [
 ]
 
 /**
- * Upload a list of policy numbers and see the sale behind each. A Team Admin
- * finds only their own team's sales, with no amounts and no download; the API
- * reads another team's as not found.
+ * Upload a list of policy numbers and see the sale behind each, and whether it is
+ * Paid. A Super Admin then marks the matches Paid for a month, and keeps the
+ * history of those uploads. A Team Admin only looks up, finding only their own
+ * team's sales, with no amounts and no download; the API reads another team's as
+ * not found.
  */
 export function PolicyLookupScreen() {
   const { user } = useCurrentUser()
@@ -144,6 +163,9 @@ export function PolicyLookupScreen() {
   const [result, setResult] = useState<Result | null>(mine ? lastLookup.result : null)
   const [view, setView] = useState<View>(mine ? lastLookup.view : 'matched')
   const [summaryOf, setSummaryOf] = useState<PolicySale | null>(null)
+  const [uploadsKey, setUploadsKey] = useState(0)
+  // Each fresh start of the Mark as Paid step, so it never keeps an earlier month.
+  const [markRun, setMarkRun] = useState(0)
 
   function show(next: View) {
     lastLookup.view = next
@@ -168,16 +190,22 @@ export function PolicyLookupScreen() {
     pick(event.dataTransfer.files?.[0] ?? null)
   }
 
+  function keep(next: Result) {
+    lastLookup.userId = user?.id ?? null
+    lastLookup.result = next
+    setResult(next)
+  }
+
   function lookUp() {
     if (!file) return
+    const looked = file
     setBusy(true)
     setProblem(null)
     setFailure(null)
-    withSession((token) => lookupPolicies(file, token))
+    withSession((token) => lookupPolicies(looked, token))
       .then((lookup) => {
-        lastLookup.userId = user?.id ?? null
-        lastLookup.result = { lookup, fileName: file.name }
-        setResult(lastLookup.result)
+        keep({ lookup, file: looked, saved: null })
+        setMarkRun((n) => n + 1)
         show('matched')
       })
       .catch((err) => {
@@ -191,9 +219,33 @@ export function PolicyLookupScreen() {
       .finally(() => setBusy(false))
   }
 
+  /** Saves the lookup's file for the month, then reads it again so its Paid column is current. */
+  async function markAsPaid(month: string) {
+    if (!result) return
+    const marked = result
+    const saved = await withSession((token) => markPaid(marked.file, month, token))
+    setUploadsKey((n) => n + 1)
+    // Saved either way: a failed read only leaves the Paid column as it was.
+    const lookup = await withSession((token) => lookupPolicies(marked.file, token)).catch(
+      () => marked.lookup
+    )
+    keep({ lookup, file: marked.file, saved })
+  }
+
+  /** An undone upload changes paid months, so the lookup on screen is read again. */
+  function undone(upload: PaidUpload) {
+    const current = lastLookup.result
+    if (!current || !mine) return
+    const saved = current.saved?.id === upload.id ? null : current.saved
+    if (saved !== current.saved) setMarkRun((n) => n + 1)
+    withSession((token) => lookupPolicies(current.file, token))
+      .then((lookup) => keep({ lookup, file: current.file, saved }))
+      .catch(() => keep({ ...current, saved }))
+  }
+
   function download() {
     if (!result) return
-    const stem = result.fileName.replace(/\.(csv|xlsx)$/i, '')
+    const stem = result.file.name.replace(/\.(csv|xlsx)$/i, '')
     downloadText(`${stem}-results.csv`, policyResultCsv(result.lookup))
   }
 
@@ -323,7 +375,7 @@ export function PolicyLookupScreen() {
               <div className="min-w-0">
                 <h2 className="text-base font-semibold leading-[120%] text-ink">Results</h2>
                 <p className="mt-1 truncate text-sm text-slate">
-                  {result.fileName} · {summary.rows.toLocaleString()} policy{' '}
+                  {result.file.name} · {summary.rows.toLocaleString()} policy{' '}
                   {summary.rows === 1 ? 'number' : 'numbers'} read
                 </p>
               </div>
@@ -355,6 +407,16 @@ export function PolicyLookupScreen() {
                 />
               ))}
             </div>
+
+            {superAdmin && (result.saved || result.lookup.matches.length > 0) && (
+              <MarkPaidPanel
+                // A new lookup, or undoing what it saved, starts the step afresh.
+                key={markRun}
+                matches={result.lookup.matches}
+                saved={result.saved}
+                onMark={markAsPaid}
+              />
+            )}
 
             {view === 'matched' && (
               <DataTable
@@ -392,12 +454,14 @@ export function PolicyLookupScreen() {
             )}
           </section>
         )}
+
+        {superAdmin && <PaidUploadsSection reloadKey={uploadsKey} onUndone={undone} />}
       </div>
 
       {summaryOf && (
         <LeadSummaryDialog
           key={summaryOf.lead_id}
-          lead={{ ...summaryOf, stage: 'sold' }}
+          lead={{ ...summaryOf, stage: summaryOf.paid_month ? 'paid' : 'sold' }}
           timeZone={displayTimeZone()}
           onClose={() => setSummaryOf(null)}
         />

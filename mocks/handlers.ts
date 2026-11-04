@@ -6,6 +6,7 @@ import type { ReconciliationException } from '../lib/exceptions'
 import type { CallLeg, InteractionEvent, InteractionTransfer } from '../lib/interactionDetail'
 import type { InteractionDetailResponse } from '../lib/interactions'
 import type { LeadBulkRow, LeadHistory, LeadHistoryEvent, LeadResponse } from '../lib/leads'
+import type { PaidUpload, PolicyLookup } from '../lib/policies'
 import type { QaAgent, QaHistoryEvent, QaItem, QaStatus, QaTeamSummary } from '../lib/qa'
 import { PUSH_INTERVAL_MS, type AgentStatus, type LiveStatus } from '../lib/liveStatus'
 import type { CloserCallbackEntry, CloserQueueEntry, FronterQueueEntry } from '../lib/queue'
@@ -582,6 +583,8 @@ function mockFunnel(
     qualified: total.qualified,
     transferred: total.transferred,
     sold: total.sold,
+    // Inside Sold: the sold leads a monthly upload has marked Paid so far.
+    paid: Math.round(total.sold * 0.6),
   }
 }
 
@@ -600,8 +603,10 @@ function mockTeamStats(
   const base = mockWindow(start, end, timezone)
   const withRate = (counts: Omit<TeamFigures, 'conversion_rate'>): TeamFigures => ({
     ...counts,
-    conversion_rate: counts.leads ? counts.sold / counts.leads : null,
+    conversion_rate: counts.sales ? counts.paid / counts.sales : null,
   })
+  // Paid counts on the 1st of its month, so dates that hold no 1st have none.
+  const holdsAFirst = start.endsWith('-01') || start.slice(0, 7) !== end.slice(0, 7)
 
   const teams: TeamStats[] = [...MOCK_TEAMS]
     .sort((a, b) => a.name.localeCompare(b.name))
@@ -611,6 +616,7 @@ function mockTeamStats(
       const leads = team.active ? Math.round(base.leads / (index + 2)) : 0
       const qualified = Math.round(leads * 0.3)
       const transferred = Math.round(qualified * 0.6)
+      const sales = Math.round(transferred * 0.55)
       const counts = {
         leads,
         no_answer: Math.round(leads * 0.35),
@@ -618,6 +624,9 @@ function mockTeamStats(
         qualified,
         transferred,
         sold: Math.round(transferred * 0.5),
+        sales,
+        // One team's old sales paid now outnumber its new ones, as the API allows.
+        paid: holdsAFirst ? Math.round(sales * [1.08, 0.82, 0.64][index % 3]) : 0,
       }
       return [{ team_id: team.id, team_name: team.name, ...withRate(counts) }]
     })
@@ -631,6 +640,8 @@ function mockTeamStats(
     qualified: sum((row) => row.qualified),
     transferred: sum((row) => row.transferred),
     sold: sum((row) => row.sold),
+    sales: sum((row) => row.sales),
+    paid: sum((row) => row.paid),
   })
 
   return { start: base.start, end: base.end, timezone: base.timezone, teams, total }
@@ -671,6 +682,11 @@ function mockSales(
   })
   const days = Math.max(1, Math.round((Date.parse(end) - Date.parse(start)) / 86_400_000) + 1)
 
+  const thisMonth = new Date().toISOString().slice(0, 7)
+  const monthAfter = (day: string) => {
+    const [year, month] = day.split('-').map(Number)
+    return new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10)
+  }
   const made: SaleItem[] = []
   for (let day = days - 1; day >= 0; day--) {
     const date = new Date(Date.parse(start) + day * 86_400_000).toISOString().slice(0, 10)
@@ -696,6 +712,9 @@ function mockSales(
         total_payment: carted ? total.toFixed(2) : null,
         down_payment: carted ? down.toFixed(2) : null,
         monthly_payment: carted ? ((total - down) / 24).toFixed(2) : null,
+        // Most sales from before this month were paid the month after they were made.
+        paid_month:
+          carted && date.slice(0, 7) < thisMonth && seed % 4 !== 0 ? monthAfter(date) : null,
       })
     }
   }
@@ -729,6 +748,7 @@ function mockSales(
 
 /** How far the nth newest lead of a funnel got. The newest are the furthest along. */
 function mockReached(funnel: HistoricalFunnel, nth: number): FunnelStage {
+  if (nth < funnel.paid) return 'paid'
   if (nth < funnel.sold) return 'sold'
   if (nth < funnel.transferred) return 'transferred'
   if (nth < funnel.qualified) return 'qualified'
@@ -753,7 +773,9 @@ function mockLeadId(stage: FunnelStage, nth: number, addedAt: number, teamId: st
 function mockLeadOutcomes(reached: FunnelStage, nth: number) {
   const label = (id: string) => MOCK_DISPOSITION_CATALOG.find((row) => row.id === id)?.label ?? null
   const handedOver = label('disp-fronter-qualified')
-  if (reached === 'sold') return { fronter_outcome: handedOver, closer_outcome: label('disp-closer-sale') }
+  if (reached === 'sold' || reached === 'paid') {
+    return { fronter_outcome: handedOver, closer_outcome: label('disp-closer-sale') }
+  }
   if (reached === 'transferred') {
     return {
       // Called back after the handoff, which doesn't undo it.
@@ -911,7 +933,7 @@ function mockLeadWorker(authorization: string | null) {
   return { teamId: actor.roles.includes('super_admin') ? null : (actor.team_id ?? 'no-team') }
 }
 
-const MOCK_STAGE_ORDER: FunnelStage[] = ['leads', 'qualified', 'transferred', 'sold']
+const MOCK_STAGE_ORDER: FunnelStage[] = ['leads', 'qualified', 'transferred', 'sold', 'paid']
 
 /**
  * Everything behind a lead from a mock funnel list. It reaches the stage its id
@@ -919,7 +941,9 @@ const MOCK_STAGE_ORDER: FunnelStage[] = ['leads', 'qualified', 'transferred', 's
  * cart saves; its latest outcomes match its row in the list.
  */
 function mockLeadHistory(leadId: string): LeadHistory | null {
-  const parsed = /^mock-lead-(leads|qualified|transferred|sold)-(\d+)-(\d+)-(.+)$/.exec(leadId)
+  const parsed = /^mock-lead-(leads|qualified|transferred|sold|paid)-(\d+)-(\d+)-(.+)$/.exec(
+    leadId
+  )
   const team = parsed && MOCK_TEAMS.find((row) => row.id === parsed[4])
   if (!parsed || !team) return null
   const reached = parsed[1] as FunnelStage
@@ -970,7 +994,11 @@ function mockLeadHistory(leadId: string): LeadHistory | null {
     onCall(1, { kind: 'transfer_accepted', at: at(18), actor_name: closer })
   }
   const policy = `POL-${String(10_000 + nth).slice(-5)}`
-  if (depth === 3) {
+  // An upload made in mock mode decides, then a lead the funnel listed as paid.
+  const paidMonth =
+    mockPaidMonth(`${leadId}-call-1`) ??
+    (reached === 'paid' ? `${new Date(addedAt).toISOString().slice(0, 7)}-01` : null)
+  if (depth >= 3) {
     onCall(1, {
       kind: 'cart_saved',
       at: at(28),
@@ -1023,7 +1051,7 @@ function mockLeadHistory(leadId: string): LeadHistory | null {
       added_by_name: fronter,
     },
     status: {
-      stage: reached,
+      stage: depth >= 3 && paidMonth ? 'paid' : reached === 'paid' ? 'sold' : reached,
       calls: calledBack ? 2 : events.some((event) => event.call) ? 1 : 0,
       latest_fronter: latestFronter,
       latest_closer: last('closer_outcome'),
@@ -1044,7 +1072,7 @@ function mockLeadHistory(leadId: string): LeadHistory | null {
           }
         : null,
     carts:
-      depth === 3
+      depth >= 3
         ? [
             {
               interaction_id: `${leadId}-call-1`,
@@ -1057,6 +1085,7 @@ function mockLeadHistory(leadId: string): LeadHistory | null {
               monthly_payment: '83.33',
               saved_by: closer,
               saved_at: at(30),
+              paid_month: paidMonth,
             },
           ]
         : [],
@@ -2284,6 +2313,87 @@ function policyFileProblem(message: string) {
   return authErrorBody(message, 'validation_error', [{ field: 'file', in: 'body', message }])
 }
 
+/** Paid uploads made in mock mode, oldest first: the order decides a sale's paid month. */
+const mockPaidUploads: { upload: PaidUpload; sales: string[] }[] = []
+
+/** The month of the earliest upload still standing that matched the sale, as the API reads it. */
+function mockPaidMonth(interactionId: string): string | null {
+  const first = mockPaidUploads.find(
+    ({ upload, sales }) => !upload.undone_at && sales.includes(interactionId)
+  )
+  return first?.upload.month ?? null
+}
+
+/**
+ * A policy list read the way the API reads it, and the mock sales behind it.
+ * `teams` limits it to a Team Admin's own, who never sees the amounts.
+ */
+async function mockPolicyLookup(
+  file: File | undefined,
+  teams: (string | null)[] | null
+): Promise<{ problem: string } | { lookup: PolicyLookup }> {
+  if (!(file instanceof File) || file.size === 0) return { problem: 'That file is empty.' }
+  if (file.size > 1_048_576) return { problem: 'Up to 1 MB.' }
+  const head = new Uint8Array(await file.slice(0, 2).arrayBuffer())
+  // An Excel workbook is a zip, which the mock does not unpack: it answers a sample.
+  const cells =
+    head[0] === 0x50 && head[1] === 0x4b
+      ? ['Policy number', 'POL-10001', 'POL-10004', 'POL-99999']
+      : (await file.text())
+          .replace(/^\uFEFF/, '')
+          .split(/\r?\n/)
+          .map((line) => (line.split(',')[0] ?? '').trim())
+
+  const lookup: PolicyLookup = {
+    matches: [],
+    unmatched: [],
+    skipped: [],
+    summary: { rows: 0, matched: 0, unmatched: 0, skipped: 0 },
+  }
+  const firstRowOf = new Map<string, number>()
+  let read = 0
+  cells.forEach((value, index) => {
+    const row = index + 1
+    if (!value || (row === 1 && value.toLowerCase().includes('policy'))) return
+    read += 1
+    if (value.length > 64) {
+      lookup.skipped.push({ row, value, reason: 'too_long', first_row: null })
+      return
+    }
+    const key = value.toLowerCase()
+    const first = firstRowOf.get(key)
+    if (first !== undefined) {
+      lookup.skipped.push({ row, value, reason: 'duplicate', first_row: first })
+      return
+    }
+    firstRowOf.set(key, row)
+    const found = MOCK_POLICY_SALES.filter(
+      (sale) =>
+        sale.policy_number.toLowerCase() === key && (!teams || teams.includes(sale.team_id))
+    )
+    if (found.length === 0) lookup.unmatched.push({ row, policy_number: value })
+    const hidden = teams ? { total_payment: null, down_payment: null, monthly_payment: null } : {}
+    for (const sale of found) {
+      lookup.matches.push({
+        ...sale,
+        ...hidden,
+        row,
+        policy_number: value,
+        paid_month: mockPaidMonth(sale.interaction_id),
+      })
+    }
+  })
+  if (read === 0) return { problem: 'That file has no policy numbers in it.' }
+  if (read > 5000) return { problem: 'Up to 5,000 policy numbers at a time.' }
+  lookup.summary = {
+    rows: read,
+    matched: read - lookup.unmatched.length - lookup.skipped.length,
+    unmatched: lookup.unmatched.length,
+    skipped: lookup.skipped.length,
+  }
+  return { lookup }
+}
+
 export const handlers = [
   rest.get('http://localhost:4000/health', (req, res, ctx) => {
     return res(ctx.status(200), ctx.json({ status: 'ok' }))
@@ -3135,68 +3245,80 @@ export const handlers = [
 
     // Deprecated, but req.body is MSW 1.x's only multipart reader.
     const form = req.body as { file?: File }
-    if (!(form.file instanceof File) || form.file.size === 0) {
-      return res(ctx.status(422), ctx.json(policyFileProblem('That file is empty.')))
-    }
-    if (form.file.size > 1_048_576) {
-      return res(ctx.status(422), ctx.json(policyFileProblem('Up to 1 MB.')))
-    }
-    const head = new Uint8Array(await form.file.slice(0, 2).arrayBuffer())
-    // An Excel workbook is a zip, which the mock does not unpack: it answers a sample.
-    const cells =
-      head[0] === 0x50 && head[1] === 0x4b
-        ? ['Policy number', 'POL-10001', 'POL-10004', 'POL-99999']
-        : (await form.file.text())
-            .replace(/^\uFEFF/, '')
-            .split(/\r?\n/)
-            .map((line) => (line.split(',')[0] ?? '').trim())
-
-    const teams = actor.roles.includes('super_admin') ? null : [actor.team_id]
-    const matches: object[] = []
-    const unmatched: { row: number; policy_number: string }[] = []
-    const skipped: { row: number; value: string; reason: string; first_row: number | null }[] = []
-    const firstRowOf = new Map<string, number>()
-    let read = 0
-    cells.forEach((value, index) => {
-      const row = index + 1
-      if (!value || (row === 1 && value.toLowerCase().includes('policy'))) return
-      read += 1
-      if (value.length > 64) {
-        skipped.push({ row, value, reason: 'too_long', first_row: null })
-        return
-      }
-      const key = value.toLowerCase()
-      const first = firstRowOf.get(key)
-      if (first !== undefined) {
-        skipped.push({ row, value, reason: 'duplicate', first_row: first })
-        return
-      }
-      firstRowOf.set(key, row)
-      const found = MOCK_POLICY_SALES.filter(
-        (sale) =>
-          sale.policy_number.toLowerCase() === key && (!teams || teams.includes(sale.team_id))
-      )
-      if (found.length === 0) unmatched.push({ row, policy_number: value })
-      // A Team Admin never sees what a sale was worth.
-      const hidden = teams ? { total_payment: null, down_payment: null, monthly_payment: null } : {}
-      for (const sale of found) matches.push({ ...sale, ...hidden, row, policy_number: value })
-    })
-    if (read === 0) {
-      return res(ctx.status(422), ctx.json(policyFileProblem('That file has no policy numbers in it.')))
-    }
-    if (read > 5000) {
-      return res(ctx.status(422), ctx.json(policyFileProblem('Up to 5,000 policy numbers at a time.')))
-    }
-    const matched = read - unmatched.length - skipped.length
-    return res(
-      ctx.status(200),
-      ctx.json({
-        matches,
-        unmatched,
-        skipped,
-        summary: { rows: read, matched, unmatched: unmatched.length, skipped: skipped.length },
-      })
+    const read = await mockPolicyLookup(
+      form.file,
+      actor.roles.includes('super_admin') ? null : [actor.team_id]
     )
+    if ('problem' in read) return res(ctx.status(422), ctx.json(policyFileProblem(read.problem)))
+    return res(ctx.status(200), ctx.json(read.lookup))
+  }),
+
+  rest.post('/reporting/paid-uploads', async (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = superAdminRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const actor = mockActor(authorization)!
+
+    const form = req.body as { file?: File; month?: string }
+    const month = typeof form.month === 'string' ? form.month : ''
+    const monthProblem = !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)
+      ? "String should match pattern '^\\d{4}-(0[1-9]|1[0-2])$'"
+      : month > new Date().toISOString().slice(0, 7)
+        ? 'month must not be after this month'
+        : null
+    if (monthProblem) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody(monthProblem, 'validation_error', [
+            { field: 'month', in: 'body', message: monthProblem },
+          ])
+        )
+      )
+    }
+    const read = await mockPolicyLookup(form.file, null)
+    if ('problem' in read) return res(ctx.status(422), ctx.json(policyFileProblem(read.problem)))
+
+    const sales = read.lookup.matches.map((sale) => sale.interaction_id)
+    const upload = {
+      id: `paid-upload-${mockPaidUploads.length + 1}`,
+      month: `${month}-01`,
+      file_name: form.file?.name ?? 'upload',
+      rows: read.lookup.summary.rows,
+      matched: sales.length,
+      newly_paid: read.lookup.matches.filter((sale) => sale.paid_month === null).length,
+      uploaded_by: actor.name,
+      uploaded_at: new Date().toISOString(),
+      undone_at: null,
+      undone_by: null,
+    }
+    mockPaidUploads.push({ upload, sales })
+    return res(ctx.status(201), ctx.json(upload))
+  }),
+
+  rest.get('/reporting/paid-uploads', (req, res, ctx) => {
+    const refused = superAdminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const items = [...mockPaidUploads].reverse().map((row) => row.upload)
+    return res(ctx.status(200), ctx.json({ items }))
+  }),
+
+  rest.post('/reporting/paid-uploads/:uploadId/undo', (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = superAdminRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const found = mockPaidUploads.find((row) => row.upload.id === req.params.uploadId)
+    if (!found) {
+      return res(ctx.status(404), ctx.json(authErrorBody('paid upload not found', 'not_found')))
+    }
+    if (!found.upload.undone_at) {
+      found.upload = {
+        ...found.upload,
+        undone_at: new Date().toISOString(),
+        undone_by: mockActor(authorization)!.name,
+      }
+    }
+    return res(ctx.status(200), ctx.json(found.upload))
   }),
 
   rest.get('/reporting/live', (req, res, ctx) => {

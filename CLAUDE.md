@@ -277,8 +277,9 @@ closer accepted whose latest closer outcome is Callback Scheduled, oldest first.
 
 `/admin/reports` reads `GET /reporting/funnel` through `fetchFunnel()` in
 `lib/reporting.ts` for an inclusive range of business days: Leads, Qualified,
-Transferred and Sold, counting the **leads added in the dates, each at the
-furthest stage it has reached**.
+Transferred, Sold and Paid, counting the **leads added in the dates, each at the
+furthest stage it has reached**. The card is titled "Lead funnel", so "conversion"
+only ever means Team stats' paid over sales.
 
 - **It counts leads, not interactions.** Each fronter form save opens another
   interaction and an uploaded lead has none, so interactions stopped matching
@@ -287,7 +288,8 @@ furthest stage it has reached**.
   its calls (or it is sold), Qualified when its latest fronter outcome across all
   calls qualifies it (or it got further). So each bar sits inside the one before,
   and each is drawn as a share of Leads, with that share printed beside the
-  count. ADR 0003 in the backend defines it all.
+  count. Paid sits inside Sold: one of its sales has since been marked Paid by a
+  monthly upload, in any month. ADR 0003 in the backend defines it all.
 - **Qualified can read higher than Team stats' Qualified, and that is correct.**
   Team stats files a lead under its latest fronter outcome, so a transferred lead
   called back later sits under Callback there; here it has still reached
@@ -384,13 +386,19 @@ role="super_admin"`, and the API's 403.
   its calls, Sold if the latest closer outcome on any of its calls is a sale. A
   range's figures keep moving as its leads are worked. An "All teams" row sits
   under the teams.
-- **Conversion is Sold over Leads.** A cell shows the rate, a bar to compare
-  teams by eye, then "8 of 100". It cannot pass 100%. "n/a" means no leads.
+- **Conversion is Paid over Sales,** both by date, not by the leads added: the
+  sales paid during the dates (a paid month counts on its 1st) over the sales
+  made in them. A cell shows the rate, a bar to compare teams by eye, then
+  "12 of 40". Old sales paid now can take it past 100%, and the rate is shown as
+  it is; only the bar stops at full. "n/a" means no sales. This month reads low
+  until its file is uploaded, the month after, and the note under the table says
+  so.
 - **The sales list goes by the day of the sale**, not the day the lead came in,
   so its count can differ from the table's Sold. Newest first, paged on the
   server (`ServerPaging`, 50 to a page), with totals across every matching sale.
   A sale with no cart shows `-` for its amounts and adds nothing to the sums. No
-  card values or policy number come back.
+  card values or policy number come back. A Paid column shows the month it was
+  marked Paid in, or `-`.
 - **The agent filter belongs to the sales list**: closers from `listUsers()`,
   narrowed to the chosen team's. Changing the team resets it, and changing any
   filter goes back to the first page. The list loads and fails on its own, so a
@@ -592,11 +600,12 @@ sold call is a QA item, through `lib/qa.ts` (`/qa/items`, `/qa/summary`,
   sign in with `password1`. Aria has one dispute and one close from today, so the
   stats have figures.
 
-## Policy lookup
+## Policy lookup and Paid policies
 
 `/admin/policies` (Team Admin and Super Admin) takes a CSV or Excel file with one
-policy number per row and shows the sale behind each, through `lib/policies.ts`
-(`POST /reporting/policy-lookup`).
+policy number per row and shows the sale behind each, and whether it is Paid,
+through `lib/policies.ts` (`POST /reporting/policy-lookup`). The lookup saves
+nothing. A Super Admin then marks the matches Paid for a month.
 
 - **The API reads the file:** the first column, a header row and blank rows
   passed over, case and surrounding spaces ignored, up to 5,000 numbers and 1 MB.
@@ -616,8 +625,31 @@ policy number per row and shows the sale behind each, through `lib/policies.ts`
   sale, in the upload's order, so no row column is needed. It starts with a byte
   order mark so Excel reads it as UTF-8, and a cell a spreadsheet would run as a
   formula gets a leading apostrophe.
+- **Matched shows a Paid column** for both roles: the month, or "Not paid".
+- **Mark as Paid is the Super Admin's next step** (`MarkPaidPanel`), between the
+  tiles and the tables once a lookup has matches. They choose the month (this one
+  and the 23 before it, no default), read what will happen ("42 sales will be
+  marked Paid. 8 are Paid already and keep their month."), and confirm in a
+  dialog. `markPaid()` sends the same file and the month to
+  `POST /reporting/paid-uploads`, and the API reads it afresh. It can be saved
+  when every match is already Paid, since those matches are what an undo falls
+  back to. Afterwards the lookup is read again, so the Paid column shows the new
+  month, and the panel becomes "Saved as the October 2026 upload" with no button,
+  so one lookup is never saved twice. A new lookup brings the panel back.
+- **The first upload wins.** A sale keeps the month of the earliest upload still
+  standing that matched it; a repeat upload or a later month never moves it.
+- **Paid uploads** (`PaidUploadsSection`, Super Admin only, under the lookup)
+  lists every upload newest first: month, file, matched, newly paid, who and
+  when. Undo asks first, then the sales it marked go back to unpaid, or to the
+  next upload that matched them. An undone upload stays, as "Undone by ...". After
+  an undo the lookup on screen is read again, and if it was that upload's, its
+  panel resets.
+- **The file stays with the cached lookup**, in memory only, so coming back from
+  a lead can still mark it.
 - **Mocks** know `POL-10001` to `POL-10030`, spread across the mock teams. An
   Excel upload gets a fixed sample answer, since the mock does not unpack it.
+  Paid uploads live in memory with the first-upload-wins rule, and a marked sale's
+  lead reads as Paid on its full view.
 
 ## Settings
 

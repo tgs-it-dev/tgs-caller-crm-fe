@@ -1314,6 +1314,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reporting/paid-uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every Paid upload, newest first
+         * @description Standing and undone alike, with who uploaded each one and who undid it.
+         */
+        get: operations["list_paid_uploads_reporting_paid_uploads_get"];
+        put?: never;
+        /**
+         * Mark the sales an uploaded list of policy numbers matches as Paid for a month
+         * @description Every sale the file matches, on any team and however old, is kept with the upload.
+         *
+         *     The ones not Paid yet become Paid in ``month``; a sale already Paid keeps its
+         *     month, so a repeat upload never counts it twice. The file is read the same
+         *     way as the lookup's, and its matches are taken afresh.
+         */
+        post: operations["mark_paid_reporting_paid_uploads_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reporting/paid-uploads/{upload_id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo a Paid upload
+         * @description Its sales go back to unpaid, or to the month of the next upload still standing
+         *     that matched them. The upload stays in the list, marked undone.
+         *
+         *     Undoing one already undone changes nothing.
+         */
+        post: operations["undo_paid_upload_reporting_paid_uploads__upload_id__undo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/reporting/policy-lookup": {
         parameters: {
             query?: never;
@@ -1327,9 +1378,10 @@ export interface paths {
          * Find the sale behind each policy number in an uploaded list
          * @description Matched, not found and skipped numbers, each with its row in the file.
          *
-         *     A Team Admin finds only their own team's sales, and without their amounts: a
-         *     number sold on another team reads as not found. Case and surrounding spaces
-         *     never stop a match.
+         *     Saves nothing. Each sale carries its paid month, null until an upload marked
+         *     it Paid. A Team Admin finds only their own team's sales, and without their
+         *     amounts: a number sold on another team reads as not found. Case and
+         *     surrounding spaces never stop a match.
          */
         post: operations["policy_lookup_reporting_policy_lookup_post"];
         delete?: never;
@@ -1374,9 +1426,10 @@ export interface paths {
          * @description Each team's leads added in the window and where they stand now, with conversion.
          *
          *     No answer, Callback and Qualified are each lead's latest fronter outcome, so
-         *     they never overlap; transferred and sold follow the same leads, and
-         *     conversion is sold over leads. An inactive team is listed only when it has
-         *     figures or is asked for.
+         *     they never overlap; transferred and sold follow the same leads. Conversion is
+         *     the sales paid in the window over the sales made in it, so old sales paid now
+         *     can take it past 1. An inactive team is listed only when it has figures or is
+         *     asked for.
          */
         get: operations["team_figures_reporting_teams_get"];
         put?: never;
@@ -1655,6 +1708,19 @@ export interface components {
              * @description Team the leads join. Same rules as POST /leads: Super Admin must name one; Team Admin may omit (own membership) and cannot name another.
              */
             team_id?: string | null;
+        };
+        /** Body_mark_paid_reporting_paid_uploads_post */
+        Body_mark_paid_reporting_paid_uploads_post: {
+            /**
+             * File
+             * @description The CSV or Excel (.xlsx) file the lookup was run on.
+             */
+            file: string;
+            /**
+             * Month
+             * @description The month the sales were paid in, as YYYY-MM; not after this month.
+             */
+            month: string;
         };
         /** Body_policy_lookup_reporting_policy_lookup_post */
         Body_policy_lookup_reporting_policy_lookup_post: {
@@ -2171,7 +2237,7 @@ export interface components {
              * Stage
              * @enum {string}
              */
-            stage: "leads" | "qualified" | "transferred" | "sold";
+            stage: "leads" | "qualified" | "transferred" | "sold" | "paid";
             /**
              * Team Id
              * Format: uuid
@@ -2213,6 +2279,8 @@ export interface components {
             end: string;
             /** Leads */
             leads: number;
+            /** Paid */
+            paid: number;
             /** Qualified */
             qualified: number;
             /** Sold */
@@ -2639,6 +2707,8 @@ export interface components {
             interaction_id: string;
             /** Monthly Payment */
             monthly_payment: string;
+            /** Paid Month */
+            paid_month: string | null;
             /** Policy Number */
             policy_number: string | null;
             /** Routing Last4 */
@@ -2814,7 +2884,7 @@ export interface components {
              * Stage
              * @enum {string}
              */
-            stage: "leads" | "qualified" | "transferred" | "sold";
+            stage: "leads" | "qualified" | "transferred" | "sold" | "paid";
             /** With Closer */
             with_closer: string | null;
         };
@@ -3009,6 +3079,49 @@ export interface components {
             password: string;
         };
         /**
+         * PaidUploadListResponse
+         * @description Newest first.
+         */
+        PaidUploadListResponse: {
+            /** Items */
+            items: components["schemas"]["PaidUploadResponse"][];
+        };
+        /**
+         * PaidUploadResponse
+         * @description A list of policies a Super Admin marked Paid for one month.
+         */
+        PaidUploadResponse: {
+            /** File Name */
+            file_name: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Matched */
+            matched: number;
+            /**
+             * Month
+             * Format: date
+             */
+            month: string;
+            /** Newly Paid */
+            newly_paid: number;
+            /** Rows */
+            rows: number;
+            /** Undone At */
+            undone_at: string | null;
+            /** Undone By */
+            undone_by: string | null;
+            /**
+             * Uploaded At
+             * Format: date-time
+             */
+            uploaded_at: string;
+            /** Uploaded By */
+            uploaded_by: string;
+        };
+        /**
          * PolicyLookupResponse
          * @description A policy with two sales lists both under ``matches``.
          */
@@ -3070,6 +3183,8 @@ export interface components {
             lead_phone: string;
             /** Monthly Payment */
             monthly_payment: string | null;
+            /** Paid Month */
+            paid_month: string | null;
             /** Policy Number */
             policy_number: string;
             /** Row */
@@ -3489,6 +3604,8 @@ export interface components {
             lead_name: string;
             /** Monthly Payment */
             monthly_payment: string | null;
+            /** Paid Month */
+            paid_month: string | null;
             /**
              * Sold At
              * Format: date-time
@@ -3582,7 +3699,7 @@ export interface components {
         /**
          * TeamFigures
          * @description One team's figures, or every team's added up: the leads added in the window,
-         *     and where each of them stands now.
+         *     and where each of them stands now, then the sales made and paid in it.
          *
          *     The three outcomes are each lead's latest fronter outcome, so they never
          *     overlap. Transferred and sold sit inside qualified in the usual flow, but a
@@ -3597,8 +3714,12 @@ export interface components {
             leads: number;
             /** No Answer */
             no_answer: number;
+            /** Paid */
+            paid: number;
             /** Qualified */
             qualified: number;
+            /** Sales */
+            sales: number;
             /** Sold */
             sold: number;
             /** Transferred */
@@ -3641,8 +3762,12 @@ export interface components {
             leads: number;
             /** No Answer */
             no_answer: number;
+            /** Paid */
+            paid: number;
             /** Qualified */
             qualified: number;
+            /** Sales */
+            sales: number;
             /** Sold */
             sold: number;
             /**
@@ -6625,7 +6750,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                stage: "leads" | "qualified" | "transferred" | "sold";
+                stage: "leads" | "qualified" | "transferred" | "sold" | "paid";
             };
             cookie?: never;
         };
@@ -6679,6 +6804,126 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LiveStatusResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_paid_uploads_reporting_paid_uploads_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaidUploadListResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    mark_paid_reporting_paid_uploads_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_mark_paid_reporting_paid_uploads_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaidUploadResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    undo_paid_upload_reporting_paid_uploads__upload_id__undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaidUploadResponse"];
                 };
             };
             /** @description Client Error */

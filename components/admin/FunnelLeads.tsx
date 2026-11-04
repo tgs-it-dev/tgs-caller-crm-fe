@@ -28,6 +28,7 @@ const REACHED: Record<FunnelStage, string> = {
   qualified: 'Qualified',
   transferred: 'Transferred',
   sold: 'Sold',
+  paid: 'Paid',
 }
 
 type LoadState =
