@@ -1048,6 +1048,7 @@ function mockLeadHistory(leadId: string): LeadHistory | null {
               account_last4: '1234',
               routing_last4: '0021',
               expiry: '11/29',
+              has_cvv: true,
               policy_number: policy,
               total_payment: '2400.00',
               down_payment: '400.00',
@@ -1661,8 +1662,10 @@ const MOCK_DISPOSITION_CATALOG: MockDisposition[] = [
 ]
 
 const MOCK_INTERACTION_DISPOSITIONS = new Map<string, MockInteractionDisposition[]>()
-// Only what the API keeps: last digits, never a full number or a CVV.
+// Only what the API returns: last digits, never a full number or a CVV.
 const MOCK_CARTS = new Map<string, CartResponse>()
+// The CVV a closer saved, for a Super Admin's reveal.
+const MOCK_CVVS = new Map<string, string>()
 let interactionDispositionSeq = 0
 
 // A call the mock closer set as a callback yesterday, so their Callbacks table has a row.
@@ -3130,7 +3133,9 @@ export const handlers = [
           sale.policy_number.toLowerCase() === key && (!teams || teams.includes(sale.team_id))
       )
       if (found.length === 0) unmatched.push({ row, policy_number: value })
-      for (const sale of found) matches.push({ ...sale, row, policy_number: value })
+      // A Team Admin never sees what a sale was worth.
+      const hidden = teams ? { total_payment: null, down_payment: null, monthly_payment: null } : {}
+      for (const sale of found) matches.push({ ...sale, ...hidden, row, policy_number: value })
     })
     if (read === 0) {
       return res(ctx.status(422), ctx.json(policyFileProblem('That file has no policy numbers in it.')))
@@ -3591,17 +3596,12 @@ export const handlers = [
 
     const sold = [...history.events].reverse().find((event) => event.kind === 'sold')
     const cart = history.carts.find((row) => row.interaction_id === sold?.interaction_id)
-    const sale =
-      sold && cart
-        ? {
-            sold_at: sold.at,
-            policy_number: cart.policy_number,
-            total_payment: cart.total_payment,
-            down_payment: cart.down_payment,
-            monthly_payment: cart.monthly_payment,
-          }
-        : null
-    return res(ctx.status(200), ctx.json({ status: history.status, sale }))
+    // No amounts and nothing from the payment, as the API sends a Team Admin.
+    const sale = sold ? { sold_at: sold.at, policy_number: cart?.policy_number ?? null } : null
+    return res(
+      ctx.status(200),
+      ctx.json({ lead: history.lead, status: history.status, form: history.form, sale })
+    )
   }),
 
   rest.get('/leads/:leadId/history', (req, res, ctx) => {
@@ -4012,8 +4012,12 @@ export const handlers = [
     const interactionId = req.params.interactionId as string
     const saved = MOCK_CARTS.get(interactionId)
     const tails = interactionId.startsWith('mock-lead-')
-      ? { account: '1234', routing: '0021' }
-      : saved && { account: saved.account_last4, routing: saved.routing_last4 }
+      ? { account: '1234', routing: '0021', cvv: '739' }
+      : saved && {
+          account: saved.account_last4,
+          routing: saved.routing_last4,
+          cvv: MOCK_CVVS.get(interactionId) ?? null,
+        }
     if (!tails) return res(ctx.status(200), ctx.json(null))
     return res(
       ctx.status(200),
@@ -4021,6 +4025,7 @@ export const handlers = [
       ctx.json({
         account_number: `411111111111${tails.account}`.slice(-16),
         routing_number: tails.routing ? `02100${tails.routing}` : null,
+        cvv: tails.cvv,
       })
     )
   }),
@@ -4060,6 +4065,17 @@ export const handlers = [
           ? visibleTail(digitsOf(body.routing_number))
           : null
         : (before?.routing_last4 ?? null)
+    // A CVV left out is kept, unless a new account number replaces the card it belongs to.
+    const cvv =
+      'cvv' in body
+        ? body.cvv
+          ? digitsOf(body.cvv)
+          : null
+        : body.account_number
+          ? null
+          : (MOCK_CVVS.get(interactionId) ?? null)
+    if (cvv) MOCK_CVVS.set(interactionId, cvv)
+    else MOCK_CVVS.delete(interactionId)
     const cart: CartResponse = {
       interaction_id: interactionId,
       account_last4: body.account_number
@@ -4067,6 +4083,7 @@ export const handlers = [
         : (before?.account_last4 ?? ''),
       routing_last4: routingLast4,
       expiry: body.expiry ?? null,
+      has_cvv: cvv !== null,
       policy_number: body.policy_number ?? null,
       total_payment: Number(body.total_payment).toFixed(2),
       down_payment: Number(body.down_payment).toFixed(2),

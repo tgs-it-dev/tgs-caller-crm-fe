@@ -79,7 +79,7 @@ function messageFor(err: unknown): string {
   return 'Could not load this lead.'
 }
 
-function vehicleOf(lead: Lead) {
+export function vehicleOf(lead: Lead) {
   return [lead.vehicle_year, lead.vehicle_make, lead.vehicle_model]
     .filter((part) => part !== null && part !== '')
     .join(' ')
@@ -116,7 +116,7 @@ function Card({
 }
 
 /** Labels beside their values; two pairs to a row when `wide` and there is room. */
-function Pairs({ wide = false, children }: { wide?: boolean; children: ReactNode }) {
+export function Pairs({ wide = false, children }: { wide?: boolean; children: ReactNode }) {
   return (
     <dl
       className={`grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-2.5 ${
@@ -128,7 +128,7 @@ function Pairs({ wide = false, children }: { wide?: boolean; children: ReactNode
   )
 }
 
-function Pair({ label, meta, children }: { label: string; meta?: ReactNode; children: ReactNode }) {
+export function Pair({ label, meta, children }: { label: string; meta?: ReactNode; children: ReactNode }) {
   return (
     <>
       <dt className="text-sm leading-[140%] text-slate">{label}</dt>
@@ -327,6 +327,11 @@ function CartCard({ cart, revealable }: { cart: Cart; revealable: boolean }) {
         <Pair label="Down payment">{formatMoney(cart.down_payment)}</Pair>
         <Pair label="Expiry">{cart.expiry ?? '-'}</Pair>
         <Pair label="Monthly">{formatMoney(cart.monthly_payment)}</Pair>
+        <Pair label="CVV">
+          <span className="tabular-nums">
+            {shown ? (shown.cvv ?? '-') : cart.has_cvv ? '•••' : '-'}
+          </span>
+        </Pair>
         <Pair label="Policy number">{cart.policy_number ?? '-'}</Pair>
       </Pairs>
     </Card>
