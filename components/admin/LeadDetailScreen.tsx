@@ -13,6 +13,7 @@ import { AuthError } from '@/lib/auth'
 import { revealCartNumbers, type CartNumbers } from '@/lib/cart'
 import { formatDateTime, formatMoney, formatPhone, localZoneName } from '@/lib/format'
 import { SOURCE_LABEL } from '@/lib/leadSource'
+import { formatMonth } from '@/lib/policies'
 import {
   fetchLeadHistory,
   isLeadNotFound,
@@ -47,6 +48,7 @@ export const STAGE_BADGE: Record<Status['stage'], { label: string; tone: Tone }>
   qualified: { label: 'Qualified', tone: 'teal' },
   transferred: { label: 'Transferred', tone: 'amber' },
   sold: { label: 'Sold', tone: 'done' },
+  paid: { label: 'Paid', tone: 'done' },
 }
 
 const FIELD_LABEL: Record<string, string> = {
@@ -341,6 +343,7 @@ export function CartCard({
         <Pair label="Expiry">{cart.expiry ?? '-'}</Pair>
         <Pair label="Monthly">{formatMoney(cart.monthly_payment)}</Pair>
         <Pair label="Policy number">{cart.policy_number ?? '-'}</Pair>
+        <Pair label="Paid">{cart.paid_month ? formatMonth(cart.paid_month) : 'Not paid'}</Pair>
       </Pairs>
     </Card>
   )

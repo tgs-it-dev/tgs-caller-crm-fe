@@ -7,6 +7,7 @@ import { Select } from '@/components/ui/Select'
 import { AuthError } from '@/lib/auth'
 import { formatDateTime, formatMoney } from '@/lib/format'
 import { waitForMocking } from '@/lib/mockReady'
+import { formatMonth } from '@/lib/policies'
 import { fetchSales, type DateRange, type SaleItem, type SalesReport } from '@/lib/reporting'
 import { withSession } from '@/lib/session'
 import { listUsers, type User } from '@/lib/users'
@@ -42,6 +43,16 @@ const COLUMNS: DataColumn<SaleItem>[] = [
     header: 'Monthly',
     align: 'right',
     render: (sale) => amount(sale.monthly_payment),
+  },
+  {
+    id: 'paid',
+    header: 'Paid',
+    render: (sale) =>
+      sale.paid_month ? (
+        <span className="whitespace-nowrap">{formatMonth(sale.paid_month, 'short')}</span>
+      ) : (
+        '-'
+      ),
   },
 ]
 
