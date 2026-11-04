@@ -7,6 +7,7 @@ export type PolicyLookup = components['schemas']['PolicyLookupResponse']
 export type PolicySale = components['schemas']['PolicySale']
 export type PolicyNumberRow = components['schemas']['PolicyNumberRow']
 export type PolicySkipped = components['schemas']['PolicySkipped']
+export type PaidUpload = components['schemas']['PaidUploadResponse']
 
 /** The sale behind each policy number in a CSV or Excel file, one number per row. */
 export async function lookupPolicies(file: File, token: string): Promise<PolicyLookup> {
@@ -20,6 +21,61 @@ export async function lookupPolicies(file: File, token: string): Promise<PolicyL
   })
   if (!res.ok) throw await authError(res)
   return res.json() as Promise<PolicyLookup>
+}
+
+/**
+ * Marks the sales a file matches as Paid for `month` (YYYY-MM). Send the file the
+ * lookup was run on: the API reads it again and takes its matches afresh.
+ */
+export async function markPaid(file: File, month: string, token: string): Promise<PaidUpload> {
+  const form = new FormData()
+  form.append('month', month)
+  form.append('file', file)
+  const res = await fetch(apiUrl('/reporting/paid-uploads'), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  })
+  if (!res.ok) throw await authError(res)
+  return res.json() as Promise<PaidUpload>
+}
+
+/** Every Paid upload, standing or undone, newest first. */
+export async function listPaidUploads(token: string): Promise<PaidUpload[]> {
+  const res = await fetch(apiUrl('/reporting/paid-uploads'), {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) throw await authError(res)
+  return ((await res.json()) as components['schemas']['PaidUploadListResponse']).items
+}
+
+/** Takes an upload back. Its sales fall to the next upload that matched them, or to unpaid. */
+export async function undoPaidUpload(id: string, token: string): Promise<PaidUpload> {
+  const res = await fetch(apiUrl(`/reporting/paid-uploads/${encodeURIComponent(id)}/undo`), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) throw await authError(res)
+  return res.json() as Promise<PaidUpload>
+}
+
+/** A paid month, from its 1st or as YYYY-MM: "October 2026", or "Oct 2026" when short. */
+export function formatMonth(month: string, style: 'long' | 'short' = 'long'): string {
+  const [year, number] = month.split('-').map(Number)
+  return new Date(Date.UTC(year, number - 1, 1)).toLocaleString('en-US', {
+    month: style,
+    year: 'numeric',
+    timeZone: 'UTC',
+  })
+}
+
+/** The months a sale can be marked Paid for, as YYYY-MM: `today`'s and the 23 before it. */
+export function recentMonths(today: string): string[] {
+  const [year, month] = today.split('-').map(Number)
+  return Array.from({ length: 24 }, (_, back) => {
+    const at = new Date(Date.UTC(year, month - 1 - back, 1))
+    return at.toISOString().slice(0, 7)
+  })
 }
 
 export function skippedReason(row: PolicySkipped): string {
@@ -59,16 +115,17 @@ export function policyResultCsv(result: PolicyLookup): string {
         sale.total_payment,
         sale.down_payment,
         sale.monthly_payment,
+        sale.paid_month ? formatMonth(sale.paid_month) : 'Not paid',
         null,
       ],
     })),
     ...result.unmatched.map((row) => ({
       row: row.row,
-      cells: [row.policy_number, 'Not found', ...Array(9).fill(null)],
+      cells: [row.policy_number, 'Not found', ...Array(10).fill(null)],
     })),
     ...result.skipped.map((row) => ({
       row: row.row,
-      cells: [row.value, 'Skipped', ...Array(8).fill(null), skippedReason(row)],
+      cells: [row.value, 'Skipped', ...Array(9).fill(null), skippedReason(row)],
     })),
   ]
   // A stable sort keeps a number's sales in the order the API gave them.
@@ -84,6 +141,7 @@ export function policyResultCsv(result: PolicyLookup): string {
     'Total',
     'Down',
     'Monthly',
+    'Paid',
     'Note',
   ]
   // The byte order mark is what makes Excel read the file as UTF-8.
