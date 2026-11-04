@@ -67,10 +67,11 @@ Contract (typed in `lib/generated/schema.d.ts`):
   that user, so a refresh token must never be sent twice.
 - `POST /auth/logout` `{refresh_token}` → 204, whether or not the token was live.
 - `GET /auth/me` (Bearer token) → `{id, email, name, active, roles, team_id, created_at}`
-- `RoleName = "fronter" | "closer" | "administrator" | "qa_manager" | "qa_lead" |
-  "qa_agent" | "super_admin"`. A user can hold multiple roles; frontend picks the
-  landing route by priority (`super_admin` > `administrator` > `qa_manager` >
-  `closer` > `fronter` > `qa_lead` > `qa_agent`), see `lib/auth.ts`.
+- `RoleName = "fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" |
+  "super_admin"`. A user can hold multiple roles; frontend picks the landing
+  route by priority (`super_admin` > `administrator` > `qa_manager` > `closer` >
+  `fronter` > `qa_agent`), see `lib/auth.ts`. There is no QA Lead: that role was
+  merged into QA Agent.
   Super Admin inherits every Team Admin `/admin` surface (`roleSatisfies`).
 - Every error response is `{detail, code, fields?}`, read with `readApiError()`.
   Branch on `code`, never on `detail`: `auth.not_authenticated` (token missing,
@@ -127,11 +128,10 @@ Frontend pieces:
   own `isActive(pathname)`. A new page goes under its role's segment and into
   that role's list.
 - **A Super Admin's list is `SUPER_ADMIN_NAV`**: Users, Teams, Campaigns,
-  Reports, Team stats and QA. Reports is there because its drill-down is how they
+  Reports, Team stats, QA and QA stats. Reports is there because its drill-down is how they
   reach a lead's full view. Exceptions stays out: without the dialer it is empty.
-- **QA desks.** A QA Manager works from `/admin` with QA and Users. A QA Lead and
-  a QA Agent work from `/qa`, which `deskRoleFromPath()` resolves to whichever of
-  the two they hold (`qaDeskRole()`).
+- **QA desks.** A QA Manager works from `/admin` with QA, QA stats and Users. A
+  QA Agent works from `/qa` with QA and QA stats (`qaDeskRole()`).
 - **Somebody may hold more than one role**, and the nav only ever shows the desk
   they are on, so the sidebar identity doubles as a desk menu — `heldDesks()` in
   `lib/auth.ts` lists every desk held, the current one ticked. A single-role
@@ -487,13 +487,12 @@ state or team. Administrator-only, like the rest of `/admin`.
 - **An email address cannot be changed** — `UpdateUserRequest` carries name,
   roles, active and `team_id`, and nothing else. The field is shown disabled
   rather than hidden, so nobody goes looking for it.
-- **Team is set by a Super Admin, or by a QA Manager when adding.** A Super
-  Admin must pick it when adding and can change it when editing; the edit sends
-  `team_id` in the same PATCH as the rest, and only when it changed. A QA Manager
-  picks it only when adding staff, from `/qa/summary`, since they may not read
-  `/teams`; moving someone stays the Super Admin's. Super Admin and QA Manager
-  accounts have no team: ticking either role makes it the only one and hides the
-  field, and `qa_manager` is fixed once the account exists. Picking a different team shows a note that the move takes
+- **Team is set by a Super Admin.** They must pick it when adding and can change
+  it when editing; the edit sends `team_id` in the same PATCH as the rest, and
+  only when it changed. Super Admin, QA Manager and QA Agent accounts have no
+  team: ticking any of those roles makes it the only one and hides the field, and
+  `qa_manager` and `qa_agent` are fixed once the account exists. A QA Manager
+  only adds QA Agents, so never picks a team. Picking a different team shows a note that the move takes
   effect on save and that anyone on a call should record its outcome first. The
   API does not block a move mid-call. Team Admins never see the field: the API
   puts their users on their own team and refuses `team_id` from them.
@@ -526,39 +525,72 @@ state or team. Administrator-only, like the rest of `/admin`.
 
 ## QA
 
-QA reviews sales. Every sold call is a QA item in its team's queue, through
-`lib/qa.ts` (`/qa/items`, `/qa/summary`, `/qa/agents`, and the assignee and status
-routes).
+QA reviews sales, company-wide: QA Managers and QA Agents have no team. Every
+sold call is a QA item, through `lib/qa.ts` (`/qa/items`, `/qa/summary`,
+`/qa/agents`, `/qa/stats`, and the assignee and status routes).
 
 - **Who sees what:**
   - a Super Admin and a QA Manager see every team at `/admin/qa`: count tiles for
     all teams together, a Teams table with each team's counts (its name filters
     the queue), then the queue;
-  - a QA Lead sees their team at `/qa` ("QA · <team>"), and assigns each sale from
-    the "Assigned to" dropdown in its row, which saves on change. It opens on
-    Unassigned whenever anything is waiting;
   - the count tiles are the Users screen's `StatCard`, in the order the work goes
     (Unassigned, Open, Disputed, Resolve Dispute, Closed). Each one filters the
-    queue, and clicking the selected one clears it. Unassigned means not closed
-    and nobody has it, the same as the API's `assignee=none`;
-  - a QA Agent sees only what is assigned to them at `/qa`, as "Assigned to me".
-    They never call `/qa/summary` or `/qa/agents`, which answer them 403.
-- **Assigning** is the QA Lead's (and Super Admin's). A QA Manager sees the
-  assignee as text. The API only accepts an active QA Agent on the sale's team.
-- **The sale page** (`/admin/qa/item?id=`, `/qa/item?id=`) is `QaItemScreen`: a
-  Review card with the status, one button per move the role may make
-  (`movesFor()` mirrors the API's flow: Open to Disputed or Closed, Disputed to
-  Resolve Dispute, Resolve Dispute to Closed; a QA Agent moves only while Open),
-  and the assignee. A "Reason" box above the buttons goes with whichever move is
-  made; the API takes it as optional, and the screen does not say so. Then a
-  Review history card (who assigned it, who moved it, when, and the reason),
-  which the API reads back from the audit trail. Below it is `LeadRecord` from
-  `LeadDetailScreen`, the same cards as the Super Admin lead page; only a Super
-  Admin gets "Show full numbers".
+    queue, and clicking the selected one clears it. Unassigned means open and
+    nobody has it, the same as the API's `assignee=none`;
+  - a QA Agent sees only the open sales assigned to them at `/qa`, as "Assigned
+    to me", with no filters. Once they close or dispute one it leaves their queue
+    and its page answers them 404. They never call `/qa/summary` or `/qa/agents`,
+    which answer them 403.
+- **Assigning** is the QA Manager's and the Super Admin's, from the "Assigned to"
+  dropdown in each row or on the sale page, which saves on change. Only an open
+  sale can be assigned, to any active QA Agent; after that it shows as text.
+- **The flow** has two paths, Open to Closed and Open to Disputed to Resolve
+  Dispute, and both ends are final. `movesFor()` mirrors the API: the assigned
+  agent gets Close and Dispute on an open sale, a Super Admin gets Resolve
+  dispute on a disputed one, and nobody else gets a button. A QA Manager never
+  moves a sale.
+- **The sale page** (`/admin/qa/item?id=`, `/qa/item?id=`) is `QaItemScreen`,
+  laid out around what the reviewer checks:
+  - a header with the lead's name, the team, who sold it and when, and the
+    status pill (and "Open lead" to the full record, for a Super Admin);
+  - on the left, two cards: the lead's details (`LeadCard`), and Sale, which
+    starts with the closer and when they sold it, since that is how the agent
+    finds the call recording, then this sale's own cart, masked (`CartCard`
+    from `LeadDetailScreen`, with a `title` and a `before` row), or "No cart was
+    saved for this sale". The API sends QA nothing else from the lead, and only
+    a Super Admin gets "Show full numbers";
+  - on the right, a panel that stays in view, with one job per person. The
+    assigned agent gets "Your review": a 0 to 100 slider that starts unscored
+    (a hollow thumb and "Not scored yet", so nothing closes on a default),
+    optional Notes, then "Close with score N" (disabled until scored) and a red
+    Dispute that takes a score or not. A Super Admin on a disputed sale sees the
+    agent's verdict, score and notes, and Resolve dispute. Anyone else sees the
+    verdict once there is one, and the QA Manager and Super Admin the "Assigned
+    to" picker while the sale is open;
+  - at the bottom, Review history (who assigned it, who moved it, when, the notes
+    and the score, read back from the audit trail), folded away for an agent and
+    open for everyone else.
+
+  After an agent's move the page goes back to their queue.
+- **QA stats** (`/admin/qa/stats`, `/qa/stats`) is `QaStatsScreen`: a
+  Today | This week | This month switch with the days and zone the figures cover
+  beside it, right above them (`Segmented` in `components/ui`; ranges from
+  `businessDay`, `weekToDate` with weeks from Monday, and `monthToDate`). Then
+  three `StatTile`s, Reviewed, Closed and Disputed (with its share of
+  reviewed), added up on screen: an agent's own, or every agent's together.
+  There is no score here: it grades the closer's sale, not the agent's work,
+  and belongs to the closers' stats. The QA Manager and Super Admin also get
+  Custom, which opens the `DateRangePicker` Team stats uses, and a table
+  comparing agents: most reviewed first, Disputed with its share, agents with
+  no reviews greyed, and an All agents row. A review counts on the day the agent
+  closed or disputed the sale, in the user's own zone. The client asked for
+  daily, weekly and monthly figures for the agent targets, so the same three
+  presets keep the stats pages alike.
 - **Mocks** keep a fixed set of five sales per team in memory; each lead id is one
-  `mockLeadHistory` reads as sold, so a sale opens onto its full history. Quinn QA
-  (QA Manager, no team), Leo Lead and Aria Agent (Default Team) sign in with
-  `password1`.
+  `mockLeadHistory` reads as sold, so a sale opens onto its lead and cart. Quinn
+  QA (QA Manager), Aria Agent and Leo Lead (now a QA Agent) have no team and
+  sign in with `password1`. Aria has one dispute and one close from today, so the
+  stats have figures.
 
 ## Policy lookup
 

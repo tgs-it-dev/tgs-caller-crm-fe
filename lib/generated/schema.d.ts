@@ -302,8 +302,9 @@ export interface paths {
          * Assign a user to a team (Super Admin only)
          * @description Pin the user to exactly one team (PUT set / replace).
          *
-         *     Locked contract: a second assign replaces ``team_id``; ``super_admin`` and
-         *     ``qa_manager`` targets are rejected (company-wide scope is no ``user_teams`` row).
+         *     Locked contract: a second assign replaces ``team_id``; ``super_admin``,
+         *     ``qa_manager`` and ``qa_agent`` targets are rejected (company-wide scope is no
+         *     ``user_teams`` row).
          */
         put: operations["assign_user_team_auth_users__user_id__team_put"];
         post?: never;
@@ -962,7 +963,7 @@ export interface paths {
         };
         /**
          * Sales for QA to review
-         * @description The longest waiting first. A QA Agent only ever gets their own.
+         * @description The longest waiting first. A QA Agent only ever gets their own open sales.
          */
         get: operations["list_items_qa_items_get"];
         put?: never;
@@ -981,8 +982,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * A sale to review, with everything recorded on its lead
-         * @description The cart shows what its closer sees: the last four digits of each number.
+         * A sale to review, with its lead and masked cart
+         * @description The lead's details and each cart as its closer sees it: the last four digits of each number.
+         *
+         *     The fronter form, the outcomes and the timeline stay on the Super Admin's lead view.
          */
         get: operations["get_item_qa_items__interaction_id__get"];
         put?: never;
@@ -1001,7 +1004,7 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Assign a sale to a QA Agent on its team, or to nobody */
+        /** Assign an open sale to a QA Agent, or to nobody */
         put: operations["assign_item_qa_items__interaction_id__assignee_put"];
         post?: never;
         delete?: never;
@@ -1019,13 +1022,36 @@ export interface paths {
         };
         get?: never;
         /**
-         * Move a sale's review to another status
-         * @description Open moves to Disputed or Closed, Disputed to Resolve Dispute, and that to Closed.
+         * Close or dispute a sale, or resolve its dispute
+         * @description Open moves to Closed or Disputed, and Disputed to Resolve Dispute, where it ends.
          *
-         *     Each move can carry the reason for it. A QA Agent moves only their own sales,
-         *     and only while they are open.
+         *     The assigned QA Agent closes an open sale with a score, or disputes it with or
+         *     without one, and can add notes either way. A Super Admin resolves a dispute,
+         *     with no score or notes.
          */
         put: operations["change_item_status_qa_items__interaction_id__status_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/qa/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What each QA Agent reviewed over a range of days
+         * @description Each active QA Agent's reviews, counted on the day they closed or disputed the sale.
+         *
+         *     A QA Agent gets only their own row.
+         */
+        get: operations["get_stats_qa_stats_get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -1040,10 +1066,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Each team's sales by review status
-         * @description Every team for a QA Manager or Super Admin, or a QA Lead's own.
-         */
+        /** Each team's sales by review status */
         get: operations["get_summary_qa_summary_get"];
         put?: never;
         post?: never;
@@ -1543,7 +1566,7 @@ export interface components {
              * Role
              * @enum {string}
              */
-            role: "fronter" | "closer" | "administrator" | "qa_manager" | "qa_lead" | "qa_agent" | "super_admin";
+            role: "fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "super_admin";
             /**
              * Since
              * Format: date-time
@@ -1931,10 +1954,10 @@ export interface components {
             /** Password */
             password?: string | null;
             /** Roles */
-            roles: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_lead" | "qa_agent" | "super_admin")[];
+            roles: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "super_admin")[];
             /**
              * Team Id
-             * @description Team the account joins: a Team Admin's own team, which they may leave out. A Super Admin or QA Manager must name one, except for a super_admin or qa_manager account, which covers every team and has none. qa_lead and qa_agent always need a team.
+             * @description Team the account joins: a Team Admin's own team, which they may leave out. A Super Admin must name one, except for a super_admin, qa_manager or qa_agent account, which covers every team and has none.
              */
             team_id?: string | null;
         };
@@ -3093,10 +3116,24 @@ export interface components {
             /** Name */
             name: string;
             /**
-             * Team Id
+             * User Id
              * Format: uuid
              */
-            team_id: string;
+            user_id: string;
+        };
+        /**
+         * QaAgentStats
+         * @description One QA Agent's reviews in the window: how many, and how they ended.
+         */
+        QaAgentStats: {
+            /** Closed */
+            closed: number;
+            /** Disputed */
+            disputed: number;
+            /** Name */
+            name: string;
+            /** Reviewed */
+            reviewed: number;
             /**
              * User Id
              * Format: uuid
@@ -3134,18 +3171,20 @@ export interface components {
             note?: string | null;
             /** Previous Status */
             previous_status?: ("open" | "disputed" | "resolve_dispute" | "closed") | null;
+            /** Score */
+            score?: number | null;
             /** Status */
             status?: ("open" | "disputed" | "resolve_dispute" | "closed") | null;
         };
         /**
          * QaItemDetailResponse
-         * @description The sale under review, its review so far, and everything recorded on its lead.
+         * @description The sale under review, its review so far, and its lead.
          */
         QaItemDetailResponse: {
             /** History */
             history: components["schemas"]["QaHistoryEvent"][];
             item: components["schemas"]["QaItemResponse"];
-            lead: components["schemas"]["LeadHistoryResponse"];
+            lead: components["schemas"]["QaLeadView"];
         };
         /** QaItemListResponse */
         QaItemListResponse: {
@@ -3188,6 +3227,8 @@ export interface components {
             lead_id: string;
             /** Lead Name */
             lead_name: string;
+            /** Score */
+            score: number | null;
             /**
              * Status
              * @enum {string}
@@ -3201,10 +3242,38 @@ export interface components {
             /** Team Name */
             team_name: string;
         };
+        /**
+         * QaLeadView
+         * @description What QA sees of the lead: its details and each cart, masked as its closer sees it.
+         */
+        QaLeadView: {
+            /** Carts */
+            carts: components["schemas"]["LeadHistoryCart"][];
+            lead: components["schemas"]["LeadHistoryLead"];
+        };
+        /** QaStatsResponse */
+        QaStatsResponse: {
+            /** Agents */
+            agents: components["schemas"]["QaAgentStats"][];
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /** Timezone */
+            timezone: string;
+        };
         /** QaStatusRequest */
         QaStatusRequest: {
             /** Note */
             note?: string | null;
+            /** Score */
+            score?: number | null;
             /**
              * Status
              * @enum {string}
@@ -3799,7 +3868,7 @@ export interface components {
             /** Name */
             name?: string | null;
             /** Roles */
-            roles?: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_lead" | "qa_agent" | "super_admin")[] | null;
+            roles?: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "super_admin")[] | null;
             /**
              * Team Id
              * @description Super Admin only: moves the user to this team, saved with the rest of the change. Leave it out to keep their team.
@@ -3842,7 +3911,7 @@ export interface components {
             /** Name */
             name: string;
             /** Roles */
-            roles: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_lead" | "qa_agent" | "super_admin")[];
+            roles: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "super_admin")[];
             /** Team Id */
             team_id?: string | null;
             /**
@@ -4290,7 +4359,7 @@ export interface operations {
                 /** @description Filter by account state */
                 active?: boolean | null;
                 /** @description Filter by role held */
-                role?: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_lead" | "qa_agent" | "super_admin") | null;
+                role?: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "super_admin") | null;
                 /** @description Members of this team only (Super Admins never match) */
                 team_id?: string | null;
                 /** @description Substring of email or name */
@@ -5915,10 +5984,7 @@ export interface operations {
     };
     list_agents_qa_agents_get: {
         parameters: {
-            query?: {
-                /** @description One team only. A QA Lead may name only their own. */
-                team_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
@@ -5957,10 +6023,10 @@ export interface operations {
     list_items_qa_items_get: {
         parameters: {
             query?: {
-                /** @description One team only. A QA Lead may name only their own. */
+                /** @description One team's sales only. */
                 team_id?: string | null;
                 status?: ("open" | "disputed" | "resolve_dispute" | "closed") | null;
-                /** @description The QA Agent reviewing it, or none for a sale not closed that nobody has. */
+                /** @description The QA Agent reviewing it, or none for an open sale nobody has. */
                 assignee?: string | "none" | null;
                 limit?: number;
                 offset?: number;
@@ -6106,6 +6172,49 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["QaItemResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_stats_qa_stats_get: {
+        parameters: {
+            query: {
+                start: string;
+                end: string;
+                /** @description IANA name deciding which day the dates mean, e.g. America/New_York. Defaults to the caller's own time zone, so people who share a zone see the same figures for the same dates. */
+                timezone?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QaStatsResponse"];
                 };
             };
             /** @description Client Error */

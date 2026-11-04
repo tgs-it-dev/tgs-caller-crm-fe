@@ -32,7 +32,6 @@ const ROLE_LANDING: Record<Role, string> = {
   administrator: '/admin',
   // QA Manager oversees every team's QA from the admin desk.
   qa_manager: '/admin/qa',
-  qa_lead: '/qa',
   qa_agent: '/qa',
   // Super Admin modules are Users / Teams / Campaigns — not the Team Admin dashboard.
   super_admin: '/admin/users',
@@ -115,7 +114,6 @@ const ROLE_PRIORITY: Role[] = [
   'qa_manager',
   'closer',
   'fronter',
-  'qa_lead',
   'qa_agent',
 ]
 
@@ -143,11 +141,9 @@ export function adminDeskRole(
   return null
 }
 
-/** The `/qa` desk is the QA Lead's when they hold it, otherwise the QA Agent's. */
-export function qaDeskRole(roles: readonly Role[]): 'qa_lead' | 'qa_agent' | null {
-  if (roles.includes('qa_lead')) return 'qa_lead'
-  if (roles.includes('qa_agent')) return 'qa_agent'
-  return null
+/** The `/qa` desk is the QA Agent's. */
+export function qaDeskRole(roles: readonly Role[]): 'qa_agent' | null {
+  return roles.includes('qa_agent') ? 'qa_agent' : null
 }
 
 /** Super Admin has no team pin — never invent a fake membership in the UI. */
@@ -175,7 +171,6 @@ const DESK_LABEL: Record<Role, string> = {
   closer: 'CRM — Closer',
   administrator: 'CRM — Team Admin',
   qa_manager: 'CRM — QA Manager',
-  qa_lead: 'CRM - QA Lead',
   qa_agent: 'CRM — QA Agent',
   super_admin: 'CRM — Super Admin',
 }
@@ -185,7 +180,6 @@ const ROLE_NAME: Record<Role, string> = {
   closer: 'Closer',
   administrator: 'Team Admin',
   qa_manager: 'QA Manager',
-  qa_lead: 'QA Lead',
   qa_agent: 'QA Agent',
   super_admin: 'Super Admin',
 }

@@ -90,7 +90,7 @@ function labelFor(key: string) {
   return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
-function Card({
+export function Card({
   title,
   caption,
   actions,
@@ -150,11 +150,12 @@ function since(outcome: Outcome) {
   return [`Since ${formatDateTime(outcome.at)}`, outcome.actor_name].filter(Boolean).join(' · ')
 }
 
-function LeadCard({ lead }: { lead: Lead }) {
+/** The lead's details, headed by its name unless `title` names the card instead. */
+export function LeadCard({ lead, title }: { lead: Lead; title?: string }) {
   const by = lead.added_by_name ? ` by ${lead.added_by_name}` : ''
   return (
     <section className="h-full min-w-0 rounded-xl border-hairline border-slate bg-white p-5 lg:col-span-2">
-      <h2 className="text-xl font-semibold leading-[120%] text-ink">{lead.lead_name}</h2>
+      <h2 className="text-xl font-semibold leading-[120%] text-ink">{title ?? lead.lead_name}</h2>
       <p className="mt-1 text-sm leading-[140%] text-slate">
         Added {formatDateTime(lead.created_at)}
         {by}
@@ -263,7 +264,18 @@ type Reveal =
   | { status: 'error' }
 
 /** A call's cart, masked until a Super Admin asks to see the full numbers. */
-function CartCard({ cart, revealable }: { cart: Cart; revealable: boolean }) {
+/** One call's cart. `before` puts more pairs ahead of the payment, in the same grid. */
+export function CartCard({
+  cart,
+  revealable,
+  title = 'Cart and payment',
+  before,
+}: {
+  cart: Cart
+  revealable: boolean
+  title?: string
+  before?: ReactNode
+}) {
   const [reveal, setReveal] = useState<Reveal>({ status: 'hidden' })
   const shown = reveal.status === 'shown' ? reveal.numbers : null
   const by = cart.saved_by ? ` by ${cart.saved_by}` : ''
@@ -299,7 +311,7 @@ function CartCard({ cart, revealable }: { cart: Cart; revealable: boolean }) {
 
   return (
     <Card
-      title="Cart and payment"
+      title={title}
       caption={`Saved ${formatDateTime(cart.saved_at)}${by}`}
       actions={revealable ? toggle : undefined}
     >
@@ -309,6 +321,7 @@ function CartCard({ cart, revealable }: { cart: Cart; revealable: boolean }) {
         </p>
       )}
       <Pairs wide>
+        {before}
         <Pair label="Account">
           <span className="tabular-nums">
             {shown ? shown.account_number : `•••• ${cart.account_last4}`}

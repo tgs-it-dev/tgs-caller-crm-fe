@@ -9,8 +9,10 @@ export type QaStatus = QaItem['status']
 export type QaTeamSummary = components['schemas']['QaTeamSummary']
 export type QaAgent = components['schemas']['QaAgentResponse']
 export type QaHistoryEvent = components['schemas']['QaHistoryEvent']
+export type QaAgentStats = components['schemas']['QaAgentStats']
+export type QaStats = components['schemas']['QaStatsResponse']
 
-/** The API's limit on a reason. */
+/** The API's limit on notes. */
 export const QA_NOTE_MAX = 2000
 
 /** An agent's id, `none` for sales nobody has yet, or null for all. */
@@ -32,40 +34,47 @@ export const QA_STATUS_TONE: Record<QaStatus, 'neutral' | 'red' | 'amber' | 'don
   closed: 'done',
 }
 
-/** Where each status may move next, and what its button says. The API enforces the same. */
-const QA_MOVES: Record<QaStatus, { to: QaStatus; label: string }[]> = {
-  open: [
-    { to: 'disputed', label: 'Dispute' },
-    { to: 'closed', label: 'Close' },
-  ],
-  disputed: [{ to: 'resolve_dispute', label: 'Resolve dispute' }],
-  resolve_dispute: [{ to: 'closed', label: 'Close' }],
-  closed: [],
+/** The lowest and highest score an agent can give. */
+export const QA_SCORE_MIN = 0
+export const QA_SCORE_MAX = 100
+
+export type QaMove = { to: QaStatus; label: string }
+
+/**
+ * What this user can do next with a sale, and what each button says. The
+ * assigned agent closes or disputes an open one, and only a Super Admin resolves
+ * a dispute. Closed and Resolve Dispute are both final. The API enforces the same.
+ */
+export function movesFor(roles: readonly Role[], item: QaItem, userId: string | null): QaMove[] {
+  if (item.status === 'open' && roles.includes('qa_agent') && item.assignee_user_id === userId) {
+    return [
+      { to: 'disputed', label: 'Dispute' },
+      { to: 'closed', label: 'Close' },
+    ]
+  }
+  if (item.status === 'disputed' && roles.includes('super_admin')) {
+    return [{ to: 'resolve_dispute', label: 'Resolve dispute' }]
+  }
+  return []
 }
 
-/** A QA Agent with no wider role reviews only their own sales, and moves them only while open. */
+/** A QA Agent with no wider role sees only the open sales assigned to them. */
 export function reviewsOwnOnly(roles: readonly Role[]): boolean {
-  return !roles.some((role) => role === 'super_admin' || role === 'qa_manager' || role === 'qa_lead')
+  return !roles.some((role) => role === 'super_admin' || role === 'qa_manager')
 }
 
 export function canAssign(roles: readonly Role[]): boolean {
-  return roles.includes('super_admin') || roles.includes('qa_lead')
+  return roles.includes('super_admin') || roles.includes('qa_manager')
 }
 
 /**
- * The agents a sale can go to: its team's, plus whoever has it now even if they
- * are no longer one, so the picker never shows a sale as unassigned when it is not.
+ * Every agent a sale can go to, plus whoever has it now even if they are no
+ * longer one, so the picker never shows a sale as unassigned when it is not.
  */
 export function assigneeOptions(agents: QaAgent[], item: QaItem): QaAgent[] {
-  const onTeam = agents.filter((agent) => agent.team_id === item.team_id)
   const current = item.assignee_user_id
-  if (!current || onTeam.some((agent) => agent.user_id === current)) return onTeam
-  return [...onTeam, { user_id: current, name: item.assignee_name ?? 'Unknown', team_id: item.team_id }]
-}
-
-export function movesFor(roles: readonly Role[], status: QaStatus) {
-  if (reviewsOwnOnly(roles) && status !== 'open') return []
-  return QA_MOVES[status]
+  if (!current || agents.some((agent) => agent.user_id === current)) return agents
+  return [...agents, { user_id: current, name: item.assignee_name ?? 'Unknown' }]
 }
 
 async function json<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
@@ -105,23 +114,22 @@ export function listQaItems(
   return json<QaItemList>(`/qa/items?${params}`, token)
 }
 
-/** The sale and everything recorded on its lead, with the cart masked. */
+/** The sale, its lead's details and each cart, masked. */
 export function getQaItem(interactionId: string, token: string): Promise<QaItemDetail> {
   return json<QaItemDetail>(`/qa/items/${encodeURIComponent(interactionId)}`, token)
 }
 
-/** Each team's sales by status: every team for a QA Manager, a QA Lead's own. */
+/** Each team's sales by status, for a QA Manager or Super Admin. */
 export async function getQaSummary(token: string): Promise<QaTeamSummary[]> {
   return (await json<{ teams: QaTeamSummary[] }>('/qa/summary', token)).teams
 }
 
-/** The active QA Agents a sale can go to; every team's unless one is named. */
-export async function listQaAgents(token: string, teamId: string | null = null): Promise<QaAgent[]> {
-  const query = teamId ? `?team_id=${encodeURIComponent(teamId)}` : ''
-  return (await json<{ items: QaAgent[] }>(`/qa/agents${query}`, token)).items
+/** The active QA Agents a sale can go to. */
+export async function listQaAgents(token: string): Promise<QaAgent[]> {
+  return (await json<{ items: QaAgent[] }>('/qa/agents', token)).items
 }
 
-/** Give the sale to a QA Agent on its team, or to nobody. */
+/** Give an open sale to a QA Agent, or to nobody. */
 export function assignQaItem(
   interactionId: string,
   assigneeUserId: string | null,
@@ -133,15 +141,28 @@ export function assignQaItem(
   })
 }
 
-/** Move the sale's review, with the reason for it; a blank reason is sent as none. */
+/**
+ * Move the sale's review. The agent's notes and score go with a close or a
+ * dispute; blank notes are sent as none, and a dispute is resolved with neither.
+ */
 export function setQaStatus(
   interactionId: string,
   status: QaStatus,
-  note: string,
+  review: { note: string; score: number | null } | null,
   token: string
 ): Promise<QaItem> {
+  const body = review ? { status, note: review.note.trim() || null, score: review.score } : { status }
   return json<QaItem>(`/qa/items/${encodeURIComponent(interactionId)}/status`, token, {
     method: 'PUT',
-    body: JSON.stringify({ status, note: note.trim() || null }),
+    body: JSON.stringify(body),
   })
+}
+
+/**
+ * What each QA Agent reviewed between two business days, counted in the user's
+ * own zone. An agent gets only their own row.
+ */
+export function getQaStats(range: { start: string; end: string }, token: string): Promise<QaStats> {
+  const params = new URLSearchParams({ start: range.start, end: range.end })
+  return json<QaStats>(`/qa/stats?${params}`, token)
 }
