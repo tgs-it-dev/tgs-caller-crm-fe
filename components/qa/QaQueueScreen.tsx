@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import MuiButton from '@mui/material/Button'
 import {
@@ -115,14 +115,14 @@ function overviewColumns(pick: (teamId: string) => void): DataColumn<QaTeamSumma
 
 /**
  * The QA queue. A QA Manager or Super Admin sees every team with an overview of
- * each; a QA Lead sees their team and assigns its sales; a QA Agent sees only the
- * sales assigned to them.
+ * each and hands open sales to agents; a QA Agent sees only the open sales
+ * assigned to them.
  */
 export function QaQueueScreen({ itemHref }: { itemHref: string }) {
   const { user } = useCurrentUser()
   const roles: Role[] = user?.roles ?? []
   const own = reviewsOwnOnly(roles)
-  const overview = roles.includes('super_admin') || roles.includes('qa_manager')
+  const overview = !own
   const assigner = canAssign(roles)
 
   const [teams, setTeams] = useState<QaTeamSummary[]>([])
@@ -135,9 +135,6 @@ export function QaQueueScreen({ itemHref }: { itemHref: string }) {
   const [load, setLoad] = useState<ItemsLoad>({ status: 'loading' })
   const [saving, setSaving] = useState<string | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
-  // A QA Lead lands on what still needs handing out, decided once the counts arrive.
-  const [landed, setLanded] = useState(overview || own)
-  const decided = useRef(overview || own)
 
   // A QA Agent may not read the counts or the agents list, so never asks.
   useEffect(() => {
@@ -149,18 +146,9 @@ export function QaQueueScreen({ itemHref }: { itemHref: string }) {
         if (cancelled) return
         setTeams(summary)
         setAgents(people)
-        if (!decided.current) {
-          decided.current = true
-          if (sum(summary).unassigned > 0) setAssignee(NOBODY)
-          setLanded(true)
-        }
       })
       .catch(() => {
-        if (cancelled) return
-        setProblem('Could not load the team counts.')
-        // Without the counts there is nothing to choose a landing from: show everything.
-        decided.current = true
-        setLanded(true)
+        if (!cancelled) setProblem('Could not load the team counts.')
       })
     return () => {
       cancelled = true
@@ -168,7 +156,6 @@ export function QaQueueScreen({ itemHref }: { itemHref: string }) {
   }, [own, tick])
 
   useEffect(() => {
-    if (!landed) return
     let cancelled = false
     waitForMocking()
       .then(() =>
@@ -188,12 +175,10 @@ export function QaQueueScreen({ itemHref }: { itemHref: string }) {
     return () => {
       cancelled = true
     }
-  }, [landed, teamId, status, assignee, offset, tick])
+  }, [teamId, status, assignee, offset, tick])
 
   function pickTeam(next: string | null) {
     setTeamId(next)
-    // An agent from another team would match nothing there.
-    if (assignee !== NOBODY) setAssignee(null)
     setOffset(0)
   }
 
@@ -224,8 +209,6 @@ export function QaQueueScreen({ itemHref }: { itemHref: string }) {
       .finally(() => setSaving(null))
   }
 
-  const agentsOn = (id: string | null) =>
-    id ? agents.filter((agent) => agent.team_id === id) : agents
   const counts = sum(teamId ? teams.filter((team) => team.team_id === teamId) : teams)
 
   const columns: DataColumn<QaItem>[] = [
@@ -268,9 +251,9 @@ export function QaQueueScreen({ itemHref }: { itemHref: string }) {
           {
             id: 'assignee',
             header: 'Assigned to',
-            // A closed sale needs nobody, so it is never handed out again.
+            // Once reviewed, a sale is never handed out again.
             render: (item: QaItem) =>
-              assigner && item.status !== 'closed' ? (
+              assigner && item.status === 'open' ? (
                 <div className="w-[180px]">
                   <Select
                     size="small"
@@ -312,10 +295,9 @@ export function QaQueueScreen({ itemHref }: { itemHref: string }) {
   ]
 
   const page = load.status === 'ready' ? load.page : null
-  const ownTeam = !overview && !own ? teams[0] : undefined
 
   return (
-    <PageShell title={ownTeam ? `QA · ${ownTeam.team_name}` : 'QA'}>
+    <PageShell title="QA">
       <div className="flex min-h-0 flex-1 flex-col gap-6">
         {problem && <Alert>{problem}</Alert>}
         {load.status === 'error' && <Alert>{load.message}</Alert>}
@@ -354,9 +336,10 @@ export function QaQueueScreen({ itemHref }: { itemHref: string }) {
         <DataTable
           title={own ? 'Assigned to me' : 'Sales to review'}
           ariaLabel={own ? 'The sales assigned to you' : 'Sales to review'}
+          // An agent's queue is only their open sales, so there is nothing to filter.
           toolbar={
-            <div className="flex flex-wrap items-end gap-3">
-              {overview && (
+            own ? undefined : (
+              <div className="flex flex-wrap items-end gap-3">
                 <div className="w-[200px]">
                   <Select
                     label="Team"
@@ -371,25 +354,23 @@ export function QaQueueScreen({ itemHref }: { itemHref: string }) {
                     ))}
                   </Select>
                 </div>
-              )}
-              <div className="w-[200px]">
-                <Select
-                  label="Status"
-                  value={status ?? ''}
-                  onChange={(event) => {
-                    setStatus((event.target.value || null) as QaStatus | null)
-                    setOffset(0)
-                  }}
-                >
-                  <option value="">All statuses</option>
-                  {QA_STATUSES.map((value) => (
-                    <option key={value} value={value}>
-                      {QA_STATUS_LABEL[value]}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              {!own && (
+                <div className="w-[200px]">
+                  <Select
+                    label="Status"
+                    value={status ?? ''}
+                    onChange={(event) => {
+                      setStatus((event.target.value || null) as QaStatus | null)
+                      setOffset(0)
+                    }}
+                  >
+                    <option value="">All statuses</option>
+                    {QA_STATUSES.map((value) => (
+                      <option key={value} value={value}>
+                        {QA_STATUS_LABEL[value]}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
                 <div className="w-[200px]">
                   <Select
                     label="Assigned to"
@@ -401,15 +382,15 @@ export function QaQueueScreen({ itemHref }: { itemHref: string }) {
                   >
                     <option value="">Anyone</option>
                     <option value={NOBODY}>Unassigned</option>
-                    {agentsOn(teamId).map((agent) => (
+                    {agents.map((agent) => (
                       <option key={agent.user_id} value={agent.user_id}>
                         {agent.name}
                       </option>
                     ))}
                   </Select>
                 </div>
-              )}
-            </div>
+              </div>
+            )
           }
           rows={page?.items ?? []}
           columns={columns}
