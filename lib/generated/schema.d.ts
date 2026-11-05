@@ -314,6 +314,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/callback-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Callback requests: every one for a Super Admin, a Team Admin's teams'
+         * @description A Super Admin sees every request, a Team Admin those on their teams' leads.
+         *     Waiting ones come oldest first. A closer follows theirs on their callback list.
+         */
+        get: operations["list_requests_callback_requests_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/callback-requests/{request_id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve or reject a waiting callback request (Super Admin only)
+         * @description Approving lets the call's closer work it again; rejecting keeps it closed.
+         */
+        post: operations["decide_callback_requests__request_id__decision_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/campaigns": {
         parameters: {
             query?: never;
@@ -601,7 +642,7 @@ export interface paths {
          *     the response carries at most their last four digits. Either one left out
          *     keeps the number already saved, so a change to the amounts need not retype
          *     them. A CVV is checked, then discarded. A policy number already on another
-         *     call's cart is refused, in any case.
+         *     call's cart is refused, in any case. Once the call is closed to its closer, 409.
          */
         put: operations["save_cart_interactions__interaction_id__cart_put"];
         post?: never;
@@ -634,6 +675,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/interactions/{interaction_id}/details": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Correct the fronter's details on a call (its closer)
+         * @description For the closer who accepted the call, while it is open to them.
+         *
+         *     The lead takes the change, so every screen shows it, and the qualification
+         *     gets its next version. The version handed over at transfer stays as it was.
+         */
+        put: operations["save_details_interactions__interaction_id__details_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/interactions/{interaction_id}/dispositions": {
         parameters: {
             query?: never;
@@ -655,8 +719,10 @@ export interface paths {
          * Disposition an interaction
          * @description Record how this leg ended.
          *
-         *     A second disposition for the same stage is a correction, not an error: it
-         *     becomes the next version and the earlier one stays on record.
+         *     A second disposition for the same stage becomes the next version, and the
+         *     earlier one stays on record. A closer's outcome closes the call to them: they
+         *     record another only on a callback a Super Admin approved, and get 409 otherwise.
+         *     A Callback Scheduled from anyone but a Super Admin asks one for that approval.
          */
         post: operations["create_disposition_interactions__interaction_id__dispositions_post"];
         delete?: never;
@@ -1901,6 +1967,63 @@ export interface components {
             /** Items */
             items: components["schemas"]["CallLegItem"][];
         };
+        /** CallbackDecisionRequest */
+        CallbackDecisionRequest: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "approved" | "rejected";
+        };
+        /** CallbackRequestItem */
+        CallbackRequestItem: {
+            /** Closer Name */
+            closer_name: string | null;
+            /** Decided At */
+            decided_at: string | null;
+            /** Decided By Name */
+            decided_by_name: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Interaction Id
+             * Format: uuid
+             */
+            interaction_id: string;
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
+            /** Lead Name */
+            lead_name: string;
+            /**
+             * Requested At
+             * Format: date-time
+             */
+            requested_at: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "approved" | "rejected";
+            /** Team Name */
+            team_name: string;
+        };
+        /** CallbackRequestListResponse */
+        CallbackRequestListResponse: {
+            /** Items */
+            items: components["schemas"]["CallbackRequestItem"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
         /** CampaignCreateRequest */
         CampaignCreateRequest: {
             /**
@@ -2066,6 +2189,8 @@ export interface components {
          * @description A call a closer set as a callback, to be worked again on the same call.
          */
         CloserCallbackItem: {
+            /** Callback Status */
+            callback_status: ("pending" | "approved" | "rejected") | null;
             /** Closer Name */
             closer_name: string;
             /**
@@ -2505,8 +2630,18 @@ export interface components {
         };
         /** InteractionDispositionListResponse */
         InteractionDispositionListResponse: {
+            /**
+             * Callback Status
+             * @description The request behind the latest closer outcome when it is Callback Scheduled; null when there is none, which counts as approved.
+             */
+            callback_status: ("pending" | "approved" | "rejected") | null;
             /** Items */
             items: components["schemas"]["InteractionDispositionResponse"][];
+            /**
+             * Locked
+             * @description Whether the call is closed to its closer: a final closer outcome, or a callback a Super Admin has not approved.
+             */
+            locked: boolean;
         };
         /** InteractionDispositionResponse */
         InteractionDispositionResponse: {
@@ -5125,6 +5260,92 @@ export interface operations {
             };
         };
     };
+    list_requests_callback_requests_get: {
+        parameters: {
+            query?: {
+                status?: ("pending" | "approved" | "rejected") | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallbackRequestListResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    decide_callback_requests__request_id__decision_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CallbackDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallbackRequestItem"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     list_campaigns_campaigns_get: {
         parameters: {
             query?: never;
@@ -5808,6 +6029,50 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CartNumbersResponse"] | null;
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    save_details_interactions__interaction_id__details_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QualificationResponse"];
                 };
             };
             /** @description Client Error */
