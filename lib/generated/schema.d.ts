@@ -631,12 +631,14 @@ export interface paths {
         };
         /**
          * Fetch the cart for a call, masked
-         * @description The closer who accepted the call, or a Super Admin. Null before anything is saved.
+         * @description The closer who accepted the call or started it as an Own Sale, or a Super Admin.
+         *     Null before anything is saved.
          */
         get: operations["read_cart_interactions__interaction_id__cart_get"];
         /**
          * Save the cart for a call (its closer)
-         * @description Create or update the cart, for the closer who accepted the call.
+         * @description Create or update the cart, for the closer who accepted the call or started it
+         *     as an Own Sale.
          *
          *     The account and routing numbers are encrypted before they are stored, and
          *     the response carries at most their last four digits. Either one left out
@@ -685,7 +687,8 @@ export interface paths {
         get?: never;
         /**
          * Correct the fronter's details on a call (its closer)
-         * @description For the closer who accepted the call, while it is open to them.
+         * @description For the closer who accepted the call or started it as an Own Sale, while it is
+         *     open to them.
          *
          *     The lead takes the change, so every screen shows it, and the qualification
          *     gets its next version. The version handed over at transfer stays as it was.
@@ -860,6 +863,36 @@ export interface paths {
         get: operations["list_cross_team_duplicates_leads_duplicates_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/leads/own-sale": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Look a number up before an Own Sale call (closer)
+         * @description The closer's team's lead for the number, to fill the Own Sale form from; null
+         *     for a number new to the team. 422 for a number on the company do-not-call list,
+         *     even when its lead exists, and 409 while the number is being worked.
+         */
+        get: operations["look_up_own_sale_leads_own_sale_get"];
+        put?: never;
+        /**
+         * Start an Own Sale call (closer)
+         * @description A call of the closer's own, with no fronter and no transfer.
+         *
+         *     On the team's lead for the number, updated to what they entered, or on a new
+         *     lead. It opens with the lead's details as its qualification and stays theirs
+         *     until they record its outcome. Refused as the lookup refuses.
+         */
+        post: operations["start_own_sale_leads_own_sale_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2219,11 +2252,8 @@ export interface components {
             scheduled_at: string;
             /** Team Name */
             team_name: string;
-            /**
-             * Transfer Id
-             * Format: uuid
-             */
-            transfer_id: string;
+            /** Transfer Id */
+            transfer_id: string | null;
         };
         /** CloserQueueItem */
         CloserQueueItem: {
@@ -2232,6 +2262,7 @@ export interface components {
             /**
              * Id
              * Format: uuid
+             * @description The transfer; the call itself on an own_sale row
              */
             id: string;
             /**
@@ -2250,10 +2281,10 @@ export interface components {
             queued_at: string;
             /**
              * Status
-             * @description initiated | offered = waiting for any closer; accepted = this closer's open call (not yet closer-dispositioned)
+             * @description initiated | offered = waiting for any closer; accepted = this closer's open call (not yet closer-dispositioned); own_sale = a call this closer started as an Own Sale, still open
              * @enum {string}
              */
-            status: "initiated" | "offered" | "accepted";
+            status: "initiated" | "offered" | "accepted" | "own_sale";
         };
         /**
          * ConsentDnc
@@ -2621,6 +2652,8 @@ export interface components {
              * Format: uuid
              */
             lead_id: string;
+            /** Own Sale */
+            own_sale: boolean;
             qualification: components["schemas"]["InteractionQualificationSummary"] | null;
             /**
              * Updated At
@@ -3036,7 +3069,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "added" | "lead_edited" | "fronter_outcome" | "qualification" | "transfer_offered" | "transfer_accepted" | "transfer_rejected" | "cart_saved" | "closer_outcome" | "sold" | "do_not_call";
+            kind: "added" | "lead_edited" | "fronter_outcome" | "own_sale_started" | "qualification" | "transfer_offered" | "transfer_accepted" | "transfer_rejected" | "cart_saved" | "closer_outcome" | "sold" | "do_not_call";
             /** Outcome */
             outcome?: string | null;
             /** Previous Outcome */
@@ -3353,6 +3386,67 @@ export interface components {
             email: string;
             /** Password */
             password: string;
+        };
+        /**
+         * OwnSaleLead
+         * @description The team's lead for the number, as the Own Sale form fills from it.
+         *
+         *     The form fields are as stored, so a lead not yet filled in (from the dialer or
+         *     a bulk upload) can come back with some of them empty.
+         */
+        OwnSaleLead: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** First Name */
+            first_name?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Last Name */
+            last_name?: string | null;
+            /** License Plate */
+            license_plate?: string | null;
+            /** Vehicle Make */
+            vehicle_make?: string | null;
+            /** Vehicle Model */
+            vehicle_model?: string | null;
+            /** Vehicle Year */
+            vehicle_year?: number | null;
+            /** Vin */
+            vin?: string | null;
+        };
+        /**
+         * OwnSaleLookupResponse
+         * @description Who the number is on the closer's team, before they start an Own Sale call.
+         */
+        OwnSaleLookupResponse: {
+            lead: components["schemas"]["OwnSaleLead"] | null;
+            /**
+             * Phone No
+             * @description The number in E.164.
+             */
+            phone_no: string;
+        };
+        /**
+         * OwnSaleStartResponse
+         * @description The call the closer works the sale on.
+         */
+        OwnSaleStartResponse: {
+            /**
+             * Interaction Id
+             * Format: uuid
+             */
+            interaction_id: string;
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
         };
         /**
          * PaidUploadListResponse
@@ -6410,6 +6504,88 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DuplicatePhoneListResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    look_up_own_sale_leads_own_sale_get: {
+        parameters: {
+            query: {
+                phone_no: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnSaleLookupResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    start_own_sale_leads_own_sale_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnSaleStartResponse"];
                 };
             };
             /** @description Client Error */
