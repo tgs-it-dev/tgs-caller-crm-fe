@@ -1,15 +1,16 @@
 'use client'
 
-import { useRef, useState, type DragEvent } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import MuiButton from '@mui/material/Button'
-import { CircleCheck, Download, FileSpreadsheet, SearchX, TriangleAlert, X } from 'lucide-react'
+import { CircleCheck, Download, SearchX, TriangleAlert } from 'lucide-react'
 import { LeadSummaryDialog } from '@/components/admin/LeadSummaryDialog'
 import { MarkPaidPanel } from '@/components/admin/MarkPaidPanel'
 import { PaidUploadsSection } from '@/components/admin/PaidUploadsSection'
+import { PolicyFileDrop } from '@/components/admin/PolicyFileDrop'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import { Alert } from '@/components/ui/Alert'
-import { Button } from '@/components/ui/Button'
+import { Badge } from '@/components/ui/Badge'
 import { DataTable, type DataColumn } from '@/components/ui/DataTable'
 import { PageShell } from '@/components/ui/PageShell'
 import { StatCard } from '@/components/ui/StatCard'
@@ -28,6 +29,7 @@ import {
   type PolicySale,
   type PolicySkipped,
 } from '@/lib/policies'
+import { POLICY_STATUS_LABEL, POLICY_STATUS_TONE } from '@/lib/retention'
 import { withSession } from '@/lib/session'
 import { tokens } from '@/lib/theme'
 
@@ -48,10 +50,6 @@ const lastLookup: { userId: string | null; result: Result | null; view: View } =
   userId: null,
   result: null,
   view: 'matched',
-}
-
-function fileSize(bytes: number) {
-  return bytes < 1024 ? `${bytes} bytes` : `${Math.max(1, Math.round(bytes / 1024))} KB`
 }
 
 /** A Super Admin gets the amounts and Open, to the lead's full view; a Team Admin gets Summary. */
@@ -108,6 +106,18 @@ function matchedColumns(
         ),
     },
     {
+      id: 'policy_status',
+      header: 'Policy status',
+      render: (sale) =>
+        sale.policy_status ? (
+          <Badge tone={POLICY_STATUS_TONE[sale.policy_status]}>
+            {POLICY_STATUS_LABEL[sale.policy_status]}
+          </Badge>
+        ) : (
+          <span className="text-slate">-</span>
+        ),
+    },
+    {
       id: 'open',
       header: '',
       align: 'right',
@@ -151,10 +161,8 @@ const SKIPPED_COLUMNS: DataColumn<PolicySkipped>[] = [
 export function PolicyLookupScreen() {
   const { user } = useCurrentUser()
   const superAdmin = Boolean(user && isSuperAdmin(user.roles))
-  const inputRef = useRef<HTMLInputElement>(null)
 
   const [file, setFile] = useState<File | null>(null)
-  const [dragging, setDragging] = useState(false)
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
@@ -182,12 +190,6 @@ export function PolicyLookupScreen() {
     }
     setFile(picked)
     setProblem(null)
-  }
-
-  function drop(event: DragEvent<HTMLDivElement>) {
-    event.preventDefault()
-    setDragging(false)
-    pick(event.dataTransfer.files?.[0] ?? null)
   }
 
   function keep(next: Result) {
@@ -277,96 +279,17 @@ export function PolicyLookupScreen() {
               Download template
             </a>
           </header>
-          <div
-            onDragOver={(event) => {
-              event.preventDefault()
-              setDragging(true)
-            }}
-            onDragLeave={(event) => {
-              // Moving over the text or buttons inside is not leaving the zone.
-              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-                setDragging(false)
-              }
-            }}
-            onDrop={drop}
-            className={`flex flex-wrap items-center gap-4 rounded-xl border border-dashed px-5 py-5 transition-colors ${
-              dragging ? 'border-navy bg-shop-floor' : 'border-light-grey bg-white'
-            }`}
-          >
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-shop-floor">
-              <FileSpreadsheet className="h-5 w-5" color={tokens.navy} strokeWidth={2} aria-hidden />
-            </span>
-            <div className="min-w-0 flex-1" aria-live="polite">
-              {file ? (
-                <>
-                  <p className="flex items-center gap-2 truncate text-sm font-medium text-ink">
-                    <span className="truncate">{file.name}</span>
-                    <button
-                      type="button"
-                      onClick={() => setFile(null)}
-                      className="shrink-0 text-slate hover:text-ink"
-                      aria-label={`Remove ${file.name}`}
-                    >
-                      <X className="h-4 w-4" strokeWidth={2} aria-hidden />
-                    </button>
-                  </p>
-                  <p className="text-xs leading-[150%] text-slate">{fileSize(file.size)}</p>
-                </>
-              ) : (
-                <>
-                  <p className="text-sm font-medium text-ink">
-                    Drop a CSV or Excel file here, or choose one
-                  </p>
-                  <p className="text-xs leading-[150%] text-slate">
-                    One policy number per row. Up to 5,000 rows and 1 MB.
-                  </p>
-                </>
-              )}
-            </div>
-            <div className="flex shrink-0 gap-3">
-              <div className="w-[128px]">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="small"
-                  onClick={() => inputRef.current?.click()}
-                >
-                  {file ? 'Change file' : 'Choose file'}
-                </Button>
-              </div>
-              <div className="w-[128px]">
-                <Button
-                  type="button"
-                  size="small"
-                  disabled={!file}
-                  isLoading={busy}
-                  loadingText="Looking up…"
-                  onClick={lookUp}
-                >
-                  Look up
-                </Button>
-              </div>
-            </div>
-          </div>
-          <input
-            ref={inputRef}
-            type="file"
-            accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            className="sr-only"
-            tabIndex={-1}
-            aria-hidden
-            onChange={(event) => {
-              const picked = event.target.files?.[0] ?? null
-              // Cleared so picking the same file again, once fixed, still registers.
-              event.target.value = ''
-              pick(picked)
-            }}
+          <PolicyFileDrop
+            file={file}
+            hint="One policy number per row. Up to 5,000 rows and 1 MB."
+            actionLabel="Look up"
+            busyLabel="Looking up…"
+            busy={busy}
+            problem={problem}
+            onPick={pick}
+            onClear={() => setFile(null)}
+            onAction={lookUp}
           />
-          {problem && (
-            <p role="alert" className="mt-2 text-xs leading-[150%] text-status-red">
-              {problem}
-            </p>
-          )}
         </section>
 
         {result && summary && (

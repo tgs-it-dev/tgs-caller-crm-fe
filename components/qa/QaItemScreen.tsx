@@ -118,7 +118,7 @@ function Quote({ children }: { children: ReactNode }) {
  * Who worked the review, oldest first, with the notes and score given at each
  * step. Folded away until asked for when it matters less than the sale itself.
  */
-function ReviewHistory({ events, startOpen }: { events: QaHistoryEvent[]; startOpen: boolean }) {
+export function ReviewHistory({ events, startOpen }: { events: QaHistoryEvent[]; startOpen: boolean }) {
   const [open, setOpen] = useState(startOpen)
   const bodyId = useId()
   return (
