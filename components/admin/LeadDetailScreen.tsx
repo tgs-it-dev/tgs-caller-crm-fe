@@ -14,6 +14,7 @@ import { revealCartNumbers, type CartNumbers } from '@/lib/cart'
 import { formatDateTime, formatMoney, formatPhone, localZoneName } from '@/lib/format'
 import { SOURCE_LABEL } from '@/lib/leadSource'
 import { formatMonth } from '@/lib/policies'
+import { POLICY_STATUS_LABEL, POLICY_STATUS_TONE } from '@/lib/retention'
 import {
   fetchLeadHistory,
   isLeadNotFound,
@@ -344,6 +345,15 @@ export function CartCard({
         <Pair label="Monthly">{formatMoney(cart.monthly_payment)}</Pair>
         <Pair label="Policy number">{cart.policy_number ?? '-'}</Pair>
         <Pair label="Paid">{cart.paid_month ? formatMonth(cart.paid_month) : 'Not paid'}</Pair>
+        <Pair label="Policy status">
+          {cart.policy_status ? (
+            <Badge tone={POLICY_STATUS_TONE[cart.policy_status]}>
+              {POLICY_STATUS_LABEL[cart.policy_status]}
+            </Badge>
+          ) : (
+            '-'
+          )}
+        </Pair>
       </Pairs>
     </Card>
   )

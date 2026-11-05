@@ -45,8 +45,13 @@ export function MarkPaidPanel({
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
-  const unpaid = matches.filter((sale) => sale.paid_month === null).length
-  const alreadyPaid = matches.length - unpaid
+  // A sale made after the month cannot have been paid in it, so the upload leaves it out.
+  const kept = month
+    ? matches.filter((sale) => businessDay(new Date(sale.sold_at)).slice(0, 7) <= month)
+    : matches
+  const later = matches.length - kept.length
+  const unpaid = kept.filter((sale) => sale.paid_month === null).length
+  const alreadyPaid = kept.length - unpaid
 
   function mark() {
     setBusy(true)
@@ -85,12 +90,20 @@ export function MarkPaidPanel({
     )
   }
 
+  const leftOut =
+    later > 0
+      ? ` ${salesText(later)} ${later === 1 ? 'was' : 'were'} made after ${formatMonth(month)} and ${
+          later === 1 ? 'is' : 'are'
+        } left out.`
+      : ''
   const outcome =
-    unpaid > 0
-      ? `${salesText(unpaid)} will be marked Paid.${
-          alreadyPaid > 0 ? ` ${salesText(alreadyPaid)} are Paid already and keep their month.` : ''
-        }`
-      : `Nothing new will be marked: all ${salesText(matches.length)} are Paid already.`
+    kept.length === 0
+      ? `Nothing can be marked: every sale was made after ${formatMonth(month)}.`
+      : unpaid > 0
+        ? `${salesText(unpaid)} will be marked Paid.${
+            alreadyPaid > 0 ? ` ${salesText(alreadyPaid)} are Paid already and keep their month.` : ''
+          }${leftOut}`
+        : `Nothing new will be marked: all ${salesText(kept.length)} are Paid already.${leftOut}`
 
   return (
     <section className="rounded-xl border-hairline border-slate bg-white p-5">
@@ -117,7 +130,12 @@ export function MarkPaidPanel({
         </div>
         <p className="min-w-0 flex-1 pb-2 text-sm leading-[150%] text-slate">{outcome}</p>
         <div className="w-[160px]">
-          <Button type="button" size="small" disabled={!month} onClick={() => setConfirming(true)}>
+          <Button
+            type="button"
+            size="small"
+            disabled={!month || kept.length === 0}
+            onClick={() => setConfirming(true)}
+          >
             Mark as Paid
           </Button>
         </div>

@@ -303,7 +303,7 @@ export interface paths {
          * @description Pin the user to exactly one team (PUT set / replace).
          *
          *     Locked contract: a second assign replaces ``team_id``; ``super_admin``,
-         *     ``qa_manager`` and ``qa_agent`` targets are rejected (company-wide scope is no
+         *     ``qa_manager``, ``qa_agent`` and ``retention`` targets are rejected (company-wide scope is no
          *     ``user_teams`` row).
          */
         put: operations["assign_user_team_auth_users__user_id__team_put"];
@@ -600,7 +600,8 @@ export interface paths {
          *     The account and routing numbers are encrypted before they are stored, and
          *     the response carries at most their last four digits. Either one left out
          *     keeps the number already saved, so a change to the amounts need not retype
-         *     them. A CVV is checked, then discarded.
+         *     them. A CVV is checked, then discarded. A policy number already on another
+         *     call's cart is refused, in any case.
          */
         put: operations["save_cart_interactions__interaction_id__cart_put"];
         post?: never;
@@ -1332,8 +1333,9 @@ export interface paths {
          * @description Every sale the file matches, on any team and however old, is kept with the upload.
          *
          *     The ones not Paid yet become Paid in ``month``; a sale already Paid keeps its
-         *     month, so a repeat upload never counts it twice. The file is read the same
-         *     way as the lookup's, and its matches are taken afresh.
+         *     month, so a repeat upload never counts it twice, and a sale made after
+         *     ``month`` is left out. The file is read the same way as the lookup's, and its
+         *     matches are taken afresh.
          */
         post: operations["mark_paid_reporting_paid_uploads_post"];
         delete?: never;
@@ -1434,6 +1436,127 @@ export interface paths {
         get: operations["team_figures_reporting_teams_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/retention/pending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The sales whose policy is Pending
+         * @description The longest since the policy's last change first.
+         */
+        get: operations["list_pending_retention_pending_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/retention/sales": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The sale carrying a policy number
+         * @description None or one: a policy number is on one sale at most.
+         */
+        get: operations["find_sales_retention_sales_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/retention/sales/{interaction_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A sale, its policy's status history and QA's review
+         * @description The customer, the vehicle and who sold it; nothing that was paid or what it was worth.
+         */
+        get: operations["get_sale_retention_sales__interaction_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/retention/sales/{interaction_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set a sale's policy status
+         * @description Recorded even when the status is unchanged, for its note.
+         */
+        post: operations["set_status_retention_sales__interaction_id__status_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/retention/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save a file of policy statuses
+         * @description The file is checked afresh, and only its changes are saved.
+         */
+        post: operations["save_upload_retention_uploads_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/retention/uploads/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check a file of policy statuses before saving it
+         * @description Each row as a change, already at its status, not found, an invalid status, or
+         *     skipped. Saves nothing.
+         */
+        post: operations["check_upload_retention_uploads_check_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1619,7 +1742,7 @@ export interface components {
              * Role
              * @enum {string}
              */
-            role: "fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "super_admin";
+            role: "fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "retention" | "super_admin";
             /**
              * Since
              * Format: date-time
@@ -1709,6 +1832,14 @@ export interface components {
              */
             team_id?: string | null;
         };
+        /** Body_check_upload_retention_uploads_check_post */
+        Body_check_upload_retention_uploads_check_post: {
+            /**
+             * File
+             * @description A CSV or Excel (.xlsx) file.
+             */
+            file: string;
+        };
         /** Body_mark_paid_reporting_paid_uploads_post */
         Body_mark_paid_reporting_paid_uploads_post: {
             /**
@@ -1727,6 +1858,14 @@ export interface components {
             /**
              * File
              * @description A CSV or Excel (.xlsx) file with one policy number per row.
+             */
+            file: string;
+        };
+        /** Body_save_upload_retention_uploads_post */
+        Body_save_upload_retention_uploads_post: {
+            /**
+             * File
+             * @description A CSV or Excel (.xlsx) file.
              */
             file: string;
         };
@@ -2020,10 +2159,10 @@ export interface components {
             /** Password */
             password?: string | null;
             /** Roles */
-            roles: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "super_admin")[];
+            roles: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "retention" | "super_admin")[];
             /**
              * Team Id
-             * @description Team the account joins: a Team Admin's own team, which they may leave out. A Super Admin must name one, except for a super_admin, qa_manager or qa_agent account, which covers every team and has none.
+             * @description Team the account joins: a Team Admin's own team, which they may leave out. A Super Admin must name one, except for a super_admin, qa_manager, qa_agent or retention account, which covers every team and has none.
              */
             team_id?: string | null;
         };
@@ -2711,6 +2850,8 @@ export interface components {
             paid_month: string | null;
             /** Policy Number */
             policy_number: string | null;
+            /** Policy Status */
+            policy_status: ("cancelled" | "retained" | "pending") | null;
             /** Routing Last4 */
             routing_last4: string | null;
             /**
@@ -3187,6 +3328,8 @@ export interface components {
             paid_month: string | null;
             /** Policy Number */
             policy_number: string;
+            /** Policy Status */
+            policy_status: ("cancelled" | "retained" | "pending") | null;
             /** Row */
             row: number;
             /**
@@ -3577,6 +3720,211 @@ export interface components {
             resolved: boolean;
         };
         /**
+         * RetentionInvalidRow
+         * @description A row whose status cell names none of the statuses.
+         */
+        RetentionInvalidRow: {
+            /** Policy Number */
+            policy_number: string;
+            /** Row */
+            row: number;
+            /** Status */
+            status: string;
+        };
+        /**
+         * RetentionQa
+         * @description QA's review of the sale: where it stands, its score, and each step with its notes.
+         */
+        RetentionQa: {
+            /** History */
+            history: components["schemas"]["QaHistoryEvent"][];
+            /** Score */
+            score: number | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "open" | "disputed" | "resolve_dispute" | "closed";
+        };
+        /**
+         * RetentionSale
+         * @description A sale as Retention sees it: never whether it was paid, or what it was worth.
+         */
+        RetentionSale: {
+            /**
+             * Interaction Id
+             * Format: uuid
+             */
+            interaction_id: string;
+            /** Lead Name */
+            lead_name: string;
+            /** Policy Number */
+            policy_number: string;
+            /**
+             * Sold At
+             * Format: date-time
+             */
+            sold_at: string;
+            /** Status */
+            status: ("cancelled" | "retained" | "pending") | null;
+            /** Status At */
+            status_at: string | null;
+            /** Status By */
+            status_by: string | null;
+            /** Team Name */
+            team_name: string;
+        };
+        /** RetentionSaleDetail */
+        RetentionSaleDetail: {
+            /** Closer Name */
+            closer_name: string;
+            /** History */
+            history: components["schemas"]["RetentionStatusEvent"][];
+            /**
+             * Interaction Id
+             * Format: uuid
+             */
+            interaction_id: string;
+            /** Lead Name */
+            lead_name: string;
+            /** Lead Phone */
+            lead_phone: string;
+            /** Policy Number */
+            policy_number: string;
+            qa: components["schemas"]["RetentionQa"];
+            /**
+             * Sold At
+             * Format: date-time
+             */
+            sold_at: string;
+            /** Status */
+            status: ("cancelled" | "retained" | "pending") | null;
+            /** Status At */
+            status_at: string | null;
+            /** Status By */
+            status_by: string | null;
+            /** Team Name */
+            team_name: string;
+            /** Vehicle Make */
+            vehicle_make: string | null;
+            /** Vehicle Model */
+            vehicle_model: string | null;
+            /** Vehicle Year */
+            vehicle_year: number | null;
+        };
+        /** RetentionSaleListResponse */
+        RetentionSaleListResponse: {
+            /** Items */
+            items: components["schemas"]["RetentionSale"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
+        /** RetentionSearchResponse */
+        RetentionSearchResponse: {
+            /** Items */
+            items: components["schemas"]["RetentionSale"][];
+        };
+        /**
+         * RetentionStatusEvent
+         * @description One change to a policy's status.
+         */
+        RetentionStatusEvent: {
+            /** Actor Name */
+            actor_name: string | null;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** File Name */
+            file_name: string | null;
+            /** Note */
+            note: string | null;
+            /** Policy Number */
+            policy_number: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "cancelled" | "retained" | "pending";
+        };
+        /** RetentionStatusRequest */
+        RetentionStatusRequest: {
+            /** Note */
+            note?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "cancelled" | "retained" | "pending";
+        };
+        /**
+         * RetentionUploadCheck
+         * @description What saving the file would do. Nothing is saved.
+         */
+        RetentionUploadCheck: {
+            /** Changes */
+            changes: components["schemas"]["RetentionUploadRow"][];
+            /** Invalid */
+            invalid: components["schemas"]["RetentionInvalidRow"][];
+            /** Skipped */
+            skipped: components["schemas"]["PolicySkipped"][];
+            summary: components["schemas"]["RetentionUploadSummary"];
+            /** Unchanged */
+            unchanged: components["schemas"]["RetentionUploadRow"][];
+            /** Unmatched */
+            unmatched: components["schemas"]["PolicyNumberRow"][];
+        };
+        /**
+         * RetentionUploadRow
+         * @description A row naming a status for the sale with that policy number.
+         */
+        RetentionUploadRow: {
+            /** Current Status */
+            current_status: ("cancelled" | "retained" | "pending") | null;
+            /**
+             * Interaction Id
+             * Format: uuid
+             */
+            interaction_id: string;
+            /** Policy Number */
+            policy_number: string;
+            /** Row */
+            row: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "cancelled" | "retained" | "pending";
+        };
+        /** RetentionUploadSaved */
+        RetentionUploadSaved: {
+            /** Saved */
+            saved: number;
+        };
+        /**
+         * RetentionUploadSummary
+         * @description Numbers read; the five groups add up to it.
+         */
+        RetentionUploadSummary: {
+            /** Changes */
+            changes: number;
+            /** Invalid */
+            invalid: number;
+            /** Rows */
+            rows: number;
+            /** Skipped */
+            skipped: number;
+            /** Unchanged */
+            unchanged: number;
+            /** Unmatched */
+            unmatched: number;
+        };
+        /**
          * SaleItem
          * @description A sale and its amounts. Nothing from the cart that identifies a payment.
          */
@@ -3606,6 +3954,8 @@ export interface components {
             monthly_payment: string | null;
             /** Paid Month */
             paid_month: string | null;
+            /** Policy Status */
+            policy_status: ("cancelled" | "retained" | "pending") | null;
             /**
              * Sold At
              * Format: date-time
@@ -3993,7 +4343,7 @@ export interface components {
             /** Name */
             name?: string | null;
             /** Roles */
-            roles?: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "super_admin")[] | null;
+            roles?: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "retention" | "super_admin")[] | null;
             /**
              * Team Id
              * @description Super Admin only: moves the user to this team, saved with the rest of the change. Leave it out to keep their team.
@@ -4036,7 +4386,7 @@ export interface components {
             /** Name */
             name: string;
             /** Roles */
-            roles: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "super_admin")[];
+            roles: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "retention" | "super_admin")[];
             /** Team Id */
             team_id?: string | null;
             /**
@@ -4484,7 +4834,7 @@ export interface operations {
                 /** @description Filter by account state */
                 active?: boolean | null;
                 /** @description Filter by role held */
-                role?: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "super_admin") | null;
+                role?: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "retention" | "super_admin") | null;
                 /** @description Members of this team only (Super Admins never match) */
                 team_id?: string | null;
                 /** @description Substring of email or name */
@@ -7060,6 +7410,256 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TeamStatsResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_pending_retention_pending_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetentionSaleListResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    find_sales_retention_sales_get: {
+        parameters: {
+            query: {
+                /** @description The whole number, in any case. */
+                policy_number: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetentionSearchResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_sale_retention_sales__interaction_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetentionSaleDetail"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    set_status_retention_sales__interaction_id__status_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetentionStatusRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetentionStatusEvent"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    save_upload_retention_uploads_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_save_upload_retention_uploads_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetentionUploadSaved"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    check_upload_retention_uploads_check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_check_upload_retention_uploads_check_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetentionUploadCheck"];
                 };
             };
             /** @description Client Error */

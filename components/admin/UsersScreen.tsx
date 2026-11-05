@@ -50,6 +50,7 @@ const ROLE_BADGE_TONE: Record<StaffRole, 'teal' | 'amber' | 'neutral' | 'red'> =
   administrator: 'amber',
   qa_manager: 'red',
   qa_agent: 'teal',
+  retention: 'amber',
   closer: 'teal',
   fronter: 'neutral',
 }

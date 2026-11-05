@@ -2,6 +2,7 @@ import type { components } from '@/lib/generated/schema'
 import { apiUrl } from '@/lib/apiUrl'
 import { authError } from '@/lib/auth'
 import { formatDateTime, formatPhone } from '@/lib/format'
+import { POLICY_STATUS_LABEL } from '@/lib/retention'
 
 export type PolicyLookup = components['schemas']['PolicyLookupResponse']
 export type PolicySale = components['schemas']['PolicySale']
@@ -116,16 +117,17 @@ export function policyResultCsv(result: PolicyLookup): string {
         sale.down_payment,
         sale.monthly_payment,
         sale.paid_month ? formatMonth(sale.paid_month) : 'Not paid',
+        sale.policy_status ? POLICY_STATUS_LABEL[sale.policy_status] : null,
         null,
       ],
     })),
     ...result.unmatched.map((row) => ({
       row: row.row,
-      cells: [row.policy_number, 'Not found', ...Array(10).fill(null)],
+      cells: [row.policy_number, 'Not found', ...Array(11).fill(null)],
     })),
     ...result.skipped.map((row) => ({
       row: row.row,
-      cells: [row.value, 'Skipped', ...Array(9).fill(null), skippedReason(row)],
+      cells: [row.value, 'Skipped', ...Array(10).fill(null), skippedReason(row)],
     })),
   ]
   // A stable sort keeps a number's sales in the order the API gave them.
@@ -142,6 +144,7 @@ export function policyResultCsv(result: PolicyLookup): string {
     'Down',
     'Monthly',
     'Paid',
+    'Policy status',
     'Note',
   ]
   // The byte order mark is what makes Excel read the file as UTF-8.
