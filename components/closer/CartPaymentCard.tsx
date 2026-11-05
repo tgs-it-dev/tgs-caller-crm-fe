@@ -88,11 +88,14 @@ function SavedCart({ saved }: { saved: CartResponse }) {
 export function CartPaymentCard({
   interactionId,
   enabled,
+  readOnly = false,
   onCartLoaded,
 }: {
   interactionId: string
   /** The transfer is accepted, so this closer may save the cart. */
   enabled: boolean
+  /** The call is closed to its closer: the saved cart shows, and nothing changes. */
+  readOnly?: boolean
   /** Whether the call has a saved cart, once that is known. */
   onCartLoaded: (saved: boolean) => void
 }) {
@@ -141,7 +144,7 @@ export function CartPaymentCard({
   }, [interactionId, enabled, onCartLoaded])
 
   const saved = load.status === 'ready' ? load.saved : null
-  const showForm = !saved || editing
+  const showForm = !readOnly && (!saved || editing)
   const locked = load.status !== 'ready' || saving
 
   function update(field: CartField, value: string) {
@@ -260,7 +263,10 @@ export function CartPaymentCard({
         )}
         {load.status === 'error' && <Alert>{load.message}</Alert>}
 
-        {saved && !editing && <SavedCart saved={saved} />}
+        {saved && (readOnly || !editing) && <SavedCart saved={saved} />}
+        {readOnly && load.status === 'ready' && !saved && (
+          <p className="text-sm leading-[150%] text-slate">No cart was saved on this call.</p>
+        )}
 
         {showForm && (
           <>
@@ -299,7 +305,10 @@ export function CartPaymentCard({
                 onBlur={() => leave('policy_number')}
                 disabled={locked}
                 error={Boolean(problems.policy_number)}
-                helperText={problems.policy_number ?? 'Add it now or once it is issued.'}
+                helperText={
+                  problems.policy_number ??
+                  'Needed for the sale to be marked Paid. The cart locks once you record the outcome.'
+                }
                 autoComplete="off"
                 maxLength={64}
               />
@@ -331,7 +340,7 @@ export function CartPaymentCard({
 
       {/* Keyed: reusing one <button> for Edit and Save would turn the click on
           Edit into a submit, since the mode switches before the click ends. */}
-      <div className="mt-6 flex gap-3">
+      <div className={readOnly ? 'hidden' : 'mt-6 flex gap-3'}>
         {showForm ? (
           <>
             <Button
