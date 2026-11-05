@@ -26,16 +26,20 @@ function Row({ label, value }: { label: string; value: string }) {
 export function QualificationSnapshot({
   snapshot,
   isLoading = false,
+  action = null,
 }: {
   snapshot: CloserQualificationSnapshot | null
   isLoading?: boolean
+  /** Sits beside the title, such as the closer's Edit. */
+  action?: ReactNode
 }) {
   return (
     // Same dashed live-card border as Queue "Waiting / Ringing".
     <div className="h-full rounded-xl border-2 border-dashed border-relay-blue bg-white p-5">
-      <h2 className="border-b-hairline border-light-grey pb-4 text-lg font-medium leading-[120%] text-ink">
-        Qualification Snapshot
-      </h2>
+      <div className="flex items-center justify-between gap-4 border-b-hairline border-light-grey pb-4">
+        <h2 className="text-lg font-medium leading-[120%] text-ink">Lead Details</h2>
+        {action}
+      </div>
       {snapshot ? (
         <div className="mt-4 space-y-6">
           <Section title="Personal">
@@ -61,7 +65,7 @@ export function QualificationSnapshot({
       ) : (
         !isLoading && (
           <p className="mt-4 text-sm leading-[150%] text-slate">
-            No qualification snapshot found for this interaction.
+            No lead details found for this call.
           </p>
         )
       )}

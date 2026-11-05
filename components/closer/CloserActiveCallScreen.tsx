@@ -1,11 +1,14 @@
 'use client'
 
 import { useCallback, useEffect, useReducer, useState, type ReactNode } from 'react'
+import MuiButton from '@mui/material/Button'
+import { Pencil } from 'lucide-react'
 import { usePathname } from 'next/navigation'
 import { RequireRole } from '@/components/auth/RequireRole'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import { CartPaymentCard } from '@/components/closer/CartPaymentCard'
 import { CloserDispositionCard } from '@/components/closer/CloserDispositionCard'
+import { FronterDetailsDialog } from '@/components/closer/FronterDetailsDialog'
 import { QualificationSnapshot } from '@/components/closer/QualificationSnapshot'
 import { TodaysDispositionTable } from '@/components/closer/TodaysDispositionTable'
 import { Alert } from '@/components/ui/Alert'
@@ -13,12 +16,14 @@ import { Badge } from '@/components/ui/Badge'
 import { PageShell } from '@/components/ui/PageShell'
 import { deskRoleFromPath } from '@/lib/auth'
 import {
+  closedCall,
   closerTodaysRowsFromStats,
   createCloserDisposition,
+  getInteractionDispositions,
   latestCloserDisposition,
-  listInteractionDispositions,
   loadCloserWorkspace,
   snapshotFromQualification,
+  type CallStanding,
   type CloserQualificationSnapshot,
   type DispositionResponse,
   type TodaysDispositionRow,
@@ -71,8 +76,11 @@ function TransferStatusBadge({
   )
 }
 
+const OPEN: CallStanding = { locked: false, callback_status: null }
+
 type WorkspaceState = {
   snapshot: CloserQualificationSnapshot | null
+  standing: CallStanding
   options: DispositionResponse[]
   dispositionId: string
   savedLabel: string | null
@@ -88,6 +96,7 @@ type WorkspaceAction =
   | {
       type: 'load_success'
       snapshot: CloserQualificationSnapshot | null
+      standing: CallStanding
       options: DispositionResponse[]
       transferStatus: TransferStatusLabel | null
       callStartedAt: string | null
@@ -98,11 +107,13 @@ type WorkspaceAction =
   | { type: 'load_error'; message: string }
   | { type: 'set_disposition_id'; dispositionId: string }
   | { type: 'save_start' }
-  | { type: 'save_success'; savedLabel: string | null }
+  | { type: 'save_success'; savedLabel: string | null; standing: CallStanding }
+  | { type: 'details_saved'; snapshot: CloserQualificationSnapshot | null }
   | { type: 'save_error'; message: string }
 
 const initialWorkspace: WorkspaceState = {
   snapshot: null,
+  standing: OPEN,
   options: [],
   dispositionId: '',
   savedLabel: null,
@@ -118,6 +129,7 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
     case 'load_success':
       return {
         snapshot: action.snapshot,
+        standing: action.standing,
         options: action.options,
         transferStatus: action.transferStatus,
         callStartedAt: action.callStartedAt,
@@ -138,7 +150,14 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
     case 'save_start':
       return { ...state, saveError: null }
     case 'save_success':
-      return { ...state, savedLabel: action.savedLabel, saveError: null }
+      return {
+        ...state,
+        savedLabel: action.savedLabel,
+        standing: action.standing,
+        saveError: null,
+      }
+    case 'details_saved':
+      return { ...state, snapshot: action.snapshot }
     case 'save_error':
       return { ...state, saveError: action.message }
     default:
@@ -151,7 +170,7 @@ function softLoadHint(
   transfer: TransferResponse
 ): string | null {
   if (!qualification && transfer.status === 'accepted') {
-    return 'No qualification snapshot found for this interaction.'
+    return 'No lead details found for this call.'
   }
   return null
 }
@@ -277,9 +296,11 @@ function CloserActiveCallWorkspace({
   const [isSaving, setIsSaving] = useState(false)
   // Null until the cart has loaded, so a failed load leaves the call to the server.
   const [cartSaved, setCartSaved] = useState<boolean | null>(null)
+  const [editingDetails, setEditingDetails] = useState(false)
 
   const {
     snapshot,
+    standing,
     options,
     dispositionId,
     savedLabel,
@@ -311,7 +332,7 @@ function CloserActiveCallWorkspace({
           )
         )
       )
-      .then(({ transfer, qualification, options: catalog, captured }) => {
+      .then(({ transfer, qualification, options: catalog, captured, standing: found }) => {
         if (cancelled) return
 
         const latest = latestCloserDisposition(captured)
@@ -320,6 +341,7 @@ function CloserActiveCallWorkspace({
         dispatch({
           type: 'load_success',
           snapshot: snapshotFromQualification(qualification),
+          standing: found,
           options: catalog,
           transferStatus: transfer.status,
           callStartedAt:
@@ -355,12 +377,16 @@ function CloserActiveCallWorkspace({
       await withSession((token) =>
         createCloserDisposition(interactionId, { disposition_id: dispositionId }, token)
       )
-      const captured = await withSession((token) =>
-        listInteractionDispositions(interactionId, token)
+      const list = await withSession((token) =>
+        getInteractionDispositions(interactionId, token)
       )
-      const latest = latestCloserDisposition(captured)
+      const latest = latestCloserDisposition(list.items)
       const nextLabel = latest?.label ?? null
-      dispatch({ type: 'save_success', savedLabel: nextLabel })
+      dispatch({
+        type: 'save_success',
+        savedLabel: nextLabel,
+        standing: { locked: list.locked, callback_status: list.callback_status },
+      })
       onDispositionSaved()
     } catch (err) {
       dispatch({
@@ -377,7 +403,9 @@ function CloserActiveCallWorkspace({
     : transferStatus
       ? (STATUS_LABEL[transferStatus] ?? 'Transfer Accepted')
       : 'Transfer not found'
-  const dispositionLocked = isLoading || transferStatus !== 'accepted'
+  const closed = closedCall(standing)
+  const dispositionLocked = isLoading || transferStatus !== 'accepted' || closed !== null
+  const canEditDetails = !isLoading && transferStatus === 'accepted' && !closed && snapshot
   // The clock counts from the accept, so a call with an outcome, such as a
   // callback opened days later, shows none.
   const live = transferStatus === 'accepted' && !savedLabel
@@ -406,13 +434,31 @@ function CloserActiveCallWorkspace({
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-12">
         <div className="flex flex-col gap-4 lg:col-span-7">
-          <QualificationSnapshot snapshot={snapshot} isLoading={isLoading} />
+          <QualificationSnapshot
+            snapshot={snapshot}
+            isLoading={isLoading}
+            action={
+              canEditDetails ? (
+                <MuiButton
+                  size="small"
+                  variant="outlined"
+                  color="primary"
+                  onClick={() => setEditingDetails(true)}
+                  startIcon={<Pencil className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />}
+                  aria-label="Edit lead details"
+                >
+                  Edit
+                </MuiButton>
+              ) : null
+            }
+          />
           {todaysTable}
         </div>
         <div className="flex flex-col gap-4 lg:col-span-5">
           <CartPaymentCard
             interactionId={interactionId}
             enabled={!isLoading && transferStatus === 'accepted'}
+            readOnly={closed !== null}
             onCartLoaded={setCartSaved}
           />
           <CloserDispositionCard
@@ -424,10 +470,23 @@ function CloserActiveCallWorkspace({
             disabled={dispositionLocked}
             savedLabel={savedLabel}
             cartSaved={cartSaved}
+            closed={closed}
             error={saveError ?? lockedMessage}
           />
         </div>
       </div>
+
+      {editingDetails && snapshot && (
+        <FronterDetailsDialog
+          interactionId={interactionId}
+          snapshot={snapshot}
+          onClose={() => setEditingDetails(false)}
+          onSaved={(saved) => {
+            setEditingDetails(false)
+            dispatch({ type: 'details_saved', snapshot: snapshotFromQualification(saved) })
+          }}
+        />
+      )}
     </PageShell>
   )
 }

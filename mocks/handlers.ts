@@ -1,6 +1,7 @@
 import { rest } from 'msw'
 import type { FieldError } from '../lib/apiError'
 import { roleSatisfies, type Role } from '../lib/auth'
+import type { CallbackRequestItem, FronterDetails } from '../lib/callbacks'
 import { CLOSER_DESK_SEEDS } from '../lib/closer'
 import type { ReconciliationException } from '../lib/exceptions'
 import type { CallLeg, InteractionEvent, InteractionTransfer } from '../lib/interactionDetail'
@@ -1752,6 +1753,79 @@ let interactionDispositionSeq = 0
   ])
 })()
 
+type MockCallbackRequest = {
+  id: string
+  interaction_id: string
+  outcome_id: string
+  status: CallbackRequestItem['status']
+  requested_at: string
+  decided_by_name: string | null
+  decided_at: string | null
+}
+
+/** One per Callback Scheduled recorded by anyone but a Super Admin, as the API keeps them. */
+const MOCK_CALLBACK_REQUESTS: MockCallbackRequest[] = []
+let callbackRequestSeq = 0
+
+const CLOSED_MESSAGES = {
+  final: 'this call has its outcome and can no longer be changed',
+  waiting: "this callback is waiting for a Super Admin's approval",
+  rejected: 'a Super Admin rejected this callback',
+} as const
+
+/** Why the call is closed to its closer, from its latest closer outcome; a callback with no request counts as approved. */
+function mockStanding(interactionId: string): {
+  closed: keyof typeof CLOSED_MESSAGES | null
+  callback_status: CallbackRequestItem['status'] | null
+} {
+  const latest = (MOCK_INTERACTION_DISPOSITIONS.get(interactionId) ?? [])
+    .filter((row) => row.stage === 'closer')
+    .at(-1)
+  if (!latest) return { closed: null, callback_status: null }
+  const status = MOCK_CALLBACK_REQUESTS.find((row) => row.outcome_id === latest.id)?.status ?? null
+  if (latest.label !== 'Callback Scheduled') return { closed: 'final', callback_status: status }
+  const closed = status === 'pending' ? 'waiting' : status === 'rejected' ? 'rejected' : null
+  return { closed, callback_status: status }
+}
+
+function mockClosedRefusal(interactionId: string) {
+  const { closed } = mockStanding(interactionId)
+  return closed ? authErrorBody(CLOSED_MESSAGES[closed], 'interaction.locked') : null
+}
+
+/** A closer who is not also an admin: the one the lock applies to. */
+function closerOnly(user: MockUser): boolean {
+  return (
+    user.roles.includes('closer') &&
+    !user.roles.some((role) => role === 'administrator' || role === 'super_admin')
+  )
+}
+
+function acceptedCloser(interactionId: string): MockUser | undefined {
+  const transfer = [...MOCK_TRANSFERS.values()].find(
+    (row) => row.interaction_id === interactionId && row.status === 'accepted'
+  )
+  return MOCK_USERS.find((user) => user.id === transfer?.closer_user_id)
+}
+
+function mockCallbackItem(request: MockCallbackRequest): CallbackRequestItem {
+  const lead = leadForInteraction(request.interaction_id)
+  const closer = acceptedCloser(request.interaction_id)
+  return {
+    id: request.id,
+    interaction_id: request.interaction_id,
+    lead_id: lead.id,
+    lead_name: [lead.first_name, lead.last_name].filter(Boolean).join(' ').trim() || lead.phone_no,
+    // Mock leads carry no team, so the closer's stands in for the lead's.
+    team_name: MOCK_TEAMS.find((team) => team.id === closer?.team_id)?.name ?? DEFAULT_TEAM_NAME,
+    closer_name: closer?.name ?? null,
+    requested_at: request.requested_at,
+    status: request.status,
+    decided_by_name: request.decided_by_name,
+    decided_at: request.decided_at,
+  }
+}
+
 /** Accepted calls whose latest closer outcome is Callback Scheduled, oldest first. */
 function mockCloserCallbacks(closerId: string | null): CloserCallbackEntry[] {
   const entries: CloserCallbackEntry[] = []
@@ -1775,6 +1849,8 @@ function mockCloserCallbacks(closerId: string | null): CloserCallbackEntry[] {
       closer_user_id: transfer.closer_user_id,
       closer_name: closer?.name ?? 'Closer',
       scheduled_at: latest.created_at,
+      // Waiting and rejected ones stay listed, so the closer sees where they stand.
+      callback_status: mockStanding(transfer.interaction_id).callback_status,
     })
   }
   return entries.sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at))
@@ -4446,7 +4522,15 @@ export const handlers = [
   rest.get('/interactions/:interactionId/dispositions', (req, res, ctx) => {
     const interactionId = req.params.interactionId as string
     const items = MOCK_INTERACTION_DISPOSITIONS.get(interactionId) ?? []
-    return res(ctx.status(200), ctx.json({ items }))
+    const standing = mockStanding(interactionId)
+    return res(
+      ctx.status(200),
+      ctx.json({
+        items,
+        locked: standing.closed !== null,
+        callback_status: standing.callback_status,
+      })
+    )
   }),
 
   rest.get('/interactions/:interactionId/cart', (req, res, ctx) => {
@@ -4482,6 +4566,8 @@ export const handlers = [
     if (!actor) return res(ctx.status(401), ctx.json({ detail: 'Not authenticated.' }))
     const body = (await req.json()) as CartSaveRequest
     const interactionId = req.params.interactionId as string
+    const closed = mockClosedRefusal(interactionId)
+    if (closed) return res(ctx.status(409), ctx.json(closed))
     const before = MOCK_CARTS.get(interactionId)
     const found = checkCart(
       {
@@ -4561,6 +4647,10 @@ export const handlers = [
     if (!catalog) {
       return res(ctx.status(422), ctx.json({ detail: 'Unknown disposition.' }))
     }
+    if (catalog.stage === 'closer' && closerOnly(actor)) {
+      const closed = mockClosedRefusal(interactionId)
+      if (closed) return res(ctx.status(409), ctx.json(closed))
+    }
     if (catalog.counts_as_sale && !MOCK_CARTS.has(interactionId)) {
       const message = 'save the cart before recording a sale'
       return res(
@@ -4589,6 +4679,21 @@ export const handlers = [
       created_at: now,
     }
     MOCK_INTERACTION_DISPOSITIONS.set(interactionId, [...existing, record])
+    if (
+      catalog.stage === 'closer' &&
+      catalog.label === 'Callback Scheduled' &&
+      !actor.roles.includes('super_admin')
+    ) {
+      MOCK_CALLBACK_REQUESTS.push({
+        id: `callback-request-${++callbackRequestSeq}`,
+        interaction_id: interactionId,
+        outcome_id: record.id,
+        status: 'pending',
+        requested_at: now,
+        decided_by_name: null,
+        decided_at: null,
+      })
+    }
 
     // Callback → fronter callback list (same rule as GET /queue?role=fronter).
     if (catalog.stage === 'fronter' && catalog.label === 'Callback') {
@@ -4625,6 +4730,115 @@ export const handlers = [
     }
 
     return res(ctx.status(201), ctx.json(record))
+  }),
+
+  // A Super Admin sees every request, a Team Admin their team's.
+  rest.get('/callback-requests', (req, res, ctx) => {
+    const refused = adminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const user = mockActor(req.headers.get('authorization'))!
+    const superAdmin = user.roles.includes('super_admin')
+    const params = req.url.searchParams
+    const status = params.get('status')
+    const limit = Number(params.get('limit') ?? 20)
+    const offset = Number(params.get('offset') ?? 0)
+    const matching = MOCK_CALLBACK_REQUESTS.filter((request) => {
+      if (status && request.status !== status) return false
+      return superAdmin || acceptedCloser(request.interaction_id)?.team_id === user.team_id
+    }).sort((a, b) =>
+      status === 'pending'
+        ? a.requested_at.localeCompare(b.requested_at)
+        : b.requested_at.localeCompare(a.requested_at)
+    )
+    return res(
+      ctx.status(200),
+      ctx.json({
+        items: matching.slice(offset, offset + limit).map(mockCallbackItem),
+        total: matching.length,
+        limit,
+        offset,
+      })
+    )
+  }),
+
+  rest.post('/callback-requests/:requestId/decision', async (req, res, ctx) => {
+    const refused = superAdminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const actor = mockActor(req.headers.get('authorization'))!
+    const body = (await req.json()) as { status: 'approved' | 'rejected' }
+    const request = MOCK_CALLBACK_REQUESTS.find((row) => row.id === req.params.requestId)
+    if (!request) {
+      return res(ctx.status(404), ctx.json(authErrorBody('callback request not found', 'not_found')))
+    }
+    if (request.status !== 'pending') {
+      const message = 'this request was already decided'
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody(message, 'validation_error', [{ field: 'status', in: 'body', message }])
+        )
+      )
+    }
+    Object.assign(request, {
+      status: body.status,
+      decided_by_name: actor.name,
+      decided_at: new Date().toISOString(),
+    })
+    return res(ctx.status(200), ctx.json(mockCallbackItem(request)))
+  }),
+
+  // The closer's correction of the fronter's details: the lead, and the next version.
+  rest.put('/interactions/:interactionId/details', async (req, res, ctx) => {
+    const actor = mockActor(req.headers.get('authorization'))
+    if (!actor) return res(ctx.status(401), ctx.json({ detail: 'Not authenticated.' }))
+    if (!actor.roles.includes('closer')) {
+      return res(
+        ctx.status(403),
+        ctx.json(authErrorBody('Insufficient role for this operation', 'auth.forbidden'))
+      )
+    }
+    const interactionId = req.params.interactionId as string
+    const existing = MOCK_QUALIFICATIONS.get(interactionId)
+    if (acceptedCloser(interactionId)?.id !== actor.id || !existing) {
+      return res(
+        ctx.status(404),
+        ctx.json(authErrorBody('interaction not found', 'interaction.not_found'))
+      )
+    }
+    const closed = mockClosedRefusal(interactionId)
+    if (closed) return res(ctx.status(409), ctx.json(closed))
+
+    const body = (await req.json()) as FronterDetails
+    const lead = leadForInteraction(interactionId)
+    Object.assign(lead, {
+      first_name: body.first_name,
+      last_name: body.last_name,
+      vehicle_make: body.vehicle_make,
+      vehicle_year: body.vehicle_year,
+      vehicle_model: body.vehicle_model,
+      vin: body.vin ?? null,
+      license_plate: body.license_plate ?? null,
+      updated_at: new Date().toISOString(),
+    })
+    // The lead wins, and a field it no longer has is dropped, as in the API.
+    const customer = customerFromLead(lead)
+    const fields = Object.entries(customer).filter(([key]) => key !== 'lead_id')
+    const kept = Object.entries(existing.snapshot_json as Record<string, unknown>).filter(
+      ([key]) => !fields.some(([field]) => field === key)
+    )
+    const record: QualificationResponse = {
+      ...existing,
+      id: `qual-${++qualificationSeq}`,
+      version: existing.version + 1,
+      snapshot_json: Object.fromEntries([
+        ...kept,
+        ...fields.filter(([, value]) => value != null),
+      ]) as QualificationResponse['snapshot_json'],
+      customer,
+      created_at: new Date().toISOString(),
+    }
+    MOCK_QUALIFICATIONS.set(interactionId, record)
+    return res(ctx.status(200), ctx.json(record))
   }),
 
   rest.get('/reconciliation/exceptions', (req, res, ctx) => {

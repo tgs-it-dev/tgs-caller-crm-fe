@@ -563,15 +563,18 @@ export function LeadRecord({
   )
 }
 
-/** Where the back link goes: Policy lookup when it opened the lead, Reports otherwise. */
-const POLICIES = { href: '/admin/policies', label: 'Back to Policy lookup' }
+/** Where the back link goes: the page that opened the lead, Reports otherwise. */
+const BACK_FROM: Record<string, { href: string; label: string }> = {
+  policies: { href: '/admin/policies', label: 'Back to Policy lookup' },
+  callbacks: { href: '/admin/callbacks', label: 'Back to Callback requests' },
+}
 const REPORTS = { href: '/admin/reports', label: 'Back to Reports' }
 
 /** A Super Admin's view of one lead: everything recorded on it, and everything that happened. */
 export function LeadDetailScreen() {
   const params = useSearchParams()
   const leadId = params.get('id') ?? ''
-  const back = params.get('from') === 'policies' ? POLICIES : REPORTS
+  const back = BACK_FROM[params.get('from') ?? ''] ?? REPORTS
   const [load, setLoad] = useState<LoadState>({ status: 'loading' })
 
   // Adjusting state during render, not in an effect, when another lead is opened.

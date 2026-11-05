@@ -20,6 +20,7 @@ import {
   LogOut,
   Menu,
   Phone,
+  PhoneCall,
   PhoneIncoming,
   Settings,
   Shield,
@@ -66,6 +67,10 @@ function PolicyIcon() {
 
 function UploadIcon() {
   return <Upload {...NAV_ICON} />
+}
+
+function CallbackIcon() {
+  return <PhoneCall {...NAV_ICON} />
 }
 
 function BellIcon() {
@@ -219,6 +224,12 @@ const TEAM_ADMIN_NAV: NavItem[] = [
     icon: PolicyIcon,
     isActive: (p) => p.startsWith('/admin/policies'),
   },
+  {
+    href: '/admin/callbacks',
+    label: 'Callback requests',
+    icon: CallbackIcon,
+    isActive: (p) => p.startsWith('/admin/callbacks'),
+  },
   // {
   //   href: '/admin/exceptions',
   //   label: 'Exceptions',
@@ -259,7 +270,8 @@ const ADMIN_QA_NAV_ITEMS: NavItem[] = [
 ]
 
 /**
- * Super Admin modules: Users, Teams, Campaigns, Reports, Team stats, Retention, QA and QA stats.
+ * Super Admin modules: Users, Teams, Campaigns, Reports, Team stats, Retention, Callback
+ * requests, QA and QA stats.
  * Reports is how they reach a lead's full view, through its drill-down.
  */
 const SUPER_ADMIN_NAV: NavItem[] = [
@@ -304,6 +316,12 @@ const SUPER_ADMIN_NAV: NavItem[] = [
     label: 'Retention',
     icon: RetentionDeskIcon,
     isActive: (p) => p.startsWith('/admin/retention'),
+  },
+  {
+    href: '/admin/callbacks',
+    label: 'Callback requests',
+    icon: CallbackIcon,
+    isActive: (p) => p.startsWith('/admin/callbacks'),
   },
   ...ADMIN_QA_NAV_ITEMS,
 ]
@@ -368,11 +386,16 @@ function normalizePath(pathname: string): string {
 
 /**
  * The path the menu lights up for. A lead's full view lives under Reports, but
- * opened from Policy lookup (`?from=policies`) it belongs to that page instead.
+ * opened from Policy lookup or Callback requests (`?from=`) it belongs to that page.
  */
+const OPENED_FROM: Record<string, string> = {
+  policies: '/admin/policies',
+  callbacks: '/admin/callbacks',
+}
+
 function menuPath(pathname: string, from: string | null): string {
   const path = normalizePath(pathname)
-  return path === '/admin/reports/lead' && from === 'policies' ? '/admin/policies' : path
+  return path === '/admin/reports/lead' ? (OPENED_FROM[from ?? ''] ?? path) : path
 }
 
 function deskNav(role: 'fronter' | 'closer', activeCallHref: string): NavItem[] {

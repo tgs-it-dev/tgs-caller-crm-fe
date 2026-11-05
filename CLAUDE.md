@@ -128,7 +128,7 @@ Frontend pieces:
   own `isActive(pathname)`. A new page goes under its role's segment and into
   that role's list.
 - **A Super Admin's list is `SUPER_ADMIN_NAV`**: Users, Teams, Campaigns,
-  Reports, Team stats, Retention, QA and QA stats. Reports is there because its drill-down is how they
+  Reports, Team stats, Retention, Callback requests, QA and QA stats. Reports is there because its drill-down is how they
   reach a lead's full view. Exceptions stays out: without the dialer it is empty.
 - **QA desks.** A QA Manager works from `/admin` with QA, QA stats and Users. A
   QA Agent works from `/qa` with QA and QA stats (`qaDeskRole()`).
@@ -258,9 +258,10 @@ the API calls and rules are in `lib/cart.ts`.
   until the call has one, and `CloserDispositionCard` says so first: Save
   Disposition turns off with a short note. `cartSaved` is `null` until the cart
   has loaded, so a sold call doesn't flash the note and a failed load leaves the
-  decision to the server. Other outcomes need no cart, and the policy number
-  stays optional because it can be added once it's issued. A number belongs to
-  one sale: one already on another cart, in any case, comes back as a 422 on
+  decision to the server. Other outcomes need no cart. The policy number stays
+  optional, but the cart locks once the outcome is recorded, so a sale saved
+  without one can't be marked Paid; its hint says so. A number belongs to one
+  sale: one already on another cart, in any case, comes back as a 422 on
   `policy_number` and shows under the field.
 
 ## Closer callbacks
@@ -268,6 +269,8 @@ the API calls and rules are in `lib/cart.ts`.
 The closer's Queue page lists **Callbacks** under the transfer queue
 (`components/queue/QueueScreen.tsx`, `GET /queue/callbacks`): the calls this
 closer accepted whose latest closer outcome is Callback Scheduled, oldest first.
+Each shows its request's status, and Open works only once a Super Admin approved
+it (or it has no request); a waiting or rejected one stays listed, blocked.
 
 - **Open goes back to the same call.** The workspace loads its cart and saved
   outcome, and saving another outcome records the next closer version on that
@@ -276,6 +279,33 @@ closer accepted whose latest closer outcome is Callback Scheduled, oldest first.
   accept, so it shows only while the call is still being worked.
 - **It loads on its own and refreshes every 30 seconds**, so a queue error never
   hides it, and the reverse.
+
+## The closed call and callback requests
+
+A closer's outcome closes the call to them. `GET /interactions/{id}/dispositions`
+carries `locked` and `callback_status`, and `closedCall()` in `lib/closer.ts`
+turns them into a badge and one line for the workspace.
+
+- **A final outcome** locks the cart, the outcome and the fronter's details. The
+  disposition card swaps its form for the saved outcome with a Closed, Waiting for
+  approval or Rejected badge, and the cart shows read-only (`CartPaymentCard readOnly`).
+  The API answers a write with 409 `interaction.locked`.
+- **Callback Scheduled** from anyone but a Super Admin sends a request. Until a
+  Super Admin approves it, the call stays locked and blocked on Callbacks;
+  approved, it opens until the next outcome. Rejected, it stays locked and shows
+  as Rejected. A callback with no request, set before requests existed or by a
+  Super Admin, counts as approved.
+- **The list** is `components/callbacks/CallbackRequestsScreen.tsx` at
+  `/admin/callbacks`: a Super Admin approves or rejects with one confirm, no
+  note, and Open on any row goes to the lead's full view (`?from=callbacks`, which
+  its back link and the menu follow, as `?from=policies` does); a Team Admin sees
+  their team's, read-only. A closer has no page of their own: Callbacks shows them
+  where each request stands.
+- **The fronter's details.** While the call is open, the Lead Details card
+  (`QualificationSnapshot`) has Edit (`FronterDetailsDialog`,
+  `PUT /interactions/{id}/details`).
+  It reuses the fronter's `LeadCreateForm` and its checks, with the phone
+  locked. Saving updates the lead for everyone and adds a qualification version.
 
 ## Reporting
 

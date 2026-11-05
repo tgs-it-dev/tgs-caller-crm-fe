@@ -2,10 +2,12 @@ import type { components } from '@/lib/generated/schema'
 import { AuthError } from '@/lib/auth'
 import {
   captureDisposition,
+  getInteractionDispositions,
   listDispositions,
   listInteractionDispositions,
   type DispositionCaptureRequest,
   type DispositionResponse,
+  type InteractionDispositionList,
   type InteractionDispositionResponse,
 } from '@/lib/dispositions'
 import { type TodaysStatsResponse } from '@/lib/fronterStats'
@@ -22,7 +24,7 @@ export type { TransferResponse }
 export type ConsentDnc = components['schemas']['ConsentDnc']
 
 /**
- * Closer-facing read model for the Qualification Snapshot card.
+ * Closer-facing read model for the Lead Details card.
  * Prefer `QualificationResponse.customer` (lead fields); fall back to
  * `snapshot_json` vehicle_* for older saves that predate the customer block.
  */
@@ -51,11 +53,46 @@ export type TodaysDispositionRow = {
   disposition_label: string | null
 }
 
+/** Whether the call is closed to its closer, and the callback request behind it. */
+export type CallStanding = Pick<InteractionDispositionList, 'locked' | 'callback_status'>
+
 export type CloserWorkspaceData = {
   transfer: TransferResponse
   qualification: QualificationResponse | null
   options: DispositionResponse[]
   captured: InteractionDispositionResponse[]
+  standing: CallStanding
+}
+
+/** Where a call closed to its closer stands: a badge and one line, in their words. */
+export type ClosedCall = {
+  badge: string
+  tone: 'amber' | 'red' | 'neutral'
+  message: string
+}
+
+/** Null while the call is open to its closer. */
+export function closedCall(standing: CallStanding): ClosedCall | null {
+  if (!standing.locked) return null
+  if (standing.callback_status === 'pending') {
+    return {
+      badge: 'Waiting for approval',
+      tone: 'amber',
+      message: 'It opens from your Callbacks once a Super Admin approves it.',
+    }
+  }
+  if (standing.callback_status === 'rejected') {
+    return {
+      badge: 'Rejected',
+      tone: 'red',
+      message: 'A Super Admin rejected it, so the call stays closed.',
+    }
+  }
+  return {
+    badge: 'Closed',
+    tone: 'neutral',
+    message: "The call is closed, so the outcome and cart can't change.",
+  }
 }
 
 const DEFAULT_INTERACTION_ID = 'int-1001'
@@ -79,7 +116,7 @@ export function closerWorkspaceHref(interactionId: string, transferId?: string |
   return `/closer/workspace/?${params.toString()}`
 }
 
-/** Seeded snapshot matching the closer Qualification Snapshot card. */
+/** Seeded snapshot matching the closer Lead Details card. */
 export const MOCK_CLOSER_SNAPSHOT: CloserQualificationSnapshot = {
   first_name: 'Jane',
   last_name: 'D.',
@@ -292,13 +329,19 @@ async function resolveCloserWorkspace(
     )
   }
 
-  const [qualification, options, captured] = await Promise.all([
+  const [qualification, options, list] = await Promise.all([
     getLatestQualification(opts.interactionId, token),
     listDispositions(token, 'closer'),
-    listInteractionDispositions(opts.interactionId, token),
+    getInteractionDispositions(opts.interactionId, token),
   ])
 
-  return { transfer, qualification, options, captured }
+  return {
+    transfer,
+    qualification,
+    options,
+    captured: list.items,
+    standing: { locked: list.locked, callback_status: list.callback_status },
+  }
 }
 
 export async function createCloserDisposition(
@@ -315,4 +358,4 @@ export async function listCloserDispositionOptions(
   return listDispositions(token, 'closer')
 }
 
-export { listInteractionDispositions, getLatestQualification }
+export { getInteractionDispositions, listInteractionDispositions, getLatestQualification }
