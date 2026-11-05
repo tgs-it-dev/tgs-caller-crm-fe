@@ -307,6 +307,31 @@ turns them into a badge and one line for the workspace.
   It reuses the fronter's `LeadCreateForm` and its checks, with the phone
   locked. Saving updates the lead for everyone and adds a qualification version.
 
+## Own Sale
+
+A closer with no transfer waiting starts a call of their own: no fronter, no
+transfer. Own Sale on the Queue (closers only, styled as the fronter's New lead)
+opens `components/closer/OwnSaleDialog.tsx`, and `lib/ownSale.ts` talks to the API.
+The screens write it "Own Sale", the client's name for it.
+
+- **Phone first.** `GET /leads/own-sale` checks the number: Do Not Call, or a number
+  waiting in a transfer or already on a call (409 `own_sale.lead_busy`), shows on
+  the phone field. A number already on the team fills the details step from its
+  lead, with "Already a lead on your team since".
+- **Then the details.** `LeadCreateForm` with the phone locked. Start sale
+  (`POST /leads/own-sale`) goes to `closerWorkspaceHref(interaction_id)`, with no
+  transfer id.
+- **The call screen** loads a call with no transfer id by reading the call:
+  `own_sale` on `GET /interactions/{id}` says it is an Own Sale call, and anything
+  else shows "No active transfer". The header reads Own Sale, everything that
+  waits on an accepted transfer opens, and Transfer Dropped is left out of the
+  outcomes. The Task 6 lock and callback approval apply as on any call.
+- **The Queue** lists an open Own Sale call as an `own_sale` row whose `id` is the
+  call, and an Own Sale callback has a null `transfer_id`; both open by the call.
+- **The lead's full view** shows an Own sale event ("Started by <closer>, no
+  transfer") where a transfer would be, and its
+  details save as "Lead details saved", not the fronter's form.
+
 ## Reporting
 
 `/admin/reports` reads `GET /reporting/funnel` through `fetchFunnel()` in

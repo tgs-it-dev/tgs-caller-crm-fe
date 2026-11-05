@@ -35,7 +35,8 @@ type Lead = LeadHistory['lead']
 type Status = LeadHistory['status']
 type Outcome = NonNullable<Status['latest_fronter']>
 type Cart = LeadHistory['carts'][number]
-type Row = LeadHistoryEvent & { id: string }
+/** `ownSale`: the event is on a call a closer started as an Own Sale, which has no fronter. */
+type Row = LeadHistoryEvent & { id: string; ownSale: boolean }
 
 const HISTORY_PAGE_SIZE = 10
 
@@ -377,7 +378,7 @@ function Carts({ history, revealable }: { history: LeadHistory; revealable: bool
 }
 
 /** What happened, in words, with the pills and the detail that belong beside it. */
-function describe(event: LeadHistoryEvent): {
+function describe(event: Row): {
   text: string
   badges: ReactNode[]
   detail?: ReactNode
@@ -411,7 +412,21 @@ function describe(event: LeadHistoryEvent): {
         )
       }
       return { text: `Fronter outcome: ${event.outcome}`, badges, detail: replaced }
+    case 'own_sale_started':
+      badges.push(
+        <Badge key="own-sale" tone="teal">
+          Own Sale
+        </Badge>
+      )
+      return { text: `Started by ${event.closer_name ?? 'a closer'}, no transfer`, badges }
     case 'qualification':
+      if (event.ownSale) {
+        return {
+          text: (event.version ?? 1) > 1 ? 'Lead details updated' : 'Lead details saved',
+          badges,
+          detail: `Version ${event.version}`,
+        }
+      }
       return {
         text: (event.version ?? 1) > 1 ? 'Fronter form updated' : 'Fronter form saved',
         badges,
@@ -513,9 +528,18 @@ function historyColumns(): DataColumn<Row>[] {
 }
 
 function History({ history }: { history: LeadHistory }) {
+  const ownSaleCalls = new Set(
+    history.events
+      .filter((event) => event.kind === 'own_sale_started')
+      .map((event) => event.interaction_id)
+  )
   const rows: Row[] = history.events
     .filter(shownInHistory)
-    .map((event, index) => ({ ...event, id: String(index) }))
+    .map((event, index) => ({
+      ...event,
+      id: String(index),
+      ownSale: event.interaction_id != null && ownSaleCalls.has(event.interaction_id),
+    }))
   return (
     <DataTable
       title="History"

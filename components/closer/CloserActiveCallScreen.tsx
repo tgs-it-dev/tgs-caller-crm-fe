@@ -85,6 +85,8 @@ type WorkspaceState = {
   dispositionId: string
   savedLabel: string | null
   transferStatus: TransferStatusLabel | null
+  /** Started by the closer on Own Sale: theirs with no transfer to accept. */
+  ownSale: boolean
   /** Accept time (`updated_at` once accepted) — drives the header call timer. */
   callStartedAt: string | null
   isLoading: boolean
@@ -99,6 +101,7 @@ type WorkspaceAction =
       standing: CallStanding
       options: DispositionResponse[]
       transferStatus: TransferStatusLabel | null
+      ownSale: boolean
       callStartedAt: string | null
       savedLabel: string | null
       dispositionId: string
@@ -118,6 +121,7 @@ const initialWorkspace: WorkspaceState = {
   dispositionId: '',
   savedLabel: null,
   transferStatus: null,
+  ownSale: false,
   callStartedAt: null,
   isLoading: true,
   loadError: null,
@@ -132,6 +136,7 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
         standing: action.standing,
         options: action.options,
         transferStatus: action.transferStatus,
+        ownSale: action.ownSale,
         callStartedAt: action.callStartedAt,
         savedLabel: action.savedLabel,
         dispositionId: action.dispositionId,
@@ -167,9 +172,9 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
 
 function softLoadHint(
   qualification: Awaited<ReturnType<typeof loadCloserWorkspace>>['qualification'],
-  transfer: TransferResponse
+  open: boolean
 ): string | null {
-  if (!qualification && transfer.status === 'accepted') {
+  if (!qualification && open) {
     return 'No lead details found for this call.'
   }
   return null
@@ -258,7 +263,7 @@ function CloserActiveCallContent({
     />
   )
 
-  if (!interactionId || !transferId) {
+  if (!interactionId) {
     return (
       <PageShell title="Active Call">
         <Alert>
@@ -271,7 +276,7 @@ function CloserActiveCallContent({
 
   return (
     <CloserActiveCallWorkspace
-      key={`${interactionId}:${transferId}`}
+      key={`${interactionId}:${transferId ?? 'own-sale'}`}
       interactionId={interactionId}
       transferId={transferId}
       todaysTable={todaysTable}
@@ -287,7 +292,8 @@ function CloserActiveCallWorkspace({
   onDispositionSaved,
 }: {
   interactionId: string
-  transferId: string
+  /** None on a call the closer started as an Own Sale. */
+  transferId?: string
   todaysTable: ReactNode
   onDispositionSaved: () => void
 }) {
@@ -305,6 +311,7 @@ function CloserActiveCallWorkspace({
     dispositionId,
     savedLabel,
     transferStatus,
+    ownSale,
     callStartedAt,
     isLoading,
     loadError,
@@ -327,28 +334,32 @@ function CloserActiveCallWorkspace({
       .then(() =>
         withSession((token) =>
           loadCloserWorkspace(
-            { interactionId, transferId, closerUserId: user.id },
+            { interactionId, transferId: transferId ?? null, closerUserId: user.id },
             token
           )
         )
       )
-      .then(({ transfer, qualification, options: catalog, captured, standing: found }) => {
+      .then((loaded) => {
         if (cancelled) return
 
-        const latest = latestCloserDisposition(captured)
+        const latest = latestCloserDisposition(loaded.captured)
         const nextLabel = latest?.label ?? null
+        const transferStatus = loaded.transfer?.status ?? null
 
         dispatch({
           type: 'load_success',
-          snapshot: snapshotFromQualification(qualification),
-          standing: found,
-          options: catalog,
-          transferStatus: transfer.status,
-          callStartedAt:
-            transfer.status === 'accepted' ? transfer.updated_at : null,
+          snapshot: snapshotFromQualification(loaded.qualification),
+          standing: loaded.standing,
+          options: loaded.options,
+          transferStatus,
+          ownSale: loaded.ownSale,
+          callStartedAt: loaded.startedAt,
           savedLabel: nextLabel,
           dispositionId: latest?.disposition_id ?? '',
-          loadError: softLoadHint(qualification, transfer),
+          loadError: softLoadHint(
+            loaded.qualification,
+            loaded.ownSale || transferStatus === 'accepted'
+          ),
         })
       })
       .catch((err) => {
@@ -398,21 +409,25 @@ function CloserActiveCallWorkspace({
     }
   }
 
+  // An Own Sale call is the closer's from the start, as an accepted transfer is.
+  const open = ownSale || transferStatus === 'accepted'
   const statusText = isLoading
-    ? 'Accepting transfer…'
-    : transferStatus
-      ? (STATUS_LABEL[transferStatus] ?? 'Transfer Accepted')
-      : 'Transfer not found'
+    ? transferId
+      ? 'Accepting transfer…'
+      : 'Loading…'
+    : ownSale
+      ? 'Own Sale'
+      : transferStatus
+        ? (STATUS_LABEL[transferStatus] ?? 'Transfer Accepted')
+        : 'Transfer not found'
   const closed = closedCall(standing)
-  const dispositionLocked = isLoading || transferStatus !== 'accepted' || closed !== null
-  const canEditDetails = !isLoading && transferStatus === 'accepted' && !closed && snapshot
-  // The clock counts from the accept, so a call with an outcome, such as a
-  // callback opened days later, shows none.
-  const live = transferStatus === 'accepted' && !savedLabel
+  const dispositionLocked = isLoading || !open || closed !== null
+  const canEditDetails = !isLoading && open && !closed && snapshot
+  // The clock counts from the accept or the Own Sale start, so a call with an
+  // outcome, such as a callback opened days later, shows none.
+  const live = open && !savedLabel
   const lockedMessage =
-    isLoading || transferStatus === 'accepted'
-      ? null
-      : 'Disposition unlocks after the transfer is accepted.'
+    isLoading || open ? null : 'Disposition unlocks after the transfer is accepted.'
 
   return (
     <PageShell
@@ -421,7 +436,7 @@ function CloserActiveCallWorkspace({
         <TransferStatusBadge
           key={live ? (callStartedAt ?? 'pending') : 'pending'}
           label={statusText}
-          tone={!isLoading && transferStatus !== 'accepted' ? 'neutral' : 'accepted'}
+          tone={!isLoading && !open ? 'neutral' : 'accepted'}
           startedAt={live ? callStartedAt : null}
         />
       }
@@ -457,7 +472,7 @@ function CloserActiveCallWorkspace({
         <div className="flex flex-col gap-4 lg:col-span-5">
           <CartPaymentCard
             interactionId={interactionId}
-            enabled={!isLoading && transferStatus === 'accepted'}
+            enabled={!isLoading && open}
             readOnly={closed !== null}
             onCartLoaded={setCartSaved}
           />
