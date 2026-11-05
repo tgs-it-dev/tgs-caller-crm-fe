@@ -68,9 +68,9 @@ const sameRoles = (a: Role[], b: Role[]) =>
   a.length === b.length && a.every((role) => b.includes(role))
 
 /** These cover every team, so an account holding one has no team and no other role. */
-const COMPANY_WIDE: readonly Role[] = ['super_admin', 'qa_manager', 'qa_agent']
+const COMPANY_WIDE: readonly Role[] = ['super_admin', 'qa_manager', 'qa_agent', 'retention']
 /** Whether an account has a team turns on these, so they are set only when it is made. */
-const FIXED_AT_CREATION: readonly Role[] = ['qa_manager', 'qa_agent']
+const FIXED_AT_CREATION: readonly Role[] = ['qa_manager', 'qa_agent', 'retention']
 
 /** Offers waiting on this closer, or 0 when that cannot be read, so a save is never blocked. */
 async function waitingFor(user: User): Promise<number> {
@@ -148,7 +148,7 @@ export function UserFormDialog({
   })
 
   function roleLocked(role: Role): boolean {
-    // A QA Manager's or QA Agent's roles stay as they are, and nobody else becomes one.
+    // A QA or Retention account's roles stay as they are, and nobody else becomes one.
     if (user && FIXED_AT_CREATION.some((fixed) => role === fixed || user.roles.includes(fixed))) {
       return true
     }
@@ -399,6 +399,11 @@ export function UserFormDialog({
               A QA Agent reviews sales from every team, so is not assigned to one.
             </p>
           )}
+          {!user && roles.includes('retention') && (
+            <p className="text-xs leading-[150%] text-slate">
+              Retention works policies from every team, so is not assigned to one.
+            </p>
+          )}
 
           {!user && (
             <fieldset>
@@ -496,6 +501,11 @@ export function UserFormDialog({
             {user?.roles.includes('qa_agent') && (
               <p className="mt-2 text-xs leading-[150%] text-slate">
                 A QA Agent&apos;s role is set when the account is created.
+              </p>
+            )}
+            {user?.roles.includes('retention') && (
+              <p className="mt-2 text-xs leading-[150%] text-slate">
+                A Retention account&apos;s role is set when the account is created.
               </p>
             )}
             {isSelf && isTeamAdmin(actorRoles) && !isSuperAdmin(actorRoles) && (

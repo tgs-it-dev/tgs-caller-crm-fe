@@ -18,6 +18,7 @@ const ROLE_LABELS: Record<Role, string> = {
   administrator: 'Team Admin',
   qa_manager: 'QA Manager',
   qa_agent: 'QA Agent',
+  retention: 'Retention',
   closer: 'Closer',
   fronter: 'Fronter',
 }

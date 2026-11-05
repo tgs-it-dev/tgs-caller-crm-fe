@@ -15,6 +15,7 @@ import {
   Contact,
   FileSearch,
   Headset,
+  LifeBuoy,
   ListOrdered,
   LogOut,
   Menu,
@@ -22,6 +23,7 @@ import {
   PhoneIncoming,
   Settings,
   Shield,
+  Upload,
 } from 'lucide-react'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import {
@@ -60,6 +62,10 @@ function StatsIcon() {
 
 function PolicyIcon() {
   return <FileSearch {...NAV_ICON} />
+}
+
+function UploadIcon() {
+  return <Upload {...NAV_ICON} />
 }
 
 function BellIcon() {
@@ -104,6 +110,10 @@ function AdminDeskIcon() {
 
 function QaDeskIcon() {
   return <ClipboardCheck {...DESK_ICON_PROPS} />
+}
+
+function RetentionDeskIcon() {
+  return <LifeBuoy {...DESK_ICON_PROPS} />
 }
 
 function DashboardIcon() {
@@ -179,6 +189,7 @@ const BASE_PATH: Record<Role, string> = {
   administrator: '/admin',
   qa_manager: '/admin',
   qa_agent: '/qa',
+  retention: '/retention',
   super_admin: '/admin',
 }
 
@@ -189,6 +200,7 @@ const DESK_ICON: Record<Role, ComponentType> = {
   administrator: AdminDeskIcon,
   qa_manager: AdminDeskIcon,
   qa_agent: QaDeskIcon,
+  retention: RetentionDeskIcon,
   super_admin: AdminDeskIcon,
 }
 
@@ -247,7 +259,7 @@ const ADMIN_QA_NAV_ITEMS: NavItem[] = [
 ]
 
 /**
- * Super Admin modules: Users, Teams, Campaigns, Reports, Team stats, QA and QA stats.
+ * Super Admin modules: Users, Teams, Campaigns, Reports, Team stats, Retention, QA and QA stats.
  * Reports is how they reach a lead's full view, through its drill-down.
  */
 const SUPER_ADMIN_NAV: NavItem[] = [
@@ -287,6 +299,12 @@ const SUPER_ADMIN_NAV: NavItem[] = [
     icon: StatsIcon,
     isActive: (p) => p.startsWith('/admin/team-stats'),
   },
+  {
+    href: '/admin/retention',
+    label: 'Retention',
+    icon: RetentionDeskIcon,
+    isActive: (p) => p.startsWith('/admin/retention'),
+  },
   ...ADMIN_QA_NAV_ITEMS,
 ]
 
@@ -321,6 +339,24 @@ function qaDeskNav(): NavItem[] {
       label: 'QA stats',
       icon: StatsIcon,
       isActive: (p) => p.startsWith('/qa/stats'),
+    },
+  ]
+}
+
+/** The Pending list, where a sale opens, and the upload. */
+function retentionDeskNav(): NavItem[] {
+  return [
+    {
+      href: '/retention',
+      label: 'Pending',
+      icon: RetentionDeskIcon,
+      isActive: (p) => p === '/retention' || p.startsWith('/retention/sale'),
+    },
+    {
+      href: '/retention/upload',
+      label: 'Upload',
+      icon: UploadIcon,
+      isActive: (p) => p.startsWith('/retention/upload'),
     },
   ]
 }
@@ -457,13 +493,15 @@ function SidebarInner() {
     : basePath
 
   // Team Admin / Super Admin / QA Manager share /admin with different modules;
-  // QA Agents work from /qa.
+  // QA Agents work from /qa, and Retention from /retention.
   const navItems =
     role === 'administrator' || role === 'super_admin' || role === 'qa_manager'
       ? adminNavFor(role)
       : role === 'qa_agent'
         ? qaDeskNav()
-        : deskNav(role, activeCallHref)
+        : role === 'retention'
+          ? retentionDeskNav()
+          : deskNav(role, activeCallHref)
 
   // Somebody may hold more than one role, and the nav only ever shows the desk
   // they are on — so without a way across, the others are unreachable. One role

@@ -33,6 +33,7 @@ const ROLE_LANDING: Record<Role, string> = {
   // QA Manager oversees every team's QA from the admin desk.
   qa_manager: '/admin/qa',
   qa_agent: '/qa',
+  retention: '/retention',
   // Super Admin modules are Users / Teams / Campaigns — not the Team Admin dashboard.
   super_admin: '/admin/users',
 }
@@ -115,6 +116,7 @@ const ROLE_PRIORITY: Role[] = [
   'closer',
   'fronter',
   'qa_agent',
+  'retention',
 ]
 
 /**
@@ -146,6 +148,11 @@ export function qaDeskRole(roles: readonly Role[]): 'qa_agent' | null {
   return roles.includes('qa_agent') ? 'qa_agent' : null
 }
 
+/** The `/retention` desk is the Retention role's. */
+export function retentionDeskRole(roles: readonly Role[]): 'retention' | null {
+  return roles.includes('retention') ? 'retention' : null
+}
+
 /** Super Admin has no team pin — never invent a fake membership in the UI. */
 export function isSuperAdmin(roles: readonly Role[]): boolean {
   return roles.includes('super_admin')
@@ -172,6 +179,7 @@ const DESK_LABEL: Record<Role, string> = {
   administrator: 'CRM — Team Admin',
   qa_manager: 'CRM — QA Manager',
   qa_agent: 'CRM — QA Agent',
+  retention: 'CRM - Retention',
   super_admin: 'CRM — Super Admin',
 }
 
@@ -181,6 +189,7 @@ const ROLE_NAME: Record<Role, string> = {
   administrator: 'Team Admin',
   qa_manager: 'QA Manager',
   qa_agent: 'QA Agent',
+  retention: 'Retention',
   super_admin: 'Super Admin',
 }
 
@@ -203,6 +212,8 @@ export function heldDesks(roles: Role[]): Role[] {
   if (roles.includes('fronter')) desks.push('fronter')
   const qa = qaDeskRole(roles)
   if (qa && !admin) desks.push(qa)
+  const retention = retentionDeskRole(roles)
+  if (retention && !admin) desks.push(retention)
   return desks
 }
 
@@ -224,6 +235,7 @@ export function deskRoleFromPath(pathname: string, roles?: readonly Role[]): Rol
   if (pathname === '/qa' || pathname.startsWith('/qa/')) {
     return (roles && qaDeskRole(roles)) ?? 'qa_agent'
   }
+  if (pathname === '/retention' || pathname.startsWith('/retention/')) return 'retention'
   if (pathname === '/closer' || pathname.startsWith('/closer/')) return 'closer'
   if (pathname === '/fronter' || pathname.startsWith('/fronter/')) return 'fronter'
   return null
