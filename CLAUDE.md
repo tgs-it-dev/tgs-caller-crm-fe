@@ -68,9 +68,9 @@ Contract (typed in `lib/generated/schema.d.ts`):
 - `POST /auth/logout` `{refresh_token}` → 204, whether or not the token was live.
 - `GET /auth/me` (Bearer token) → `{id, email, name, active, roles, team_id, created_at}`
 - `RoleName = "fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" |
-  "super_admin"`. A user can hold multiple roles; frontend picks the landing
+  "retention" | "super_admin"`. A user can hold multiple roles; frontend picks the landing
   route by priority (`super_admin` > `administrator` > `qa_manager` > `closer` >
-  `fronter` > `qa_agent`), see `lib/auth.ts`. There is no QA Lead: that role was
+  `fronter` > `qa_agent` > `retention`), see `lib/auth.ts`. There is no QA Lead: that role was
   merged into QA Agent.
   Super Admin inherits every Team Admin `/admin` surface (`roleSatisfies`).
 - Every error response is `{detail, code, fields?}`, read with `readApiError()`.
@@ -128,10 +128,12 @@ Frontend pieces:
   own `isActive(pathname)`. A new page goes under its role's segment and into
   that role's list.
 - **A Super Admin's list is `SUPER_ADMIN_NAV`**: Users, Teams, Campaigns,
-  Reports, Team stats, QA and QA stats. Reports is there because its drill-down is how they
+  Reports, Team stats, Retention, QA and QA stats. Reports is there because its drill-down is how they
   reach a lead's full view. Exceptions stays out: without the dialer it is empty.
 - **QA desks.** A QA Manager works from `/admin` with QA, QA stats and Users. A
   QA Agent works from `/qa` with QA and QA stats (`qaDeskRole()`).
+- **Retention desk.** Retention works from `/retention` with Pending and Upload
+  (`retentionDeskRole()`). A Super Admin gets the same screens at `/admin/retention`.
 - **Somebody may hold more than one role**, and the nav only ever shows the desk
   they are on, so the sidebar identity doubles as a desk menu — `heldDesks()` in
   `lib/auth.ts` lists every desk held, the current one ticked. A single-role
@@ -257,7 +259,9 @@ the API calls and rules are in `lib/cart.ts`.
   Disposition turns off with a short note. `cartSaved` is `null` until the cart
   has loaded, so a sold call doesn't flash the note and a failed load leaves the
   decision to the server. Other outcomes need no cart, and the policy number
-  stays optional because it can be added once it's issued.
+  stays optional because it can be added once it's issued. A number belongs to
+  one sale: one already on another cart, in any case, comes back as a 422 on
+  `policy_number` and shows under the field.
 
 ## Closer callbacks
 
@@ -392,7 +396,9 @@ role="super_admin"`, and the API's 403.
   "12 of 40". Old sales paid now can take it past 100%, and the rate is shown as
   it is; only the bar stops at full. "n/a" means no sales. This month reads low
   until its file is uploaded, the month after, and the note under the table says
-  so.
+  so. The two tiles say which they count, "of the leads added in these dates" and
+  "sales made in these dates", since Sold and the sales can differ by a lead added
+  in the range but sold after it.
 - **The sales list goes by the day of the sale**, not the day the lead came in,
   so its count can differ from the table's Sold. Newest first, paged on the
   server (`ServerPaging`, 50 to a page), with totals across every matching sale.
@@ -497,9 +503,10 @@ state or team. Administrator-only, like the rest of `/admin`.
   rather than hidden, so nobody goes looking for it.
 - **Team is set by a Super Admin.** They must pick it when adding and can change
   it when editing; the edit sends `team_id` in the same PATCH as the rest, and
-  only when it changed. Super Admin, QA Manager and QA Agent accounts have no
-  team: ticking any of those roles makes it the only one and hides the field, and
-  `qa_manager` and `qa_agent` are fixed once the account exists. A QA Manager
+  only when it changed. Super Admin, QA Manager, QA Agent and Retention accounts
+  have no team: ticking any of those roles makes it the only one and hides the
+  field, and `qa_manager`, `qa_agent` and `retention` are fixed once the account
+  exists. Only a Super Admin adds a Retention account. A QA Manager
   only adds QA Agents, so never picks a team. Picking a different team shows a note that the move takes
   effect on save and that anyone on a call should record its outcome first. The
   API does not block a move mid-call. Team Admins never see the field: the API
@@ -612,7 +619,8 @@ nothing. A Super Admin then marks the matches Paid for a month.
   A file it cannot read comes back as a 422 naming `file`, and its message shows
   under the upload. A Team Admin only finds their own team's sales; another
   team's reads as not found.
-- **The upload** is one drop zone: drag a file in, or Choose file, then Look up.
+- **The upload** is one drop zone (`PolicyFileDrop`, shared with Retention's
+  upload): drag a file in, or Choose file, then Look up.
 - **Results** have a header naming the file, then three `StatCard` tiles,
   Matched, Not found and Skipped, that each show their own table, 20 to a page in
   the browser. Matched shows each lead's phone; a Super Admin also sees the team,
@@ -625,7 +633,9 @@ nothing. A Super Admin then marks the matches Paid for a month.
   sale, in the upload's order, so no row column is needed. It starts with a byte
   order mark so Excel reads it as UTF-8, and a cell a spreadsheet would run as a
   formula gets a leading apostrophe.
-- **Matched shows a Paid column** for both roles: the month, or "Not paid".
+- **Matched shows a Paid column** for both roles: the month, or "Not paid", and
+  a Policy status column, as Retention set it. The same two show in Team stats'
+  sales list and on a lead's cart.
 - **Mark as Paid is the Super Admin's next step** (`MarkPaidPanel`), between the
   tiles and the tables once a lookup has matches. They choose the month (this one
   and the 23 before it, no default), read what will happen ("42 sales will be
@@ -638,6 +648,9 @@ nothing. A Super Admin then marks the matches Paid for a month.
   so one lookup is never saved twice. A new lookup brings the panel back.
 - **The first upload wins.** A sale keeps the month of the earliest upload still
   standing that matched it; a repeat upload or a later month never moves it.
+- **A sale made after the month is left out**, since it cannot have been paid in
+  it. The panel counts it out once a month is chosen and says so, and Mark as
+  Paid stays off when nothing is left.
 - **Paid uploads** (`PaidUploadsSection`, Super Admin only, under the lookup)
   lists every upload newest first: month, file, matched, newly paid, who and
   when. Undo asks first, then the sales it marked go back to unpaid, or to the
@@ -650,6 +663,33 @@ nothing. A Super Admin then marks the matches Paid for a month.
   Excel upload gets a fixed sample answer, since the mock does not unpack it.
   Paid uploads live in memory with the first-upload-wins rule, and a marked sale's
   lead reads as Paid on its full view.
+
+## Retention
+
+`/retention` (Retention) and `/admin/retention` (Super Admin) record each sale's
+policy status, Pending, Retained or Cancelled, through `lib/retention.ts`. The screens
+take their link base, so both desks share them.
+
+- **A status belongs to the sale,** and a policy number to one sale, so the
+  number is how it is found. A sale has none until one is set. Conversion, the funnel and Paid never
+  read it: a cancelled policy stays Paid.
+- **Pending and search** (`RetentionScreen`): find a sale by its whole policy
+  number, in any case, which opens it, and below, the policies that are
+  Pending, the longest since their last change first. Nothing else is listed, so
+  Retention never browses the sales.
+- **A sale** (`RetentionSaleScreen`): the customer, phone, vehicle, team, closer
+  and sale date, the status history newest first (who, when, the note, typed or
+  which file), and QA's review with `ReviewHistory` from the QA screen. Never
+  the paid month, amounts or bank details: the API never sends them. The panel
+  sets the status, with an optional note.
+- **Upload** (`RetentionUploadScreen`): the template is
+  `public/retention-template.csv`. The API finds the columns by their headings,
+  one with "policy" in it and one with "status", and reads "Canceled" and
+  "Retention" as Cancelled and Retained. Check saves nothing and shows five
+  tiles: Changes, No change, Not found, Invalid status and Skipped. Save asks
+  first and saves only the changes, checked afresh.
+- **Mocks** keep the history in memory, with POL-10002 and POL-10003 Pending and
+  POL-10005 Cancelled to start, and `rita.retention@tgs.com` signs in as Retention.
 
 ## Settings
 

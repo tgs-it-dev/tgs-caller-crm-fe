@@ -7,6 +7,12 @@ import type { CallLeg, InteractionEvent, InteractionTransfer } from '../lib/inte
 import type { InteractionDetailResponse } from '../lib/interactions'
 import type { LeadBulkRow, LeadHistory, LeadHistoryEvent, LeadResponse } from '../lib/leads'
 import type { PaidUpload, PolicyLookup } from '../lib/policies'
+import type {
+  RetentionSale,
+  RetentionSaleDetail,
+  RetentionStatusEvent,
+  RetentionUploadCheck,
+} from '../lib/retention'
 import type { QaAgent, QaHistoryEvent, QaItem, QaStatus, QaTeamSummary } from '../lib/qa'
 import { PUSH_INTERVAL_MS, type AgentStatus, type LiveStatus } from '../lib/liveStatus'
 import type { CloserCallbackEntry, CloserQueueEntry, FronterQueueEntry } from '../lib/queue'
@@ -178,6 +184,8 @@ const MOCK_USERS: MockUser[] = [
   { id: '9', email: 'quinn.qa@tgs.com', password: 'password1', name: 'Quinn QA', roles: ['qa_manager'], active: true, created_at: SEEDED_AT, team_id: null },
   { id: '10', email: 'aria.agent@tgs.com', password: 'password1', name: 'Aria Agent', roles: ['qa_agent'], active: true, created_at: SEEDED_AT, team_id: null },
   { id: '11', email: 'leo.lead@tgs.com', password: 'password1', name: 'Leo Lead', roles: ['qa_agent'], active: true, created_at: SEEDED_AT, team_id: null },
+  // Retention covers every team too.
+  { id: '12', email: 'rita.retention@tgs.com', password: 'password1', name: 'Rita Retention', roles: ['retention'], active: true, created_at: SEEDED_AT, team_id: null },
 ]
 
 const KNOWN_ROLES: Role[] = [
@@ -186,6 +194,7 @@ const KNOWN_ROLES: Role[] = [
   'administrator',
   'qa_manager',
   'qa_agent',
+  'retention',
   'super_admin',
 ]
 
@@ -193,6 +202,9 @@ const KNOWN_ROLES: Role[] = [
 const AGENT_ROLES: readonly Role[] = ['fronter', 'closer']
 /** QA staff a QA Manager may manage, on no team (besides self). */
 const QA_STAFF_ROLES: readonly Role[] = ['qa_agent']
+/** Company-wide roles besides Super Admin: no team, and fixed when the account is made. */
+const NO_TEAM_ROLES: readonly Role[] = ['qa_manager', 'qa_agent', 'retention']
+const NO_TEAM_MESSAGE = 'QA and Retention accounts cover every team, so have no team'
 
 type MockLink = { token: string; userId: string; purpose: 'invite' | 'reset'; state: 'live' | 'used' | 'superseded' | 'expired' }
 
@@ -715,6 +727,7 @@ function mockSales(
         // Most sales from before this month were paid the month after they were made.
         paid_month:
           carted && date.slice(0, 7) < thisMonth && seed % 4 !== 0 ? monthAfter(date) : null,
+        policy_status: null,
       })
     }
   }
@@ -1086,6 +1099,7 @@ function mockLeadHistory(leadId: string): LeadHistory | null {
               saved_by: closer,
               saved_at: at(30),
               paid_month: paidMonth,
+              policy_status: mockCurrentStatus(`${leadId}-call-1`)?.status ?? null,
             },
           ]
         : [],
@@ -2380,6 +2394,7 @@ async function mockPolicyLookup(
         row,
         policy_number: value,
         paid_month: mockPaidMonth(sale.interaction_id),
+        policy_status: mockCurrentStatus(sale.interaction_id)?.status ?? null,
       })
     }
   })
@@ -2392,6 +2407,197 @@ async function mockPolicyLookup(
     skipped: lookup.skipped.length,
   }
   return { lookup }
+}
+
+type PolicyStatus = RetentionStatusEvent['status']
+
+/** Every status change made in mock mode, oldest first; the newest per sale is its status. */
+const mockStatusChanges: (RetentionStatusEvent & { sale: string })[] = []
+
+function recordStatus(
+  sale: string,
+  number: string,
+  status: PolicyStatus,
+  actorName: string,
+  { note = null, fileName = null, at = new Date().toISOString() }: { note?: string | null; fileName?: string | null; at?: string } = {}
+) {
+  mockStatusChanges.push({
+    sale,
+    policy_number: number,
+    status,
+    note,
+    file_name: fileName,
+    actor_name: actorName,
+    at,
+  })
+}
+
+/** The one sale with this policy number, in any case, as the API finds it. */
+function saleWithNumber(number: string): MockPolicySale | undefined {
+  const key = number.trim().toLowerCase()
+  return MOCK_POLICY_SALES.find((sale) => sale.policy_number.toLowerCase() === key)
+}
+
+// Something to work in mock mode: two policies being worked and one lost.
+for (const [number, status, extra] of [
+  ['POL-10002', 'pending', { note: 'Wants to cancel. Call back Friday.', at: '2026-11-02T15:00:00Z' }],
+  ['POL-10003', 'pending', { at: '2026-11-03T16:30:00Z' }],
+  ['POL-10005', 'cancelled', { fileName: 'carrier-october.csv', at: '2026-11-01T12:00:00Z' }],
+] as const) {
+  recordStatus(saleWithNumber(number)!.interaction_id, number, status, 'Rita Retention', extra)
+}
+
+function mockCurrentStatus(sale: string): (RetentionStatusEvent & { sale: string }) | null {
+  for (let i = mockStatusChanges.length - 1; i >= 0; i--) {
+    if (mockStatusChanges[i].sale === sale) return mockStatusChanges[i]
+  }
+  return null
+}
+
+function asEvent({ sale: _sale, ...change }: RetentionStatusEvent & { sale: string }): RetentionStatusEvent {
+  return change
+}
+
+type MockPolicySale = (typeof MOCK_POLICY_SALES)[number]
+
+function retentionSale(sale: MockPolicySale): RetentionSale {
+  const current = mockCurrentStatus(sale.interaction_id)
+  return {
+    interaction_id: sale.interaction_id,
+    policy_number: sale.policy_number,
+    lead_name: sale.lead_name,
+    team_name: sale.team_name,
+    sold_at: sale.sold_at,
+    status: current?.status ?? null,
+    status_at: current?.at ?? null,
+    status_by: current?.actor_name ?? null,
+  }
+}
+
+function retentionDetail(sale: MockPolicySale): RetentionSaleDetail {
+  const qa = MOCK_QA_ITEMS.find((item) => item.interaction_id === sale.interaction_id)
+  return {
+    ...retentionSale(sale),
+    lead_phone: sale.lead_phone,
+    vehicle_year: 2019,
+    vehicle_make: 'Honda',
+    vehicle_model: 'Civic',
+    closer_name: sale.closer_name,
+    history: mockStatusChanges
+      .filter((change) => change.sale === sale.interaction_id)
+      .reverse()
+      .map(asEvent),
+    qa: {
+      status: qa?.status ?? 'open',
+      score: qa?.score ?? null,
+      history: MOCK_QA_HISTORY.get(sale.interaction_id) ?? [],
+    },
+  }
+}
+
+function retentionRefusal(authorization: string | null) {
+  const user = MOCK_TOKENS.get((authorization || '').replace(/^Bearer\s+/i, ''))
+  if (!user || !user.active) {
+    return {
+      status: 401,
+      body: authErrorBody('Could not validate credentials', 'auth.not_authenticated'),
+    }
+  }
+  if (!user.roles.includes('super_admin') && !user.roles.includes('retention')) {
+    return {
+      status: 403,
+      body: authErrorBody('Insufficient role for this operation', 'auth.forbidden'),
+    }
+  }
+  return null
+}
+
+const MOCK_STATUS_WORDS: Record<string, PolicyStatus> = {
+  cancelled: 'cancelled',
+  canceled: 'cancelled',
+  retained: 'retained',
+  retention: 'retained',
+  pending: 'pending',
+}
+
+/** A status file read the way the API reads it, by its headings. Saves nothing. */
+async function mockStatusCheck(
+  file: File | undefined
+): Promise<{ problem: string } | { check: RetentionUploadCheck }> {
+  if (!(file instanceof File) || file.size === 0) return { problem: 'That file is empty.' }
+  if (file.size > 1_048_576) return { problem: 'Up to 1 MB.' }
+  const head = new Uint8Array(await file.slice(0, 2).arrayBuffer())
+  // An Excel workbook is a zip, which the mock does not unpack: it answers a sample.
+  const lines =
+    head[0] === 0x50 && head[1] === 0x4b
+      ? ['Policy number,Status', 'POL-10001,Pending', 'POL-10002,Retained', 'POL-99999,Cancelled']
+      : (await file.text()).replace(/^\uFEFF/, '').split(/\r?\n/)
+  const rows = lines.map((line) => line.split(',').map((cell) => cell.trim()))
+  const headings = (rows[0] ?? []).map((cell) => cell.toLowerCase())
+  const statusCol = headings.findIndex((cell) => cell.includes('status'))
+  const numberCol = headings.findIndex((cell, i) => cell.includes('policy') && i !== statusCol)
+  if (statusCol < 0 || numberCol < 0) {
+    return { problem: 'The first row needs Policy number and Status columns. Download the template.' }
+  }
+
+  const check: RetentionUploadCheck = {
+    changes: [],
+    unchanged: [],
+    unmatched: [],
+    invalid: [],
+    skipped: [],
+    summary: { rows: 0, changes: 0, unchanged: 0, unmatched: 0, invalid: 0, skipped: 0 },
+  }
+  const firstRowOf = new Map<string, number>()
+  let read = 0
+  rows.slice(1).forEach((cells, index) => {
+    const row = index + 2
+    const value = cells[numberCol] ?? ''
+    if (!value) return
+    read += 1
+    if (value.length > 64) {
+      check.skipped.push({ row, value, reason: 'too_long', first_row: null })
+      return
+    }
+    const key = value.toLowerCase()
+    const first = firstRowOf.get(key)
+    if (first !== undefined) {
+      check.skipped.push({ row, value, reason: 'duplicate', first_row: first })
+      return
+    }
+    firstRowOf.set(key, row)
+    const written = cells[statusCol] ?? ''
+    const status = MOCK_STATUS_WORDS[written.toLowerCase().replace(/\s+/g, '')]
+    if (!status) {
+      check.invalid.push({ row, policy_number: value, status: written })
+      return
+    }
+    const sale = saleWithNumber(value)
+    if (!sale) {
+      check.unmatched.push({ row, policy_number: value })
+      return
+    }
+    const current = mockCurrentStatus(sale.interaction_id)?.status ?? null
+    const found = {
+      row,
+      policy_number: value,
+      interaction_id: sale.interaction_id,
+      status,
+      current_status: current,
+    }
+    ;(current === status ? check.unchanged : check.changes).push(found)
+  })
+  if (read === 0) return { problem: 'That file has no policy numbers in it.' }
+  if (read > 5000) return { problem: 'Up to 5,000 policy numbers at a time.' }
+  check.summary = {
+    rows: read,
+    changes: check.changes.length,
+    unchanged: check.unchanged.length,
+    unmatched: check.unmatched.length,
+    invalid: check.invalid.length,
+    skipped: check.skipped.length,
+  }
+  return { check }
 }
 
 export const handlers = [
@@ -2836,9 +3042,9 @@ export const handlers = [
     const knownTeamIds = new Set(MOCK_TEAMS.map((team) => team.id))
     const requestedTeam =
       typeof body.team_id === 'string' && knownTeamIds.has(body.team_id) ? body.team_id : null
-    // A Team Admin omits team_id and the API pins their own; Super Admin, QA
-    // Manager and QA Agent accounts cover every team, so get none.
-    const qaStaff = roles.includes('qa_manager') || roles.includes('qa_agent')
+    // A Team Admin omits team_id and the API pins their own; Super Admin, QA and
+    // Retention accounts cover every team, so get none.
+    const qaStaff = roles.some((role) => NO_TEAM_ROLES.includes(role))
     const companyWide = roles.includes('super_admin') || qaStaff
     const teamId = companyWide ? null : (requestedTeam ?? actor.team_id)
 
@@ -2846,7 +3052,7 @@ export const handlers = [
     if (ceiling) return res(ctx.status(ceiling.status), ctx.json(ceiling.body))
 
     if (qaStaff && !roles.includes('super_admin') && body.team_id) {
-      return res(ctx.status(422), ctx.json(qaManagerHasNoTeam('team_id', 'QA Managers and QA Agents cover every team, so have no team')))
+      return res(ctx.status(422), ctx.json(qaManagerHasNoTeam('team_id', NO_TEAM_MESSAGE)))
     }
 
     if (roles.includes('super_admin') && requestedTeam) {
@@ -2972,8 +3178,8 @@ export const handlers = [
         typeof body.team_id === 'string' ? body.team_id : user.team_id
       const ceiling = grantCeilingRefusal(actor, body.roles, teamForGrant, user)
       if (ceiling) return res(ctx.status(ceiling.status), ctx.json(ceiling.body))
-      // qa_manager and qa_agent decide whether the account has a team, so are fixed at creation.
-      for (const fixed of ['qa_manager', 'qa_agent'] as const) {
+      // These decide whether the account has a team, so are fixed at creation.
+      for (const fixed of NO_TEAM_ROLES) {
         if (body.roles.includes(fixed) !== user.roles.includes(fixed)) {
           return res(
             ctx.status(422),
@@ -3026,8 +3232,8 @@ export const handlers = [
           )
         )
       }
-      if (user.roles.includes('qa_manager') || user.roles.includes('qa_agent')) {
-        return res(ctx.status(422), ctx.json(qaManagerHasNoTeam('team_id', 'QA Managers and QA Agents cover every team, so have no team')))
+      if (user.roles.some((role) => NO_TEAM_ROLES.includes(role))) {
+        return res(ctx.status(422), ctx.json(qaManagerHasNoTeam('team_id', NO_TEAM_MESSAGE)))
       }
       if (!MOCK_TEAMS.some((team) => team.id === body.team_id)) {
         return res(ctx.status(404), ctx.json(authErrorBody('team not found', 'team.not_found')))
@@ -3279,14 +3485,16 @@ export const handlers = [
     const read = await mockPolicyLookup(form.file, null)
     if ('problem' in read) return res(ctx.status(422), ctx.json(policyFileProblem(read.problem)))
 
-    const sales = read.lookup.matches.map((sale) => sale.interaction_id)
+    // A sale made after the month cannot have been paid in it.
+    const kept = read.lookup.matches.filter((sale) => sale.sold_at.slice(0, 7) <= month)
+    const sales = kept.map((sale) => sale.interaction_id)
     const upload = {
       id: `paid-upload-${mockPaidUploads.length + 1}`,
       month: `${month}-01`,
       file_name: form.file?.name ?? 'upload',
       rows: read.lookup.summary.rows,
       matched: sales.length,
-      newly_paid: read.lookup.matches.filter((sale) => sale.paid_month === null).length,
+      newly_paid: kept.filter((sale) => sale.paid_month === null).length,
       uploaded_by: actor.name,
       uploaded_at: new Date().toISOString(),
       undone_at: null,
@@ -3319,6 +3527,84 @@ export const handlers = [
       }
     }
     return res(ctx.status(200), ctx.json(found.upload))
+  }),
+
+  rest.get('/retention/pending', (req, res, ctx) => {
+    const refused = retentionRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const limit = Number(req.url.searchParams.get('limit') ?? 20)
+    const offset = Number(req.url.searchParams.get('offset') ?? 0)
+    const pending = MOCK_POLICY_SALES.map(retentionSale)
+      .filter((sale) => sale.status === 'pending')
+      .sort((a, b) => (a.status_at ?? '').localeCompare(b.status_at ?? ''))
+    return res(
+      ctx.status(200),
+      ctx.json({ items: pending.slice(offset, offset + limit), total: pending.length, limit, offset })
+    )
+  }),
+
+  rest.get('/retention/sales', (req, res, ctx) => {
+    const refused = retentionRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const number = req.url.searchParams.get('policy_number') ?? ''
+    const sale = saleWithNumber(number)
+    return res(ctx.status(200), ctx.json({ items: sale ? [retentionSale(sale)] : [] }))
+  }),
+
+  rest.get('/retention/sales/:interactionId', (req, res, ctx) => {
+    const refused = retentionRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const sale = MOCK_POLICY_SALES.find((row) => row.interaction_id === req.params.interactionId)
+    if (!sale) {
+      return res(
+        ctx.status(404),
+        ctx.json(authErrorBody('no such sale with a policy number', 'interaction.not_found'))
+      )
+    }
+    return res(ctx.status(200), ctx.json(retentionDetail(sale)))
+  }),
+
+  rest.post('/retention/sales/:interactionId/status', async (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = retentionRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const sale = MOCK_POLICY_SALES.find((row) => row.interaction_id === req.params.interactionId)
+    if (!sale) {
+      return res(
+        ctx.status(404),
+        ctx.json(authErrorBody('no such sale with a policy number', 'interaction.not_found'))
+      )
+    }
+    const body = (await req.json()) as { status?: PolicyStatus; note?: string | null }
+    const note = (body.note ?? '').trim() || null
+    recordStatus(sale.interaction_id, sale.policy_number, body.status ?? 'pending', mockActor(authorization)!.name, { note })
+    return res(ctx.status(201), ctx.json(asEvent(mockStatusChanges[mockStatusChanges.length - 1])))
+  }),
+
+  rest.post('/retention/uploads/check', async (req, res, ctx) => {
+    const refused = retentionRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    // Deprecated, but req.body is MSW 1.x's only multipart reader.
+    const read = await mockStatusCheck((req.body as { file?: File }).file)
+    if ('problem' in read) return res(ctx.status(422), ctx.json(policyFileProblem(read.problem)))
+    return res(ctx.status(200), ctx.json(read.check))
+  }),
+
+  rest.post('/retention/uploads', async (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = retentionRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const file = (req.body as { file?: File }).file
+    const read = await mockStatusCheck(file)
+    if ('problem' in read) return res(ctx.status(422), ctx.json(policyFileProblem(read.problem)))
+    const actor = mockActor(authorization)!.name
+    for (const row of read.check.changes) {
+      // The cart's own spelling, as a change typed in keeps.
+      recordStatus(row.interaction_id, saleWithNumber(row.policy_number)!.policy_number, row.status, actor, {
+        fileName: file?.name ?? 'upload',
+      })
+    }
+    return res(ctx.status(201), ctx.json({ saved: read.check.changes.length }))
   }),
 
   rest.get('/reporting/live', (req, res, ctx) => {
@@ -4213,6 +4499,23 @@ export const handlers = [
     const fields = Object.entries(found)
       .filter(([, message]) => message)
       .map(([field, message]) => ({ field, in: 'body', message: message as string }))
+    // A policy number belongs to one sale, so to one cart, in any case.
+    const number = (body.policy_number ?? '').trim().toLowerCase()
+    const taken =
+      number &&
+      ([...MOCK_CARTS].some(
+        ([id, cart]) => id !== interactionId && cart.policy_number?.toLowerCase() === number
+      ) ||
+        MOCK_POLICY_SALES.some(
+          (sale) => sale.interaction_id !== interactionId && sale.policy_number.toLowerCase() === number
+        ))
+    if (taken && fields.length === 0) {
+      fields.push({
+        field: 'policy_number',
+        in: 'body',
+        message: 'this policy number is already on another sale; check the number',
+      })
+    }
     if (fields.length > 0) {
       return res(
         ctx.status(422),
