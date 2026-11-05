@@ -209,9 +209,11 @@ export function TeamStatsScreen() {
                 value={load.report.total.leads}
                 icon={<Contact strokeWidth={2} aria-hidden />}
               />
+              {/* Sold and conversion count different things, so each says which. */}
               <StatTile
                 label="Sold"
                 value={load.report.total.sold}
+                detail="of the leads added in these dates"
                 icon={<CircleDollarSign strokeWidth={2} aria-hidden />}
               />
               <StatTile
@@ -219,7 +221,7 @@ export function TeamStatsScreen() {
                 value={formatPercent(load.report.total.conversion_rate)}
                 detail={`${load.report.total.paid} paid of ${load.report.total.sales} ${
                   load.report.total.sales === 1 ? 'sale' : 'sales'
-                }`}
+                } made in these dates`}
                 icon={<TrendingUp strokeWidth={2} aria-hidden />}
               />
             </div>

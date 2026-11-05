@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from 'react'
 import { Alert } from '@/components/ui/Alert'
+import { Badge } from '@/components/ui/Badge'
 import { DataTable, type DataColumn } from '@/components/ui/DataTable'
 import { Select } from '@/components/ui/Select'
 import { AuthError } from '@/lib/auth'
 import { formatDateTime, formatMoney } from '@/lib/format'
 import { waitForMocking } from '@/lib/mockReady'
 import { formatMonth } from '@/lib/policies'
+import { POLICY_STATUS_LABEL, POLICY_STATUS_TONE } from '@/lib/retention'
 import { fetchSales, type DateRange, type SaleItem, type SalesReport } from '@/lib/reporting'
 import { withSession } from '@/lib/session'
 import { listUsers, type User } from '@/lib/users'
@@ -50,6 +52,18 @@ const COLUMNS: DataColumn<SaleItem>[] = [
     render: (sale) =>
       sale.paid_month ? (
         <span className="whitespace-nowrap">{formatMonth(sale.paid_month, 'short')}</span>
+      ) : (
+        '-'
+      ),
+  },
+  {
+    id: 'policy_status',
+    header: 'Policy status',
+    render: (sale) =>
+      sale.policy_status ? (
+        <Badge tone={POLICY_STATUS_TONE[sale.policy_status]}>
+          {POLICY_STATUS_LABEL[sale.policy_status]}
+        </Badge>
       ) : (
         '-'
       ),
