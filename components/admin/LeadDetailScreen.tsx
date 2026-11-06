@@ -591,6 +591,7 @@ export function LeadRecord({
 const BACK_FROM: Record<string, { href: string; label: string }> = {
   policies: { href: '/admin/policies', label: 'Back to Policy lookup' },
   callbacks: { href: '/admin/callbacks', label: 'Back to Callback requests' },
+  agents: { href: '/admin/agent-stats', label: 'Back to Agent stats' },
 }
 const REPORTS = { href: '/admin/reports', label: 'Back to Reports' }
 

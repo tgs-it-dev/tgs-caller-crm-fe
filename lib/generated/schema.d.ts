@@ -1010,6 +1010,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * This agent's figures for a day, a week or a month, in their time zone
+         * @description One row, the caller's, with the period's target.
+         *
+         *     Paid and conversion are a month's figures, null for a day or a week.
+         */
+        get: operations["my_stats_me_stats_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/stats/sales": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The closer's own sales behind their Sold, Paid or Cancelled figure
+         * @description Newest first, with each sale's policy number, status, paid month, QA score and
+         *     QA notes, and no amounts. Paid is for a month only.
+         */
+        get: operations["my_sales_me_stats_sales_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me/stats/today": {
         parameters: {
             query?: never;
@@ -1337,6 +1380,95 @@ export interface paths {
          *     minutes. Cross-team ids read as not found.
          */
         patch: operations["resolve_exception_reconciliation_exceptions__exception_id__patch"];
+        trace?: never;
+    };
+    "/reporting/agents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Each agent's figures for a day, a week or a month
+         * @description Every fronter or closer on the team, by name, with the period's target.
+         *
+         *     Paid and conversion are a month's figures, null for a day or a week. An
+         *     inactive agent is listed only with figures. Nothing here is an amount, so a
+         *     Team Admin sees it all, for their own team only.
+         */
+        get: operations["agent_figures_reporting_agents_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reporting/agents/{user_id}/leads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The leads one agent worked in a day, a week or a month
+         * @description Newest first, one row per lead. A fronter's are the leads they gave an outcome
+         *     in the period; a closer's, the leads whose call they took in it. A Team Admin sees
+         *     their own team's leads only.
+         */
+        get: operations["agent_lead_list_reporting_agents__user_id__leads_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reporting/agents/{user_id}/sales": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The sales behind one agent's Sold, Paid or Cancelled figure
+         * @description Newest first. A closer's are the sales they recorded; a fronter's, the sales on
+         *     calls they handed over. Paid is for a month only. A Team Admin sees the sales on
+         *     their own team's leads, without amounts.
+         */
+        get: operations["agent_sale_list_reporting_agents__user_id__sales_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reporting/agents/{user_id}/targets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set an agent's daily, weekly and monthly targets
+         * @description Qualifications for a fronter, sales for a closer. All three are sent each time,
+         *     and a blank one clears that target. A Team Admin sets their own team's.
+         */
+        put: operations["set_agent_targets_reporting_agents__user_id__targets_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/reporting/funnel": {
@@ -1831,6 +1963,39 @@ export interface components {
             /** Token */
             token: string;
         };
+        /**
+         * AgentLeadItem
+         * @description A lead the agent worked in the period, newest first.
+         */
+        AgentLeadItem: {
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
+            /** Lead Name */
+            lead_name: string;
+            /** Lead Phone */
+            lead_phone: string;
+            /** Outcome */
+            outcome: string | null;
+            /**
+             * Worked At
+             * Format: date-time
+             */
+            worked_at: string;
+        };
+        /** AgentLeadListResponse */
+        AgentLeadListResponse: {
+            /** Items */
+            items: components["schemas"]["AgentLeadItem"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
         /** AgentLiveStatus */
         AgentLiveStatus: {
             /** Current Interaction Id */
@@ -1859,6 +2024,120 @@ export interface components {
              * Format: uuid
              */
             user_id: string;
+        };
+        /**
+         * AgentSaleItem
+         * @description One of the agent's sales. Amounts are null unless a Super Admin is asking.
+         */
+        AgentSaleItem: {
+            /** Closer Name */
+            closer_name: string;
+            /** Down Payment */
+            down_payment: string | null;
+            /**
+             * Interaction Id
+             * Format: uuid
+             */
+            interaction_id: string;
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
+            /** Lead Name */
+            lead_name: string;
+            /** Monthly Payment */
+            monthly_payment: string | null;
+            /** Paid Month */
+            paid_month: string | null;
+            /** Policy Number */
+            policy_number: string | null;
+            /** Policy Status */
+            policy_status: ("cancelled" | "retained" | "pending") | null;
+            /** Qa Note */
+            qa_note: string | null;
+            /** Qa Score */
+            qa_score: number | null;
+            /**
+             * Sold At
+             * Format: date-time
+             */
+            sold_at: string;
+            /** Total Payment */
+            total_payment: string | null;
+        };
+        /** AgentSaleListResponse */
+        AgentSaleListResponse: {
+            /** Items */
+            items: components["schemas"]["AgentSaleItem"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
+        /** AgentStats */
+        AgentStats: {
+            /** Active */
+            active: boolean;
+            closer: components["schemas"]["CloserFigures"] | null;
+            fronter: components["schemas"]["FronterFigures"] | null;
+            /** Name */
+            name: string;
+            /**
+             * Stage
+             * @enum {string}
+             */
+            stage: "fronter" | "closer";
+            targets: components["schemas"]["AgentTargets"];
+            /** Team Id */
+            team_id: string | null;
+            /** Team Name */
+            team_name: string | null;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+        };
+        /**
+         * AgentStatsResponse
+         * @description Each agent's figures for the day, the Monday-to-Sunday week or the month holding ``date``.
+         */
+        AgentStatsResponse: {
+            /** Agents */
+            agents: components["schemas"]["AgentStats"][];
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /**
+             * Period
+             * @enum {string}
+             */
+            period: "today" | "week" | "month";
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /** Timezone */
+            timezone: string;
+        };
+        /**
+         * AgentTargets
+         * @description An agent's standing targets in one role: qualifications for a fronter, sales for a
+         *     closer. Null is no target for that period.
+         */
+        AgentTargets: {
+            /** Daily */
+            daily: number | null;
+            /** Monthly */
+            monthly: number | null;
+            /** Weekly */
+            weekly: number | null;
         };
         /**
          * AssignCampaignTeamsRequest
@@ -2255,6 +2534,28 @@ export interface components {
             /** Transfer Id */
             transfer_id: string | null;
         };
+        /**
+         * CloserFigures
+         * @description The sales a closer made in the period, Own Sales included, and those paid in it.
+         */
+        CloserFigures: {
+            /** Average Qa Score */
+            average_qa_score: number | null;
+            /** Cancelled */
+            cancelled: number;
+            /** Conversion Rate */
+            conversion_rate: number | null;
+            /** Paid */
+            paid: number | null;
+            /** Pending */
+            pending: number;
+            /** Retained */
+            retained: number;
+            /** Sold */
+            sold: number;
+            /** Target */
+            target: number | null;
+        };
         /** CloserQueueItem */
         CloserQueueItem: {
             /** Fronter User Id */
@@ -2478,6 +2779,22 @@ export interface components {
             lead_name: string;
             /** Lead Phone */
             lead_phone: string;
+        };
+        /**
+         * FronterFigures
+         * @description A fronter's calls in the period, each by its latest fronter outcome, which they recorded.
+         */
+        FronterFigures: {
+            /** Callbacks */
+            callbacks: number;
+            /** Paid */
+            paid: number | null;
+            /** Qualifications */
+            qualifications: number;
+            /** Target */
+            target: number | null;
+            /** Transfers */
+            transfers: number;
         };
         /** FunnelCounts */
         FunnelCounts: {
@@ -4237,6 +4554,23 @@ export interface components {
             monthly_payment: string;
             /** Total Payment */
             total_payment: string;
+        };
+        /**
+         * SetAgentTargetsRequest
+         * @description All three at once; a blank one clears that target.
+         */
+        SetAgentTargetsRequest: {
+            /** Daily */
+            daily?: number | null;
+            /** Monthly */
+            monthly?: number | null;
+            /**
+             * Stage
+             * @enum {string}
+             */
+            stage: "fronter" | "closer";
+            /** Weekly */
+            weekly?: number | null;
         };
         /**
          * SetUserPasswordRequest
@@ -6857,6 +7191,97 @@ export interface operations {
             };
         };
     };
+    my_stats_me_stats_get: {
+        parameters: {
+            query?: {
+                /** @description The day, the Monday-to-Sunday week or the month holding date. */
+                period?: "today" | "week" | "month";
+                /** @description Any day in the period, never after today. Today, in the caller's own time zone, when left out. */
+                date?: string | null;
+                /** @description Fronter or closer figures. Required when the caller holds both. */
+                stage?: ("fronter" | "closer") | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentStatsResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    my_sales_me_stats_sales_get: {
+        parameters: {
+            query: {
+                kind: "sold" | "paid" | "cancelled";
+                /** @description The day, the Monday-to-Sunday week or the month holding date. */
+                period?: "today" | "week" | "month";
+                /** @description Any day in the period, never after today. Today, in the caller's own time zone, when left out. */
+                date?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSaleListResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     stats_today_me_stats_today_get: {
         parameters: {
             query?: {
@@ -7460,6 +7885,198 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReconciliationExceptionItem"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    agent_figures_reporting_agents_get: {
+        parameters: {
+            query: {
+                /** @description Fronter or closer figures: one user can be both. */
+                stage: "fronter" | "closer";
+                /** @description The day, the Monday-to-Sunday week or the month holding date. */
+                period?: "today" | "week" | "month";
+                /** @description Any day in the period, never after today. Today, in the caller's own time zone, when left out. */
+                date?: string | null;
+                /** @description A Super Admin names one team, or leaves it out for the whole company. Anyone else always gets their own team; naming another is refused with 403 team.forbidden. */
+                team_id?: string | null;
+                /** @description Only this agent's row. */
+                agent_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentStatsResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    agent_lead_list_reporting_agents__user_id__leads_get: {
+        parameters: {
+            query: {
+                /** @description Fronter or closer figures: one user can be both. */
+                stage: "fronter" | "closer";
+                /** @description The day, the Monday-to-Sunday week or the month holding date. */
+                period?: "today" | "week" | "month";
+                /** @description Any day in the period, never after today. Today, in the caller's own time zone, when left out. */
+                date?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentLeadListResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    agent_sale_list_reporting_agents__user_id__sales_get: {
+        parameters: {
+            query: {
+                /** @description Fronter or closer figures: one user can be both. */
+                stage: "fronter" | "closer";
+                kind: "sold" | "paid" | "cancelled";
+                /** @description The day, the Monday-to-Sunday week or the month holding date. */
+                period?: "today" | "week" | "month";
+                /** @description Any day in the period, never after today. Today, in the caller's own time zone, when left out. */
+                date?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSaleListResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    set_agent_targets_reporting_agents__user_id__targets_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetAgentTargetsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentTargets"];
                 };
             };
             /** @description Client Error */
