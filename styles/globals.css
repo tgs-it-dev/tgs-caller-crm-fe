@@ -44,6 +44,41 @@ html, body, #__next {
   height: 100%;
 }
 
+/*
+ * CopyGuard sets data-copy-guard on <html> for everyone but a Super Admin, so page
+ * text can't be selected. Fields stay selectable: correcting what was typed needs
+ * it, and iOS Safari can't type into a field that isn't.
+ */
+[data-copy-guard] body {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+[data-copy-guard] input,
+[data-copy-guard] textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/*
+ * ScreenGuard sets data-screen-blur on <html>. An overlay rather than a filter on
+ * the page, which would move every position: fixed element. Above MUI's dialogs,
+ * menus and tooltips; clicks pass through it.
+ */
+.screen-guard-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+[data-screen-blur] .screen-guard-overlay {
+  display: block;
+}
+
 /* Keep decorative stroke icons square — flex rows can squash SVG height. */
 svg[aria-hidden="true"] {
   aspect-ratio: 1 / 1;

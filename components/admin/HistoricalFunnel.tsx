@@ -132,7 +132,7 @@ export function HistoricalFunnel() {
         <section className="rounded-xl border-hairline border-slate bg-white p-5">
           <header className="mb-5 flex flex-wrap items-start justify-between gap-4 border-b-hairline border-light-grey pb-4">
             <div>
-              <h2 className="text-lg font-medium leading-[120%] text-ink">Conversion funnel</h2>
+              <h2 className="text-lg font-medium leading-[120%] text-ink">Lead funnel</h2>
               {load.status === 'ready' && (
                 // The window and zone the figures on screen came back for.
                 <p className="mt-1 text-sm leading-[120%] text-slate">

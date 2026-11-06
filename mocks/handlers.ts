@@ -1,11 +1,19 @@
 import { rest } from 'msw'
 import type { FieldError } from '../lib/apiError'
 import { roleSatisfies, type Role } from '../lib/auth'
+import type { CallbackRequestItem, FronterDetails } from '../lib/callbacks'
 import { CLOSER_DESK_SEEDS } from '../lib/closer'
 import type { ReconciliationException } from '../lib/exceptions'
 import type { CallLeg, InteractionEvent, InteractionTransfer } from '../lib/interactionDetail'
 import type { InteractionDetailResponse } from '../lib/interactions'
 import type { LeadBulkRow, LeadHistory, LeadHistoryEvent, LeadResponse } from '../lib/leads'
+import type { PaidUpload, PolicyLookup } from '../lib/policies'
+import type {
+  RetentionSale,
+  RetentionSaleDetail,
+  RetentionStatusEvent,
+  RetentionUploadCheck,
+} from '../lib/retention'
 import type { QaAgent, QaHistoryEvent, QaItem, QaStatus, QaTeamSummary } from '../lib/qa'
 import { PUSH_INTERVAL_MS, type AgentStatus, type LiveStatus } from '../lib/liveStatus'
 import type { CloserCallbackEntry, CloserQueueEntry, FronterQueueEntry } from '../lib/queue'
@@ -21,6 +29,14 @@ import type {
   QualificationCustomer,
   QualificationResponse,
 } from '../lib/qualification'
+import type {
+  AgentLeadItem,
+  AgentPeriod,
+  AgentSaleItem,
+  AgentSaleKind,
+  AgentStats,
+  AgentTargets,
+} from '../lib/agentStats'
 import { BUSINESS_TIMEZONE, TIME_ZONES, type TimeZoneName } from '../lib/format'
 import type {
   FunnelLeadList,
@@ -32,6 +48,7 @@ import type {
   TeamStats,
   TeamStatsReport,
 } from '../lib/reporting'
+import { businessDay } from '../lib/reporting'
 import type {
   AvailableCloserItem,
   TransferCreateRequest,
@@ -172,11 +189,13 @@ const MOCK_USERS: MockUser[] = [
   { id: '7', email: 'both@tgs.com', password: 'password1', name: 'Bea Both', roles: ['fronter', 'closer'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_WEST },
   // Company-wide admin — no team pin; inherits every Team Admin surface.
   { id: '8', email: 'super@tgs.com', password: 'password1', name: 'Sam Super', roles: ['super_admin'], active: true, created_at: SEEDED_AT, team_id: null },
-  // QA desk demos, matching the backend seed: the QA Manager oversees every team,
-  // so has none; the QA Lead and QA Agent work Default Team.
+  // QA desk demos, matching the backend seed: QA covers every team, so none has
+  // one. Leo was a QA Lead until that role was merged into QA Agent.
   { id: '9', email: 'quinn.qa@tgs.com', password: 'password1', name: 'Quinn QA', roles: ['qa_manager'], active: true, created_at: SEEDED_AT, team_id: null },
-  { id: '10', email: 'aria.agent@tgs.com', password: 'password1', name: 'Aria Agent', roles: ['qa_agent'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_DEFAULT },
-  { id: '11', email: 'leo.lead@tgs.com', password: 'password1', name: 'Leo Lead', roles: ['qa_lead'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_DEFAULT },
+  { id: '10', email: 'aria.agent@tgs.com', password: 'password1', name: 'Aria Agent', roles: ['qa_agent'], active: true, created_at: SEEDED_AT, team_id: null },
+  { id: '11', email: 'leo.lead@tgs.com', password: 'password1', name: 'Leo Lead', roles: ['qa_agent'], active: true, created_at: SEEDED_AT, team_id: null },
+  // Retention covers every team too.
+  { id: '12', email: 'rita.retention@tgs.com', password: 'password1', name: 'Rita Retention', roles: ['retention'], active: true, created_at: SEEDED_AT, team_id: null },
 ]
 
 const KNOWN_ROLES: Role[] = [
@@ -184,15 +203,18 @@ const KNOWN_ROLES: Role[] = [
   'closer',
   'administrator',
   'qa_manager',
-  'qa_lead',
   'qa_agent',
+  'retention',
   'super_admin',
 ]
 
 /** Dialer agents a Team Admin may manage (besides self). */
 const AGENT_ROLES: readonly Role[] = ['fronter', 'closer']
-/** QA staff a QA Manager may manage on any team (besides self). */
-const QA_STAFF_ROLES: readonly Role[] = ['qa_lead', 'qa_agent']
+/** QA staff a QA Manager may manage, on no team (besides self). */
+const QA_STAFF_ROLES: readonly Role[] = ['qa_agent']
+/** Company-wide roles besides Super Admin: no team, and fixed when the account is made. */
+const NO_TEAM_ROLES: readonly Role[] = ['qa_manager', 'qa_agent', 'retention']
+const NO_TEAM_MESSAGE = 'QA and Retention accounts cover every team, so have no team'
 
 type MockLink = { token: string; userId: string; purpose: 'invite' | 'reset'; state: 'live' | 'used' | 'superseded' | 'expired' }
 
@@ -504,12 +526,16 @@ function isManageableBy(actor: MockUser, target: MockUser): boolean {
   ) {
     return true
   }
-  return actor.roles.includes('qa_manager') && Boolean(target.team_id) && holdsOnly(target, QA_STAFF_ROLES)
+  return (
+    actor.roles.includes('qa_manager') &&
+    target.roles.includes('qa_agent') &&
+    holdsOnly(target, QA_STAFF_ROLES)
+  )
 }
 
 /**
  * 403 when the actor tries to grant above their ceiling, or a Team Admin onto
- * another team. A QA Manager grants on any team; the caller still needs one.
+ * another team. A QA Manager grants QA Agents, who have no team.
  */
 function grantCeilingRefusal(
   actor: MockUser,
@@ -579,6 +605,8 @@ function mockFunnel(
     qualified: total.qualified,
     transferred: total.transferred,
     sold: total.sold,
+    // Inside Sold: the sold leads a monthly upload has marked Paid so far.
+    paid: Math.round(total.sold * 0.6),
   }
 }
 
@@ -597,8 +625,10 @@ function mockTeamStats(
   const base = mockWindow(start, end, timezone)
   const withRate = (counts: Omit<TeamFigures, 'conversion_rate'>): TeamFigures => ({
     ...counts,
-    conversion_rate: counts.leads ? counts.sold / counts.leads : null,
+    conversion_rate: counts.sales ? counts.paid / counts.sales : null,
   })
+  // Paid counts on the 1st of its month, so dates that hold no 1st have none.
+  const holdsAFirst = start.endsWith('-01') || start.slice(0, 7) !== end.slice(0, 7)
 
   const teams: TeamStats[] = [...MOCK_TEAMS]
     .sort((a, b) => a.name.localeCompare(b.name))
@@ -608,6 +638,7 @@ function mockTeamStats(
       const leads = team.active ? Math.round(base.leads / (index + 2)) : 0
       const qualified = Math.round(leads * 0.3)
       const transferred = Math.round(qualified * 0.6)
+      const sales = Math.round(transferred * 0.55)
       const counts = {
         leads,
         no_answer: Math.round(leads * 0.35),
@@ -615,6 +646,9 @@ function mockTeamStats(
         qualified,
         transferred,
         sold: Math.round(transferred * 0.5),
+        sales,
+        // One team's old sales paid now outnumber its new ones, as the API allows.
+        paid: holdsAFirst ? Math.round(sales * [1.08, 0.82, 0.64][index % 3]) : 0,
       }
       return [{ team_id: team.id, team_name: team.name, ...withRate(counts) }]
     })
@@ -628,6 +662,8 @@ function mockTeamStats(
     qualified: sum((row) => row.qualified),
     transferred: sum((row) => row.transferred),
     sold: sum((row) => row.sold),
+    sales: sum((row) => row.sales),
+    paid: sum((row) => row.paid),
   })
 
   return { start: base.start, end: base.end, timezone: base.timezone, teams, total }
@@ -668,6 +704,11 @@ function mockSales(
   })
   const days = Math.max(1, Math.round((Date.parse(end) - Date.parse(start)) / 86_400_000) + 1)
 
+  const thisMonth = new Date().toISOString().slice(0, 7)
+  const monthAfter = (day: string) => {
+    const [year, month] = day.split('-').map(Number)
+    return new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10)
+  }
   const made: SaleItem[] = []
   for (let day = days - 1; day >= 0; day--) {
     const date = new Date(Date.parse(start) + day * 86_400_000).toISOString().slice(0, 10)
@@ -693,6 +734,10 @@ function mockSales(
         total_payment: carted ? total.toFixed(2) : null,
         down_payment: carted ? down.toFixed(2) : null,
         monthly_payment: carted ? ((total - down) / 24).toFixed(2) : null,
+        // Most sales from before this month were paid the month after they were made.
+        paid_month:
+          carted && date.slice(0, 7) < thisMonth && seed % 4 !== 0 ? monthAfter(date) : null,
+        policy_status: null,
       })
     }
   }
@@ -725,7 +770,252 @@ function mockSales(
 }
 
 /** How far the nth newest lead of a funnel got. The newest are the furthest along. */
+// Agent stats: each agent's figures worked out from who they are and the period,
+// so the same period always answers the same figures and another visibly moves them.
+const MOCK_AGENT_TARGETS = new Map<string, AgentTargets>()
+const NO_MOCK_TARGETS: AgentTargets = { daily: null, weekly: null, monthly: null }
+const MOCK_AGENT_PERIODS: readonly AgentPeriod[] = ['today', 'week', 'month']
+const MOCK_TARGET_MAX = 100_000
+
+type MockAgentWindow = { period: AgentPeriod; start: string; end: string; timezone: string }
+
+function mockShiftDay(day: string, by: number): string {
+  const date = new Date(`${day}T00:00:00Z`)
+  date.setUTCDate(date.getUTCDate() + by)
+  return date.toISOString().slice(0, 10)
+}
+
+/** The day, the Monday-to-Sunday week or the calendar month holding `day`, as the API reads it. */
+function mockPeriodWindow(period: AgentPeriod, day: string): { start: string; end: string } {
+  if (period === 'today') return { start: day, end: day }
+  if (period === 'week') {
+    const start = mockShiftDay(day, -((new Date(`${day}T00:00:00Z`).getUTCDay() + 6) % 7))
+    return { start, end: mockShiftDay(start, 6) }
+  }
+  const [year, month] = day.split('-').map(Number)
+  const start = `${day.slice(0, 7)}-01`
+  return { start, end: new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10) }
+}
+
+function mockFieldRefusal(
+  field: string,
+  message: string,
+  inWhere: 'query' | 'body' = 'query'
+): MockRefusal {
+  return {
+    status: 422,
+    body: authErrorBody(message, 'validation_error', [{ field, in: inWhere, message }]),
+  }
+}
+
+/** The period asked for, or what the API refuses: a day after today, or no such period. */
+function mockAgentWindow(
+  params: URLSearchParams,
+  actor: MockUser
+): { window: MockAgentWindow } | { refused: MockRefusal } {
+  const timezone = actor.timezone ?? MOCK_BUSINESS_TIMEZONE
+  const asked = params.get('period') ?? 'today'
+  if (!MOCK_AGENT_PERIODS.includes(asked as AgentPeriod)) {
+    return { refused: mockFieldRefusal('period', "Input should be 'today', 'week' or 'month'") }
+  }
+  const period = asked as AgentPeriod
+  const today = businessDay(new Date(), timezone)
+  const day = params.get('date') ?? today
+  if (day > today) {
+    const message = 'date must not be after today'
+    return {
+      refused: {
+        status: 422,
+        body: authErrorBody(message, 'reporting.window_out_of_range', [
+          { field: 'date', in: 'query', message },
+        ]),
+      },
+    }
+  }
+  return { window: { period, ...mockPeriodWindow(period, day), timezone } }
+}
+
+function mockAgentSeed(text: string): number {
+  return text.split('').reduce((sum, ch) => (sum * 31 + ch.charCodeAt(0)) % 9973, 7)
+}
+
+function mockAgentDays(window: MockAgentWindow): number {
+  return Math.round((Date.parse(window.end) - Date.parse(window.start)) / 86_400_000) + 1
+}
+
+/** One agent's figures. An inactive agent did nothing, so is listed only by name. */
+function mockAgentRow(user: MockUser, stage: 'fronter' | 'closer', window: MockAgentWindow): AgentStats {
+  const seed = mockAgentSeed(`${user.id}:${stage}:${window.start}`)
+  const days = mockAgentDays(window)
+  const worked = user.active ? 1 : 0
+  const monthly = window.period === 'month'
+  const targets = MOCK_AGENT_TARGETS.get(`${user.id}:${stage}`) ?? NO_MOCK_TARGETS
+  const target =
+    window.period === 'today'
+      ? targets.daily
+      : window.period === 'week'
+        ? targets.weekly
+        : targets.monthly
+  const team = MOCK_TEAMS.find((row) => row.id === user.team_id)
+  const base = {
+    user_id: user.id,
+    name: user.name,
+    active: user.active,
+    team_id: team?.id ?? null,
+    team_name: team?.name ?? null,
+    stage,
+    targets,
+  }
+  if (stage === 'fronter') {
+    const qualifications = worked * (days * 3 + (seed % 4))
+    return {
+      ...base,
+      fronter: {
+        qualifications,
+        transfers: Math.max(0, qualifications - (seed % 3)),
+        callbacks: worked * (days * 2 + (seed % 3)),
+        paid: monthly ? Math.floor(qualifications / 4) : null,
+        target,
+      },
+      closer: null,
+    }
+  }
+  const sold = worked * (days + (seed % 3))
+  const paid = monthly ? Math.round(sold * 0.6) : null
+  return {
+    ...base,
+    fronter: null,
+    closer: {
+      sold,
+      paid,
+      cancelled: Math.floor(sold / 6),
+      retained: Math.floor(sold / 3),
+      pending: Math.floor(sold / 4),
+      conversion_rate: paid !== null && sold ? paid / sold : null,
+      average_qa_score: sold ? 70 + (seed % 25) + 0.5 : null,
+      target,
+    },
+  }
+}
+
+function mockAgentCounted(row: AgentStats): boolean {
+  const figures = row.fronter ?? row.closer
+  return Object.entries(figures ?? {}).some(
+    ([name, value]) => name !== 'target' && name !== 'average_qa_score' && Boolean(value)
+  )
+}
+
+/** How many sales stand behind one of an agent's figures. */
+function mockAgentSaleCount(row: AgentStats, kind: AgentSaleKind): number {
+  const sold = row.closer?.sold ?? Math.floor((row.fronter?.qualifications ?? 0) / 3)
+  if (kind === 'cancelled') return row.closer?.cancelled ?? Math.floor(sold / 6)
+  if (kind === 'paid') return row.closer?.paid ?? row.fronter?.paid ?? 0
+  return sold
+}
+
+function mockAgentSales(
+  row: AgentStats,
+  window: MockAgentWindow,
+  kind: AgentSaleKind,
+  page: { limit: number; offset: number },
+  amounts: boolean
+) {
+  const count = mockAgentSaleCount(row, kind)
+  const statuses = [
+    ...Array(row.closer?.cancelled ?? 0).fill('cancelled'),
+    ...Array(row.closer?.retained ?? 0).fill('retained'),
+    ...Array(row.closer?.pending ?? 0).fill('pending'),
+  ]
+  const opens = Date.parse(`${window.start}T15:00:00Z`)
+  const items: AgentSaleItem[] = Array.from({ length: count }, (_, n) => {
+    const nth = mockAgentSeed(`${row.user_id}:${kind}`) + n
+    return {
+      lead_id: `mock-agent-lead-${row.user_id}-${nth}`,
+      interaction_id: `mock-agent-sale-${row.user_id}-${kind}-${window.start}-${n}`,
+      lead_name: mockLeadName(nth),
+      closer_name: row.stage === 'closer' ? row.name : 'Carl Closer',
+      sold_at: new Date(opens + (count - n) * 3_600_000).toISOString(),
+      policy_number: n % 5 === 4 ? null : `POL-${String(10_000 + nth).slice(-5)}`,
+      policy_status:
+        kind === 'cancelled' ? 'cancelled' : ((statuses[n] as AgentSaleItem['policy_status']) ?? null),
+      paid_month: kind === 'paid' ? window.start.slice(0, 8) + '01' : null,
+      qa_score: n % 3 === 2 ? null : 60 + (nth % 40),
+      qa_note:
+        n % 3 === 2 ? null : n % 2 === 0 ? 'Clean call, every disclosure read.' : 'Rushed the price.',
+      total_payment: amounts ? '2400.00' : null,
+      down_payment: amounts ? '400.00' : null,
+      monthly_payment: amounts ? '100.00' : null,
+    }
+  })
+  return {
+    items: items.slice(page.offset, page.offset + page.limit),
+    total: items.length,
+    ...page,
+  }
+}
+
+/** The leads an agent worked: ids the lead views open, on the agent's own team. */
+function mockAgentLeads(row: AgentStats, window: MockAgentWindow, page: { limit: number; offset: number }) {
+  const label = (id: string) => MOCK_DISPOSITION_CATALOG.find((entry) => entry.id === id)?.label ?? null
+  const done = row.fronter
+    ? row.fronter.qualifications + row.fronter.callbacks
+    : (row.closer?.sold ?? 0) + 2
+  const opens = Date.parse(`${window.start}T14:00:00Z`)
+  const items: AgentLeadItem[] = Array.from({ length: done }, (_, n) => {
+    const nth = mockAgentSeed(`${row.user_id}:leads`) + n
+    const sold = row.closer ? n < row.closer.sold : false
+    const qualified = row.fronter ? n < row.fronter.qualifications : false
+    const stage: FunnelStage = sold ? 'sold' : qualified || row.closer ? 'transferred' : 'leads'
+    const addedAt = opens + (done - n) * 3_600_000
+    return {
+      lead_id: mockLeadId(stage, nth, addedAt, row.team_id ?? MOCK_TEAM_ID),
+      lead_name: mockLeadName(nth),
+      lead_phone: mockLeadPhone(nth),
+      outcome: row.fronter
+        ? label(qualified ? 'disp-fronter-qualified' : 'disp-fronter-callback')
+        : sold
+          ? label('disp-closer-sale')
+          : null,
+      worked_at: new Date(addedAt + 30 * 60_000).toISOString(),
+    }
+  })
+  return { items: items.slice(page.offset, page.offset + page.limit), total: items.length, ...page }
+}
+
+/** The agent an admin asked about, when they may see them; the API's 404 otherwise. */
+function mockScopedAgent(
+  authorization: string | null,
+  userId: string
+): { refused: MockRefusal } | { agent: MockUser; actor: MockUser } {
+  const actor = mockActor(authorization)
+  const agent = MOCK_USERS.find((row) => row.id === userId)
+  if (!agent || !actor || (!actor.roles.includes('super_admin') && agent.team_id !== actor.team_id)) {
+    return { refused: { status: 404, body: authErrorBody('user not found', 'user.not_found') } }
+  }
+  return { agent, actor }
+}
+
+function mockAgentStage(params: URLSearchParams): 'fronter' | 'closer' | null {
+  const stage = params.get('stage')
+  return stage === 'fronter' || stage === 'closer' ? stage : null
+}
+
+function mockAgentPage(params: URLSearchParams) {
+  return { limit: Number(params.get('limit') ?? 50), offset: Number(params.get('offset') ?? 0) }
+}
+
+function mockSaleKind(params: URLSearchParams): AgentSaleKind | null {
+  const kind = params.get('kind')
+  return kind === 'sold' || kind === 'paid' || kind === 'cancelled' ? kind : null
+}
+
+const MOCK_PAID_NEEDS_MONTH = mockFieldRefusal(
+  'kind',
+  'Paid is counted by month, so its sales are listed for a month only'
+)
+
 function mockReached(funnel: HistoricalFunnel, nth: number): FunnelStage {
+  if (nth < funnel.paid) return 'paid'
   if (nth < funnel.sold) return 'sold'
   if (nth < funnel.transferred) return 'transferred'
   if (nth < funnel.qualified) return 'qualified'
@@ -750,7 +1040,9 @@ function mockLeadId(stage: FunnelStage, nth: number, addedAt: number, teamId: st
 function mockLeadOutcomes(reached: FunnelStage, nth: number) {
   const label = (id: string) => MOCK_DISPOSITION_CATALOG.find((row) => row.id === id)?.label ?? null
   const handedOver = label('disp-fronter-qualified')
-  if (reached === 'sold') return { fronter_outcome: handedOver, closer_outcome: label('disp-closer-sale') }
+  if (reached === 'sold' || reached === 'paid') {
+    return { fronter_outcome: handedOver, closer_outcome: label('disp-closer-sale') }
+  }
   if (reached === 'transferred') {
     return {
       // Called back after the handoff, which doesn't undo it.
@@ -908,7 +1200,7 @@ function mockLeadWorker(authorization: string | null) {
   return { teamId: actor.roles.includes('super_admin') ? null : (actor.team_id ?? 'no-team') }
 }
 
-const MOCK_STAGE_ORDER: FunnelStage[] = ['leads', 'qualified', 'transferred', 'sold']
+const MOCK_STAGE_ORDER: FunnelStage[] = ['leads', 'qualified', 'transferred', 'sold', 'paid']
 
 /**
  * Everything behind a lead from a mock funnel list. It reaches the stage its id
@@ -916,7 +1208,9 @@ const MOCK_STAGE_ORDER: FunnelStage[] = ['leads', 'qualified', 'transferred', 's
  * cart saves; its latest outcomes match its row in the list.
  */
 function mockLeadHistory(leadId: string): LeadHistory | null {
-  const parsed = /^mock-lead-(leads|qualified|transferred|sold)-(\d+)-(\d+)-(.+)$/.exec(leadId)
+  const parsed = /^mock-lead-(leads|qualified|transferred|sold|paid)-(\d+)-(\d+)-(.+)$/.exec(
+    leadId
+  )
   const team = parsed && MOCK_TEAMS.find((row) => row.id === parsed[4])
   if (!parsed || !team) return null
   const reached = parsed[1] as FunnelStage
@@ -954,7 +1248,7 @@ function mockLeadHistory(leadId: string): LeadHistory | null {
       kind: 'fronter_outcome',
       at: at(12),
       actor_name: fronter,
-      outcome: 'Qualified - Transferred',
+      outcome: 'Transferred',
       version: 2,
       previous_outcome: 'Callback',
     })
@@ -967,7 +1261,11 @@ function mockLeadHistory(leadId: string): LeadHistory | null {
     onCall(1, { kind: 'transfer_accepted', at: at(18), actor_name: closer })
   }
   const policy = `POL-${String(10_000 + nth).slice(-5)}`
-  if (depth === 3) {
+  // An upload made in mock mode decides, then a lead the funnel listed as paid.
+  const paidMonth =
+    mockPaidMonth(`${leadId}-call-1`) ??
+    (reached === 'paid' ? `${new Date(addedAt).toISOString().slice(0, 7)}-01` : null)
+  if (depth >= 3) {
     onCall(1, {
       kind: 'cart_saved',
       at: at(28),
@@ -1020,7 +1318,7 @@ function mockLeadHistory(leadId: string): LeadHistory | null {
       added_by_name: fronter,
     },
     status: {
-      stage: reached,
+      stage: depth >= 3 && paidMonth ? 'paid' : reached === 'paid' ? 'sold' : reached,
       calls: calledBack ? 2 : events.some((event) => event.call) ? 1 : 0,
       latest_fronter: latestFronter,
       latest_closer: last('closer_outcome'),
@@ -1041,7 +1339,7 @@ function mockLeadHistory(leadId: string): LeadHistory | null {
           }
         : null,
     carts:
-      depth === 3
+      depth >= 3
         ? [
             {
               interaction_id: `${leadId}-call-1`,
@@ -1054,6 +1352,8 @@ function mockLeadHistory(leadId: string): LeadHistory | null {
               monthly_payment: '83.33',
               saved_by: closer,
               saved_at: at(30),
+              paid_month: paidMonth,
+              policy_status: mockCurrentStatus(`${leadId}-call-1`)?.status ?? null,
             },
           ]
         : [],
@@ -1134,7 +1434,12 @@ const MOCK_LEADS: Record<string, LeadResponse> = {
   },
 }
 
-const MOCK_INTERACTIONS: Record<string, InteractionDetailResponse> = {
+/** `own_sale_closer_id`: the closer who started the call on Own Sale, with no transfer. */
+type MockInteraction = Omit<InteractionDetailResponse, 'own_sale'> & {
+  own_sale_closer_id?: string
+}
+
+const MOCK_INTERACTIONS: Record<string, MockInteraction> = {
   'int-1001': {
     id: 'int-1001',
     lead_id: 'lead-1',
@@ -1183,7 +1488,10 @@ function synthesizeLead(interactionId: string): LeadResponse {
 
 function interactionDetail(interactionId: string): InteractionDetailResponse | null {
   const known = MOCK_INTERACTIONS[interactionId]
-  if (known) return known
+  if (known) {
+    const { own_sale_closer_id: ownSaleCloser, ...detail } = known
+    return { ...detail, own_sale: Boolean(ownSaleCloser) }
+  }
   // Queue rows and unknown workspace ids still need a usable Active Call shell.
   if (!interactionId) return null
   const lead = synthesizeLead(interactionId)
@@ -1193,6 +1501,7 @@ function interactionDetail(interactionId: string): InteractionDetailResponse | n
     created_at: new Date(Date.now() - 3 * 60 * 1000).toISOString(),
     updated_at: new Date().toISOString(),
     qualification: null,
+    own_sale: false,
   }
 }
 
@@ -1262,7 +1571,10 @@ const MOCK_FRONTER_CALLBACKS: FronterQueueEntry[] = Array.from({ length: 6 }, (_
   }
 })
 
-const MOCK_CLOSER_QUEUE: CloserQueueEntry[] = Array.from({ length: 12 }, (_, index) => ({
+// Transfers only: an Own Sale row comes from the calls closers start.
+const MOCK_CLOSER_QUEUE: (Omit<CloserQueueEntry, 'status'> & {
+  status: 'initiated' | 'offered' | 'accepted'
+})[] = Array.from({ length: 12 }, (_, index) => ({
   id: `transfer-${3000 + index}`,
   interaction_id: `int-${1100 + index}`,
   lead_name: QUEUE_LEAD_NAMES[index % QUEUE_LEAD_NAMES.length],
@@ -1491,8 +1803,8 @@ let transferSeq = 0
 
 const MOCK_TRANSFERS = new Map<string, TransferResponse>()
 
-/** Shared by GET /transfers/closers and the POST /transfers availability gate. */
-const MOCK_AVAILABLE_CLOSERS: AvailableCloserItem[] = [
+/** Shared by GET /transfers/closers and the POST /transfers closer check. */
+const MOCK_AVAILABLE_CLOSERS: Omit<AvailableCloserItem, 'waiting'>[] = [
   {
     user_id: '5a1f0c3e-0001-4000-8000-000000000001',
     name: 'Carl Closer',
@@ -1620,6 +1932,8 @@ type MockDisposition = {
   counts_as_qualified: boolean
   /** Is this outcome a sale? It then needs a saved cart. */
   counts_as_sale: boolean
+  /** Kept for the calls that name it, but no longer offered to agents. */
+  retired?: boolean
 }
 
 type MockInteractionDisposition = {
@@ -1635,7 +1949,7 @@ type MockInteractionDisposition = {
 
 /**
  * Labels and flags mirror `tgs-caller-crm-be/scripts/seed.py`. Only
- * "Qualified - Transferred" carries either flag, because only that row is
+ * "Transferred" carries either flag, because only that row is
  * confirmed — the rest of the taxonomy is the client's to settle, and a mock
  * that guessed would let the UI through a state the real API refuses.
  *
@@ -1651,11 +1965,11 @@ const MOCK_DISPOSITION_CATALOG: MockDisposition[] = [
   { id: 'disp-closer-callback', label: 'Callback Scheduled', stage: 'closer', ...ENDS_THE_CALL },
   { id: 'disp-closer-not-interested', label: 'Not Qualified', stage: 'closer', ...ENDS_THE_CALL },
   { id: 'disp-closer-dnc', label: 'Do Not Call', stage: 'closer', ...ENDS_THE_CALL },
-  { id: 'disp-fronter-qualified', label: 'Qualified - Transferred', stage: 'fronter', ...HANDS_OVER },
-  { id: 'disp-fronter-not-interested', label: 'Not Interested', stage: 'fronter', ...ENDS_THE_CALL },
+  { id: 'disp-fronter-qualified', label: 'Transferred', stage: 'fronter', ...HANDS_OVER },
+  { id: 'disp-fronter-not-interested', label: 'Not Interested', stage: 'fronter', ...ENDS_THE_CALL, retired: true },
   { id: 'disp-fronter-callback', label: 'Callback', stage: 'fronter', ...ENDS_THE_CALL },
-  { id: 'disp-fronter-dnc', label: 'Do Not Call', stage: 'fronter', ...ENDS_THE_CALL },
-  { id: 'disp-fronter-invalid', label: 'Wrong Number', stage: 'fronter', ...ENDS_THE_CALL },
+  { id: 'disp-fronter-dnc', label: 'Do Not Call', stage: 'fronter', ...ENDS_THE_CALL, retired: true },
+  { id: 'disp-fronter-invalid', label: 'Wrong Number', stage: 'fronter', ...ENDS_THE_CALL, retired: true },
 ]
 
 const MOCK_INTERACTION_DISPOSITIONS = new Map<string, MockInteractionDisposition[]>()
@@ -1704,6 +2018,82 @@ let interactionDispositionSeq = 0
   ])
 })()
 
+type MockCallbackRequest = {
+  id: string
+  interaction_id: string
+  outcome_id: string
+  status: CallbackRequestItem['status']
+  requested_at: string
+  decided_by_name: string | null
+  decided_at: string | null
+}
+
+/** One per Callback Scheduled recorded by anyone but a Super Admin, as the API keeps them. */
+const MOCK_CALLBACK_REQUESTS: MockCallbackRequest[] = []
+let callbackRequestSeq = 0
+
+const CLOSED_MESSAGES = {
+  final: 'this call has its outcome and can no longer be changed',
+  waiting: "this callback is waiting for a Super Admin's approval",
+  rejected: 'a Super Admin rejected this callback',
+} as const
+
+/** Why the call is closed to its closer, from its latest closer outcome; a callback with no request counts as approved. */
+function mockStanding(interactionId: string): {
+  closed: keyof typeof CLOSED_MESSAGES | null
+  callback_status: CallbackRequestItem['status'] | null
+} {
+  const latest = (MOCK_INTERACTION_DISPOSITIONS.get(interactionId) ?? [])
+    .filter((row) => row.stage === 'closer')
+    .at(-1)
+  if (!latest) return { closed: null, callback_status: null }
+  const status = MOCK_CALLBACK_REQUESTS.find((row) => row.outcome_id === latest.id)?.status ?? null
+  if (latest.label !== 'Callback Scheduled') return { closed: 'final', callback_status: status }
+  const closed = status === 'pending' ? 'waiting' : status === 'rejected' ? 'rejected' : null
+  return { closed, callback_status: status }
+}
+
+function mockClosedRefusal(interactionId: string) {
+  const { closed } = mockStanding(interactionId)
+  return closed ? authErrorBody(CLOSED_MESSAGES[closed], 'interaction.locked') : null
+}
+
+/** A closer who is not also an admin: the one the lock applies to. */
+function closerOnly(user: MockUser): boolean {
+  return (
+    user.roles.includes('closer') &&
+    !user.roles.some((role) => role === 'administrator' || role === 'super_admin')
+  )
+}
+
+/** The call's closer: who accepted its transfer, or who started it as an Own Sale. */
+function acceptedCloser(interactionId: string): MockUser | undefined {
+  const ownSaleCloser = MOCK_INTERACTIONS[interactionId]?.own_sale_closer_id
+  if (ownSaleCloser) return MOCK_USERS.find((user) => user.id === ownSaleCloser)
+  const transfer = [...MOCK_TRANSFERS.values()].find(
+    (row) => row.interaction_id === interactionId && row.status === 'accepted'
+  )
+  return MOCK_USERS.find((user) => user.id === transfer?.closer_user_id)
+}
+
+function mockCallbackItem(request: MockCallbackRequest): CallbackRequestItem {
+  const lead = leadForInteraction(request.interaction_id)
+  const closer = acceptedCloser(request.interaction_id)
+  return {
+    id: request.id,
+    interaction_id: request.interaction_id,
+    lead_id: lead.id,
+    lead_name: [lead.first_name, lead.last_name].filter(Boolean).join(' ').trim() || lead.phone_no,
+    // Mock leads carry no team, so the closer's stands in for the lead's.
+    team_name: MOCK_TEAMS.find((team) => team.id === closer?.team_id)?.name ?? DEFAULT_TEAM_NAME,
+    closer_name: closer?.name ?? null,
+    requested_at: request.requested_at,
+    status: request.status,
+    decided_by_name: request.decided_by_name,
+    decided_at: request.decided_at,
+  }
+}
+
 /** Accepted calls whose latest closer outcome is Callback Scheduled, oldest first. */
 function mockCloserCallbacks(closerId: string | null): CloserCallbackEntry[] {
   const entries: CloserCallbackEntry[] = []
@@ -1727,9 +2117,158 @@ function mockCloserCallbacks(closerId: string | null): CloserCallbackEntry[] {
       closer_user_id: transfer.closer_user_id,
       closer_name: closer?.name ?? 'Closer',
       scheduled_at: latest.created_at,
+      // Waiting and rejected ones stay listed, so the closer sees where they stand.
+      callback_status: mockStanding(transfer.interaction_id).callback_status,
+    })
+  }
+  for (const call of Object.values(MOCK_INTERACTIONS)) {
+    const starter = call.own_sale_closer_id
+    if (!starter || (closerId !== null && starter !== closerId)) continue
+    const latest = (MOCK_INTERACTION_DISPOSITIONS.get(call.id) ?? [])
+      .filter((row) => row.stage === 'closer')
+      .at(-1)
+    if (latest?.label !== 'Callback Scheduled') continue
+    const lead = leadForInteraction(call.id)
+    const closer = MOCK_USERS.find((user) => user.id === starter)
+    entries.push({
+      interaction_id: call.id,
+      // Started on Own Sale: it opens by the call alone.
+      transfer_id: null,
+      lead_id: lead.id,
+      lead_name: [lead.first_name, lead.last_name].filter(Boolean).join(' ').trim() || lead.phone_no,
+      lead_phone: lead.phone_no,
+      team_name: MOCK_TEAMS.find((team) => team.id === closer?.team_id)?.name ?? DEFAULT_TEAM_NAME,
+      closer_user_id: starter,
+      closer_name: closer?.name ?? 'Closer',
+      scheduled_at: latest.created_at,
+      callback_status: mockStanding(call.id).callback_status,
     })
   }
   return entries.sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at))
+}
+
+/** Whether the closer has recorded an outcome on the call. */
+function closerFinished(interactionId: string): boolean {
+  return (MOCK_INTERACTION_DISPOSITIONS.get(interactionId) ?? []).some(
+    (row) => row.stage === 'closer'
+  )
+}
+
+/** Own Sale calls still waiting on their outcome. */
+function openOwnSaleCalls(): MockInteraction[] {
+  return Object.values(MOCK_INTERACTIONS).filter(
+    (call) => call.own_sale_closer_id && !closerFinished(call.id)
+  )
+}
+
+/** This closer's open Own Sale calls, as their queue lists them. */
+function mockOwnSaleRows(closerId: string | null): CloserQueueEntry[] {
+  return openOwnSaleCalls()
+    .filter((call) => call.own_sale_closer_id === closerId)
+    .map((call) => {
+      const lead = leadForInteraction(call.id)
+      return {
+        id: call.id,
+        interaction_id: call.id,
+        lead_name:
+          [lead.first_name, lead.last_name].filter(Boolean).join(' ').trim() || lead.phone_no,
+        lead_phone: lead.phone_no,
+        fronter_user_id: null,
+        queued_at: call.created_at,
+        status: 'own_sale' as const,
+      }
+    })
+}
+
+const OWN_SALE_BUSY = {
+  waiting: 'this customer is waiting in a transfer to a closer',
+  with_you: 'you already have this customer open in your Queue',
+  with_another: 'this customer is on a call with another closer',
+} as const
+
+/** How the lead is being worked, or null when nothing is in progress on it. */
+function mockOwnSaleBusy(leadId: string, closerId: string): keyof typeof OWN_SALE_BUSY | null {
+  const calls = new Set(
+    Object.values(MOCK_INTERACTIONS)
+      .filter((call) => call.lead_id === leadId)
+      .map((call) => call.id)
+  )
+  const transfers = [...MOCK_TRANSFERS.values()].filter((row) => calls.has(row.interaction_id))
+  const closers = new Set<string>()
+  for (const transfer of transfers) {
+    if (transfer.status === 'accepted' && transfer.closer_user_id && !closerFinished(transfer.interaction_id)) {
+      closers.add(transfer.closer_user_id)
+    }
+  }
+  for (const call of openOwnSaleCalls()) {
+    if (calls.has(call.id) && call.own_sale_closer_id) closers.add(call.own_sale_closer_id)
+  }
+  if (closers.has(closerId)) return 'with_you'
+  if (transfers.some((row) => row.status === 'initiated' || row.status === 'offered')) return 'waiting'
+  return closers.size > 0 ? 'with_another' : null
+}
+
+/** The Own Sale checks both routes share: the closer, their team, and the number. */
+function mockOwnSaleCheck(
+  authorization: string | null,
+  raw: string,
+  location: 'query' | 'body'
+):
+  | { refused: { status: number; body: ReturnType<typeof authErrorBody> } }
+  | { actor: MockUser; teamId: string; phone: string; lead: MockTeamLead | undefined } {
+  const actor = mockActor(authorization)
+  if (!actor) {
+    return {
+      refused: {
+        status: 401,
+        body: authErrorBody('Could not validate credentials', 'auth.not_authenticated'),
+      },
+    }
+  }
+  if (!actor.roles.includes('closer')) {
+    return {
+      refused: {
+        status: 403,
+        body: authErrorBody('Insufficient role for this operation', 'auth.forbidden'),
+      },
+    }
+  }
+  if (!actor.team_id) {
+    return {
+      refused: {
+        status: 422,
+        body: authErrorBody('a team membership is required', 'lead.team_required'),
+      },
+    }
+  }
+  const phone = mockNormalizePhone(raw)
+  if (!phone) {
+    return {
+      refused: {
+        status: 422,
+        body: authErrorBody(`not a usable phone number: '${raw}'`, 'lead.invalid_phone', [
+          { field: 'phone_no', in: location, message: 'not a usable phone number' },
+        ]),
+      },
+    }
+  }
+  if (MOCK_SUPPRESSED_PHONES.has(phone)) {
+    const detail = 'this phone number is on the company do-not-call list'
+    return {
+      refused: {
+        status: 422,
+        body: authErrorBody(detail, 'lead.phone_suppressed', [
+          { field: 'phone_no', in: location, message: detail },
+        ]),
+      },
+    }
+  }
+  const lead = teamLeadFor(actor.team_id, phone)
+  const busy = lead ? mockOwnSaleBusy(lead.id, actor.id) : null
+  if (busy) {
+    return { refused: { status: 409, body: authErrorBody(OWN_SALE_BUSY[busy], 'own_sale.lead_busy') } }
+  }
+  return { actor, teamId: actor.team_id, phone, lead }
 }
 
 /** FE-08 My Stats — `/me/stats/today` seed, keyed by actor user id. */
@@ -1745,13 +2284,7 @@ type MyStatsDispositionSeed = {
   counts_as_qualified: boolean
 }
 
-const MY_STATS_LABELS = [
-  'Qualified - Transferred',
-  'Not Interested',
-  'Callback',
-  'Do Not Call',
-  'Wrong Number',
-] as const
+const MY_STATS_LABELS = ['Transferred', 'Callback'] as const
 
 const CLOSER_STATS_LABELS = [
   'Sale',
@@ -1820,7 +2353,7 @@ function seedMyStatsForUser(
     stage === 'closer'
       ? dispositions.map((row) => row.interaction_id)
       : dispositions
-          .filter((row) => row.label === 'Qualified - Transferred')
+          .filter((row) => row.label === 'Transferred')
           .filter((_, i) => i % 2 === 0)
           .map((row) => row.interaction_id)
 
@@ -2107,25 +2640,31 @@ const MOCK_RAW_EVENTS: Record<string, InteractionEvent[]> = {
 })()
 
 /** Who may reach the QA routes at all; each route narrows it further. */
-const QA_ROLES: readonly Role[] = ['super_admin', 'qa_manager', 'qa_lead', 'qa_agent']
-const QA_OVERSEERS: readonly Role[] = ['super_admin', 'qa_manager', 'qa_lead']
-const QA_ASSIGNERS: readonly Role[] = ['super_admin', 'qa_lead']
+const QA_ROLES: readonly Role[] = ['super_admin', 'qa_manager', 'qa_agent']
+/** Who sees the counts and the agents, and hands sales out. */
+const QA_OVERSEERS: readonly Role[] = ['super_admin', 'qa_manager']
+/** Who moves a review: the agent closes or disputes it, a Super Admin resolves a dispute. */
+const QA_MOVERS: readonly Role[] = ['super_admin', 'qa_agent']
 
-/** Where each status may move next, as the API's flow allows. */
+/** Where each status may move next, as the API's flow allows. Closed and Resolve Dispute are final. */
 const MOCK_QA_MOVES: Record<QaStatus, QaStatus[]> = {
   open: ['disputed', 'closed'],
   disputed: ['resolve_dispute'],
-  resolve_dispute: ['closed'],
+  resolve_dispute: [],
   closed: [],
 }
 
-type MockQaItem = Omit<QaItem, 'team_name' | 'assignee_name'>
+/** The reviewer and when, which the API keeps on the item for the stats. */
+type MockQaItem = Omit<QaItem, 'team_name' | 'assignee_name'> & {
+  reviewed_by: string | null
+  reviewed_at: string | null
+}
 
 /**
  * Five sold calls per team, one every twelve hours. Each lead id is one
- * mockLeadHistory reads as sold, so a sale opens onto its full history. Aria
- * starts with two of Default Team's, one already disputed, and one of East
- * Coast's is closed, so every desk has something to show.
+ * mockLeadHistory reads as sold, so a sale opens onto its lead and cart. Aria
+ * starts with two of Default Team's, one already disputed, and has closed one of
+ * East Coast's, so every desk and the stats have something to show.
  */
 const MOCK_QA_ITEMS: MockQaItem[] = MOCK_TEAMS.flatMap((team, t) =>
   Array.from({ length: 5 }, (_, i): MockQaItem => {
@@ -2142,13 +2681,29 @@ const MOCK_QA_ITEMS: MockQaItem[] = MOCK_TEAMS.flatMap((team, t) =>
       closer_outcome_at: new Date(addedAt + 35 * 60_000).toISOString(),
       status: 'open',
       assignee_user_id: null,
+      score: null,
+      reviewed_by: null,
+      reviewed_at: null,
     }
   })
 )
+// Reviewed this morning, so Today's stats have figures.
+const REVIEWED_AT = new Date(Date.now() - 2 * 3_600_000).toISOString()
 MOCK_QA_ITEMS[0].assignee_user_id = '10'
-MOCK_QA_ITEMS[1].assignee_user_id = '10'
-MOCK_QA_ITEMS[1].status = 'disputed'
-MOCK_QA_ITEMS[7].status = 'closed'
+Object.assign(MOCK_QA_ITEMS[1], {
+  assignee_user_id: '10',
+  status: 'disputed',
+  score: 55,
+  reviewed_by: '10',
+  reviewed_at: REVIEWED_AT,
+})
+Object.assign(MOCK_QA_ITEMS[7], {
+  assignee_user_id: '10',
+  status: 'closed',
+  score: 92,
+  reviewed_by: '10',
+  reviewed_at: REVIEWED_AT,
+})
 
 /** Each sale's review, oldest first, as the API reads it back from the audit trail. */
 const MOCK_QA_HISTORY = new Map<string, QaHistoryEvent[]>()
@@ -2161,32 +2716,34 @@ function afterSale(item: MockQaItem, minutes: number) {
   return new Date(Date.parse(item.closer_outcome_at) + minutes * 60_000).toISOString()
 }
 
-for (const item of [MOCK_QA_ITEMS[0], MOCK_QA_ITEMS[1]]) {
+for (const item of [MOCK_QA_ITEMS[0], MOCK_QA_ITEMS[1], MOCK_QA_ITEMS[7]]) {
   recordQa(item.interaction_id, {
     kind: 'assigned',
     at: afterSale(item, 60),
-    actor_name: 'Leo Lead',
+    actor_name: 'Quinn QA',
     assignee_name: 'Aria Agent',
   })
 }
 recordQa(MOCK_QA_ITEMS[1].interaction_id, {
   kind: 'status_changed',
-  at: afterSale(MOCK_QA_ITEMS[1], 120),
+  at: REVIEWED_AT,
   actor_name: 'Aria Agent',
   previous_status: 'open',
   status: 'disputed',
   note: 'The monthly payment was never read back to the customer.',
+  score: 55,
 })
 recordQa(MOCK_QA_ITEMS[7].interaction_id, {
   kind: 'status_changed',
-  at: afterSale(MOCK_QA_ITEMS[7], 90),
-  actor_name: 'Sam Super',
+  at: REVIEWED_AT,
+  actor_name: 'Aria Agent',
   previous_status: 'open',
   status: 'closed',
   note: null,
+  score: 92,
 })
 
-function qaItemBody(item: MockQaItem): QaItem {
+function qaItemBody({ reviewed_by: _by, reviewed_at: _at, ...item }: MockQaItem): QaItem {
   return {
     ...item,
     team_name: MOCK_TEAMS.find((team) => team.id === item.team_id)?.name ?? '',
@@ -2208,33 +2765,25 @@ function qaActor(authorization: string | null, allowed: readonly Role[]): MockUs
   return user
 }
 
-const isRefusal = (value: MockUser | MockRefusal | { teams: string[] | null }): value is MockRefusal =>
+const isRefusal = (value: MockUser | MockRefusal): value is MockRefusal =>
   'status' in value && 'body' in value
 
-/** Every team (null) for a Super Admin or QA Manager, or the one they name; anyone else their own. */
-function mockQaScope(user: MockUser, requested: string | null): { teams: string[] | null } | MockRefusal {
-  if (user.roles.includes('super_admin') || user.roles.includes('qa_manager')) {
-    return { teams: requested ? [requested] : null }
-  }
-  const own = user.team_id ? [user.team_id] : []
-  if (requested && !own.includes(requested)) {
-    return { status: 403, body: authErrorBody('you can only see your own team', 'team.forbidden') }
-  }
-  return { teams: own }
-}
-
 function mockReviewsOwnOnly(user: MockUser): boolean {
-  return !user.roles.some((role) => role === 'super_admin' || role === 'qa_manager' || role === 'qa_lead')
+  return !user.roles.some((role) => role === 'super_admin' || role === 'qa_manager')
 }
 
-/** The sale, if this user may see it. */
+/** The sale, if this user may see it: an agent only their own, and only while open. */
 function mockQaItemFor(user: MockUser, interactionId: string): MockQaItem | null {
   const item = MOCK_QA_ITEMS.find((row) => row.interaction_id === interactionId)
-  const scope = mockQaScope(user, null)
-  if (!item || isRefusal(scope)) return null
-  if (scope.teams && !scope.teams.includes(item.team_id)) return null
-  if (mockReviewsOwnOnly(user) && item.assignee_user_id !== user.id) return null
+  if (!item) return null
+  if (mockReviewsOwnOnly(user) && (item.assignee_user_id !== user.id || item.status !== 'open')) {
+    return null
+  }
   return item
+}
+
+function qaInvalid(field: string, message: string) {
+  return authErrorBody(message, 'validation_error', [{ field, in: 'body', message }])
 }
 
 const QA_ITEM_NOT_FOUND = authErrorBody('no such sale to review', 'interaction.not_found')
@@ -2267,6 +2816,279 @@ const MOCK_POLICY_SALES = Array.from({ length: 30 }, (_, i) => {
 
 function policyFileProblem(message: string) {
   return authErrorBody(message, 'validation_error', [{ field: 'file', in: 'body', message }])
+}
+
+/** Paid uploads made in mock mode, oldest first: the order decides a sale's paid month. */
+const mockPaidUploads: { upload: PaidUpload; sales: string[] }[] = []
+
+/** The month of the earliest upload still standing that matched the sale, as the API reads it. */
+function mockPaidMonth(interactionId: string): string | null {
+  const first = mockPaidUploads.find(
+    ({ upload, sales }) => !upload.undone_at && sales.includes(interactionId)
+  )
+  return first?.upload.month ?? null
+}
+
+/**
+ * A policy list read the way the API reads it, and the mock sales behind it.
+ * `teams` limits it to a Team Admin's own, who never sees the amounts.
+ */
+async function mockPolicyLookup(
+  file: File | undefined,
+  teams: (string | null)[] | null
+): Promise<{ problem: string } | { lookup: PolicyLookup }> {
+  if (!(file instanceof File) || file.size === 0) return { problem: 'That file is empty.' }
+  if (file.size > 1_048_576) return { problem: 'Up to 1 MB.' }
+  const head = new Uint8Array(await file.slice(0, 2).arrayBuffer())
+  // An Excel workbook is a zip, which the mock does not unpack: it answers a sample.
+  const cells =
+    head[0] === 0x50 && head[1] === 0x4b
+      ? ['Policy number', 'POL-10001', 'POL-10004', 'POL-99999']
+      : (await file.text())
+          .replace(/^\uFEFF/, '')
+          .split(/\r?\n/)
+          .map((line) => (line.split(',')[0] ?? '').trim())
+
+  const lookup: PolicyLookup = {
+    matches: [],
+    unmatched: [],
+    skipped: [],
+    summary: { rows: 0, matched: 0, unmatched: 0, skipped: 0 },
+  }
+  const firstRowOf = new Map<string, number>()
+  let read = 0
+  cells.forEach((value, index) => {
+    const row = index + 1
+    if (!value || (row === 1 && value.toLowerCase().includes('policy'))) return
+    read += 1
+    if (value.length > 64) {
+      lookup.skipped.push({ row, value, reason: 'too_long', first_row: null })
+      return
+    }
+    const key = value.toLowerCase()
+    const first = firstRowOf.get(key)
+    if (first !== undefined) {
+      lookup.skipped.push({ row, value, reason: 'duplicate', first_row: first })
+      return
+    }
+    firstRowOf.set(key, row)
+    const found = MOCK_POLICY_SALES.filter(
+      (sale) =>
+        sale.policy_number.toLowerCase() === key && (!teams || teams.includes(sale.team_id))
+    )
+    if (found.length === 0) lookup.unmatched.push({ row, policy_number: value })
+    const hidden = teams ? { total_payment: null, down_payment: null, monthly_payment: null } : {}
+    for (const sale of found) {
+      lookup.matches.push({
+        ...sale,
+        ...hidden,
+        row,
+        policy_number: value,
+        paid_month: mockPaidMonth(sale.interaction_id),
+        policy_status: mockCurrentStatus(sale.interaction_id)?.status ?? null,
+      })
+    }
+  })
+  if (read === 0) return { problem: 'That file has no policy numbers in it.' }
+  if (read > 5000) return { problem: 'Up to 5,000 policy numbers at a time.' }
+  lookup.summary = {
+    rows: read,
+    matched: read - lookup.unmatched.length - lookup.skipped.length,
+    unmatched: lookup.unmatched.length,
+    skipped: lookup.skipped.length,
+  }
+  return { lookup }
+}
+
+type PolicyStatus = RetentionStatusEvent['status']
+
+/** Every status change made in mock mode, oldest first; the newest per sale is its status. */
+const mockStatusChanges: (RetentionStatusEvent & { sale: string })[] = []
+
+function recordStatus(
+  sale: string,
+  number: string,
+  status: PolicyStatus,
+  actorName: string,
+  { note = null, fileName = null, at = new Date().toISOString() }: { note?: string | null; fileName?: string | null; at?: string } = {}
+) {
+  mockStatusChanges.push({
+    sale,
+    policy_number: number,
+    status,
+    note,
+    file_name: fileName,
+    actor_name: actorName,
+    at,
+  })
+}
+
+/** The one sale with this policy number, in any case, as the API finds it. */
+function saleWithNumber(number: string): MockPolicySale | undefined {
+  const key = number.trim().toLowerCase()
+  return MOCK_POLICY_SALES.find((sale) => sale.policy_number.toLowerCase() === key)
+}
+
+// Something to work in mock mode: two policies being worked and one lost.
+for (const [number, status, extra] of [
+  ['POL-10002', 'pending', { note: 'Wants to cancel. Call back Friday.', at: '2026-11-02T15:00:00Z' }],
+  ['POL-10003', 'pending', { at: '2026-11-03T16:30:00Z' }],
+  ['POL-10005', 'cancelled', { fileName: 'carrier-october.csv', at: '2026-11-01T12:00:00Z' }],
+] as const) {
+  recordStatus(saleWithNumber(number)!.interaction_id, number, status, 'Rita Retention', extra)
+}
+
+function mockCurrentStatus(sale: string): (RetentionStatusEvent & { sale: string }) | null {
+  for (let i = mockStatusChanges.length - 1; i >= 0; i--) {
+    if (mockStatusChanges[i].sale === sale) return mockStatusChanges[i]
+  }
+  return null
+}
+
+function asEvent({ sale: _sale, ...change }: RetentionStatusEvent & { sale: string }): RetentionStatusEvent {
+  return change
+}
+
+type MockPolicySale = (typeof MOCK_POLICY_SALES)[number]
+
+function retentionSale(sale: MockPolicySale): RetentionSale {
+  const current = mockCurrentStatus(sale.interaction_id)
+  return {
+    interaction_id: sale.interaction_id,
+    policy_number: sale.policy_number,
+    lead_name: sale.lead_name,
+    team_name: sale.team_name,
+    sold_at: sale.sold_at,
+    status: current?.status ?? null,
+    status_at: current?.at ?? null,
+    status_by: current?.actor_name ?? null,
+  }
+}
+
+function retentionDetail(sale: MockPolicySale): RetentionSaleDetail {
+  const qa = MOCK_QA_ITEMS.find((item) => item.interaction_id === sale.interaction_id)
+  return {
+    ...retentionSale(sale),
+    lead_phone: sale.lead_phone,
+    vehicle_year: 2019,
+    vehicle_make: 'Honda',
+    vehicle_model: 'Civic',
+    closer_name: sale.closer_name,
+    history: mockStatusChanges
+      .filter((change) => change.sale === sale.interaction_id)
+      .reverse()
+      .map(asEvent),
+    qa: {
+      status: qa?.status ?? 'open',
+      score: qa?.score ?? null,
+      history: MOCK_QA_HISTORY.get(sale.interaction_id) ?? [],
+    },
+  }
+}
+
+function retentionRefusal(authorization: string | null) {
+  const user = MOCK_TOKENS.get((authorization || '').replace(/^Bearer\s+/i, ''))
+  if (!user || !user.active) {
+    return {
+      status: 401,
+      body: authErrorBody('Could not validate credentials', 'auth.not_authenticated'),
+    }
+  }
+  if (!user.roles.includes('super_admin') && !user.roles.includes('retention')) {
+    return {
+      status: 403,
+      body: authErrorBody('Insufficient role for this operation', 'auth.forbidden'),
+    }
+  }
+  return null
+}
+
+const MOCK_STATUS_WORDS: Record<string, PolicyStatus> = {
+  cancelled: 'cancelled',
+  canceled: 'cancelled',
+  retained: 'retained',
+  retention: 'retained',
+  pending: 'pending',
+}
+
+/** A status file read the way the API reads it, by its headings. Saves nothing. */
+async function mockStatusCheck(
+  file: File | undefined
+): Promise<{ problem: string } | { check: RetentionUploadCheck }> {
+  if (!(file instanceof File) || file.size === 0) return { problem: 'That file is empty.' }
+  if (file.size > 1_048_576) return { problem: 'Up to 1 MB.' }
+  const head = new Uint8Array(await file.slice(0, 2).arrayBuffer())
+  // An Excel workbook is a zip, which the mock does not unpack: it answers a sample.
+  const lines =
+    head[0] === 0x50 && head[1] === 0x4b
+      ? ['Policy number,Status', 'POL-10001,Pending', 'POL-10002,Retained', 'POL-99999,Cancelled']
+      : (await file.text()).replace(/^\uFEFF/, '').split(/\r?\n/)
+  const rows = lines.map((line) => line.split(',').map((cell) => cell.trim()))
+  const headings = (rows[0] ?? []).map((cell) => cell.toLowerCase())
+  const statusCol = headings.findIndex((cell) => cell.includes('status'))
+  const numberCol = headings.findIndex((cell, i) => cell.includes('policy') && i !== statusCol)
+  if (statusCol < 0 || numberCol < 0) {
+    return { problem: 'The first row needs Policy number and Status columns. Download the template.' }
+  }
+
+  const check: RetentionUploadCheck = {
+    changes: [],
+    unchanged: [],
+    unmatched: [],
+    invalid: [],
+    skipped: [],
+    summary: { rows: 0, changes: 0, unchanged: 0, unmatched: 0, invalid: 0, skipped: 0 },
+  }
+  const firstRowOf = new Map<string, number>()
+  let read = 0
+  rows.slice(1).forEach((cells, index) => {
+    const row = index + 2
+    const value = cells[numberCol] ?? ''
+    if (!value) return
+    read += 1
+    if (value.length > 64) {
+      check.skipped.push({ row, value, reason: 'too_long', first_row: null })
+      return
+    }
+    const key = value.toLowerCase()
+    const first = firstRowOf.get(key)
+    if (first !== undefined) {
+      check.skipped.push({ row, value, reason: 'duplicate', first_row: first })
+      return
+    }
+    firstRowOf.set(key, row)
+    const written = cells[statusCol] ?? ''
+    const status = MOCK_STATUS_WORDS[written.toLowerCase().replace(/\s+/g, '')]
+    if (!status) {
+      check.invalid.push({ row, policy_number: value, status: written })
+      return
+    }
+    const sale = saleWithNumber(value)
+    if (!sale) {
+      check.unmatched.push({ row, policy_number: value })
+      return
+    }
+    const current = mockCurrentStatus(sale.interaction_id)?.status ?? null
+    const found = {
+      row,
+      policy_number: value,
+      interaction_id: sale.interaction_id,
+      status,
+      current_status: current,
+    }
+    ;(current === status ? check.unchanged : check.changes).push(found)
+  })
+  if (read === 0) return { problem: 'That file has no policy numbers in it.' }
+  if (read > 5000) return { problem: 'Up to 5,000 policy numbers at a time.' }
+  check.summary = {
+    rows: read,
+    changes: check.changes.length,
+    unchanged: check.unchanged.length,
+    unmatched: check.unmatched.length,
+    invalid: check.invalid.length,
+    skipped: check.skipped.length,
+  }
+  return { check }
 }
 
 export const handlers = [
@@ -2360,6 +3182,19 @@ export const handlers = [
     }
     user.timezone = zone
     return res(ctx.status(200), ctx.json(userBody(user)))
+  }),
+
+  rest.post('/auth/me/screenshots', async (req, res, ctx) => {
+    const user = mockActor(req.headers.get('authorization'))
+    if (!user || !user.active) {
+      return res(
+        ctx.status(401),
+        ctx.json(authErrorBody('Could not validate credentials', 'auth.not_authenticated'))
+      )
+    }
+    const body = (await req.json()) as { page?: string }
+    console.info(`[mock screenshot] ${user.email} pressed Print Screen on ${body.page}`)
+    return res(ctx.status(204))
   }),
 
   rest.post('/auth/password/change', async (req, res, ctx) => {
@@ -2711,19 +3546,17 @@ export const handlers = [
     const knownTeamIds = new Set(MOCK_TEAMS.map((team) => team.id))
     const requestedTeam =
       typeof body.team_id === 'string' && knownTeamIds.has(body.team_id) ? body.team_id : null
-    // A Team Admin omits team_id and the API pins their own; Super Admin and
-    // QA Manager accounts cover every team, so get none.
-    const companyWide = roles.includes('super_admin') || roles.includes('qa_manager')
+    // A Team Admin omits team_id and the API pins their own; Super Admin, QA and
+    // Retention accounts cover every team, so get none.
+    const qaStaff = roles.some((role) => NO_TEAM_ROLES.includes(role))
+    const companyWide = roles.includes('super_admin') || qaStaff
     const teamId = companyWide ? null : (requestedTeam ?? actor.team_id)
 
     const ceiling = grantCeilingRefusal(actor, roles, teamId)
     if (ceiling) return res(ctx.status(ceiling.status), ctx.json(ceiling.body))
 
-    if (roles.includes('qa_manager') && !roles.includes('super_admin') && body.team_id) {
-      return res(
-        ctx.status(422),
-        ctx.json(qaManagerHasNoTeam('team_id', 'a QA Manager covers every team, so has no team'))
-      )
+    if (qaStaff && !roles.includes('super_admin') && body.team_id) {
+      return res(ctx.status(422), ctx.json(qaManagerHasNoTeam('team_id', NO_TEAM_MESSAGE)))
     }
 
     if (roles.includes('super_admin') && requestedTeam) {
@@ -2849,17 +3682,19 @@ export const handlers = [
         typeof body.team_id === 'string' ? body.team_id : user.team_id
       const ceiling = grantCeilingRefusal(actor, body.roles, teamForGrant, user)
       if (ceiling) return res(ctx.status(ceiling.status), ctx.json(ceiling.body))
-      // qa_manager decides whether the account has a team, so it is fixed at creation.
-      if (body.roles.includes('qa_manager') !== user.roles.includes('qa_manager')) {
-        return res(
-          ctx.status(422),
-          ctx.json(
-            qaManagerHasNoTeam(
-              'roles',
-              'qa_manager cannot be added to or removed from an existing account'
+      // These decide whether the account has a team, so are fixed at creation.
+      for (const fixed of NO_TEAM_ROLES) {
+        if (body.roles.includes(fixed) !== user.roles.includes(fixed)) {
+          return res(
+            ctx.status(422),
+            ctx.json(
+              qaManagerHasNoTeam(
+                'roles',
+                `${fixed} cannot be added to or removed from an existing account`
+              )
             )
           )
-        )
+        }
       }
     }
 
@@ -2901,11 +3736,8 @@ export const handlers = [
           )
         )
       }
-      if (user.roles.includes('qa_manager')) {
-        return res(
-          ctx.status(422),
-          ctx.json(qaManagerHasNoTeam('team_id', 'a QA Manager covers every team, so has no team'))
-        )
+      if (user.roles.some((role) => NO_TEAM_ROLES.includes(role))) {
+        return res(ctx.status(422), ctx.json(qaManagerHasNoTeam('team_id', NO_TEAM_MESSAGE)))
       }
       if (!MOCK_TEAMS.some((team) => team.id === body.team_id)) {
         return res(ctx.status(404), ctx.json(authErrorBody('team not found', 'team.not_found')))
@@ -2923,21 +3755,21 @@ export const handlers = [
   rest.get('/qa/items', (req, res, ctx) => {
     const user = qaActor(req.headers.get('authorization'), QA_ROLES)
     if (isRefusal(user)) return res(ctx.status(user.status), ctx.json(user.body))
-    const scope = mockQaScope(user, req.url.searchParams.get('team_id'))
-    if (isRefusal(scope)) return res(ctx.status(scope.status), ctx.json(scope.body))
+    const teamId = req.url.searchParams.get('team_id')
 
-    const status = req.url.searchParams.get('status')
-    // A QA Agent only ever gets their own, whatever they ask for.
-    const assignee = mockReviewsOwnOnly(user) ? user.id : req.url.searchParams.get('assignee')
+    // A QA Agent only ever gets their own open sales, whatever they ask for.
+    const own = mockReviewsOwnOnly(user)
+    const status = own ? 'open' : req.url.searchParams.get('status')
+    const assignee = own ? user.id : req.url.searchParams.get('assignee')
     const limit = Number(req.url.searchParams.get('limit') ?? 20)
     const offset = Number(req.url.searchParams.get('offset') ?? 0)
     const matched = MOCK_QA_ITEMS.filter(
       (item) =>
-        (!scope.teams || scope.teams.includes(item.team_id)) &&
+        (!teamId || item.team_id === teamId) &&
         (!status || item.status === status) &&
         (!assignee ||
           (assignee === 'none'
-            ? item.assignee_user_id === null && item.status !== 'closed'
+            ? item.assignee_user_id === null && item.status === 'open'
             : item.assignee_user_id === assignee))
     ).sort(
       (a, b) =>
@@ -2962,18 +3794,18 @@ export const handlers = [
     const lead = item && mockLeadHistory(item.lead_id)
     if (!item || !lead) return res(ctx.status(404), ctx.json(QA_ITEM_NOT_FOUND))
     const history = MOCK_QA_HISTORY.get(item.interaction_id) ?? []
-    return res(ctx.status(200), ctx.json({ item: qaItemBody(item), history, lead }))
+    // QA sees the lead's details and its carts, masked; nothing else from its record.
+    return res(
+      ctx.status(200),
+      ctx.json({ item: qaItemBody(item), history, lead: { lead: lead.lead, carts: lead.carts } })
+    )
   }),
 
   rest.get('/qa/summary', (req, res, ctx) => {
     const user = qaActor(req.headers.get('authorization'), QA_OVERSEERS)
     if (isRefusal(user)) return res(ctx.status(user.status), ctx.json(user.body))
-    const scope = mockQaScope(user, null)
-    if (isRefusal(scope)) return res(ctx.status(scope.status), ctx.json(scope.body))
 
-    const teams: QaTeamSummary[] = MOCK_TEAMS.filter(
-      (team) => !scope.teams || scope.teams.includes(team.id)
-    ).map((team) => {
+    const teams: QaTeamSummary[] = MOCK_TEAMS.map((team) => {
       const items = MOCK_QA_ITEMS.filter((item) => item.team_id === team.id)
       const counted = (status: QaStatus) => items.filter((item) => item.status === status).length
       return {
@@ -2983,7 +3815,7 @@ export const handlers = [
         disputed: counted('disputed'),
         resolve_dispute: counted('resolve_dispute'),
         closed: counted('closed'),
-        unassigned: items.filter((item) => item.status !== 'closed' && !item.assignee_user_id).length,
+        unassigned: items.filter((item) => item.status === 'open' && !item.assignee_user_id).length,
       }
     })
     return res(ctx.status(200), ctx.json({ teams }))
@@ -2992,41 +3824,63 @@ export const handlers = [
   rest.get('/qa/agents', (req, res, ctx) => {
     const user = qaActor(req.headers.get('authorization'), QA_OVERSEERS)
     if (isRefusal(user)) return res(ctx.status(user.status), ctx.json(user.body))
-    const scope = mockQaScope(user, req.url.searchParams.get('team_id'))
-    if (isRefusal(scope)) return res(ctx.status(scope.status), ctx.json(scope.body))
 
     const items: QaAgent[] = MOCK_USERS.filter(
-      (agent) =>
-        agent.active &&
-        agent.roles.includes('qa_agent') &&
-        agent.team_id !== null &&
-        (!scope.teams || scope.teams.includes(agent.team_id))
+      (agent) => agent.active && agent.roles.includes('qa_agent')
     )
       .sort((a, b) => a.name.localeCompare(b.name))
-      .map((agent) => ({ user_id: agent.id, name: agent.name, team_id: agent.team_id as string }))
+      .map((agent) => ({ user_id: agent.id, name: agent.name }))
     return res(ctx.status(200), ctx.json({ items }))
   }),
 
+  rest.get('/qa/stats', (req, res, ctx) => {
+    const user = qaActor(req.headers.get('authorization'), QA_ROLES)
+    if (isRefusal(user)) return res(ctx.status(user.status), ctx.json(user.body))
+    const start = req.url.searchParams.get('start') ?? ''
+    const end = req.url.searchParams.get('end') ?? ''
+
+    // Days compared as UTC dates: close enough for the mock.
+    const inWindow = (at: string | null) => at !== null && at.slice(0, 10) >= start && at.slice(0, 10) <= end
+    const figures = (reviewed: MockQaItem[]) => {
+      const closed = reviewed.filter((item) => item.status === 'closed').length
+      return { reviewed: reviewed.length, closed, disputed: reviewed.length - closed }
+    }
+    const reviewedBy = (agentId: string) =>
+      MOCK_QA_ITEMS.filter(
+        (item) => item.reviewed_by === agentId && item.status !== 'open' && inWindow(item.reviewed_at)
+      )
+    const agents = MOCK_USERS.filter(
+      (agent) =>
+        agent.active &&
+        agent.roles.includes('qa_agent') &&
+        (!mockReviewsOwnOnly(user) || agent.id === user.id)
+    )
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((agent) => ({ user_id: agent.id, name: agent.name, ...figures(reviewedBy(agent.id)) }))
+    return res(
+      ctx.status(200),
+      ctx.json({ start, end, timezone: user.timezone ?? BUSINESS_TIMEZONE, agents })
+    )
+  }),
+
   rest.put('/qa/items/:interactionId/assignee', async (req, res, ctx) => {
-    const user = qaActor(req.headers.get('authorization'), QA_ASSIGNERS)
+    const user = qaActor(req.headers.get('authorization'), QA_OVERSEERS)
     if (isRefusal(user)) return res(ctx.status(user.status), ctx.json(user.body))
     const item = mockQaItemFor(user, String(req.params.interactionId))
     if (!item) return res(ctx.status(404), ctx.json(QA_ITEM_NOT_FOUND))
 
     const body = (await req.json()) as { assignee_user_id?: string | null }
     const next = body.assignee_user_id ?? null
+    if (item.status !== 'open') {
+      return res(
+        ctx.status(422),
+        ctx.json(qaInvalid('assignee_user_id', 'only an open sale can be assigned'))
+      )
+    }
     if (next) {
       const agent = MOCK_USERS.find((row) => row.id === next)
-      if (!agent || !agent.active || !agent.roles.includes('qa_agent') || agent.team_id !== item.team_id) {
-        const message = "not an active QA Agent on this sale's team"
-        return res(
-          ctx.status(422),
-          ctx.json(
-            authErrorBody(message, 'validation_error', [
-              { field: 'assignee_user_id', in: 'body', message },
-            ])
-          )
-        )
+      if (!agent || !agent.active || !agent.roles.includes('qa_agent')) {
+        return res(ctx.status(422), ctx.json(qaInvalid('assignee_user_id', 'not an active QA Agent')))
       }
     }
     if (item.assignee_user_id !== next) {
@@ -3042,34 +3896,39 @@ export const handlers = [
   }),
 
   rest.put('/qa/items/:interactionId/status', async (req, res, ctx) => {
-    const user = qaActor(req.headers.get('authorization'), QA_ROLES)
+    const user = qaActor(req.headers.get('authorization'), QA_MOVERS)
     if (isRefusal(user)) return res(ctx.status(user.status), ctx.json(user.body))
     const item = mockQaItemFor(user, String(req.params.interactionId))
     if (!item) return res(ctx.status(404), ctx.json(QA_ITEM_NOT_FOUND))
 
-    const body = (await req.json()) as { status?: QaStatus; note?: string | null }
+    const body = (await req.json()) as { status?: QaStatus; note?: string | null; score?: number | null }
     if (typeof body.note === 'string' && body.note.length > 2000) {
-      const message = 'String should have at most 2000 characters'
-      return res(
-        ctx.status(422),
-        ctx.json(authErrorBody(message, 'validation_error', [{ field: 'note', in: 'body', message }]))
-      )
+      return res(ctx.status(422), ctx.json(qaInvalid('note', 'String should have at most 2000 characters')))
     }
     const note = body.note?.trim() || null
+    const score = body.score ?? null
     const to = body.status
+    if (score !== null && (!Number.isInteger(score) || score < 0 || score > 100)) {
+      return res(ctx.status(422), ctx.json(qaInvalid('score', 'a score is a whole number from 0 to 100')))
+    }
+    if (to === 'closed' && score === null) {
+      return res(ctx.status(422), ctx.json(qaInvalid('score', 'a score from 0 to 100 is needed to close')))
+    }
+    if (to === 'resolve_dispute' && (score !== null || note)) {
+      return res(ctx.status(422), ctx.json(qaInvalid('score', 'a dispute is resolved without a score or notes')))
+    }
     if (to && to !== item.status) {
-      if (mockReviewsOwnOnly(user) && item.status !== 'open') {
-        return res(
-          ctx.status(403),
-          ctx.json(authErrorBody('a QA Agent can only move a sale while it is open', 'auth.forbidden'))
-        )
-      }
       if (!MOCK_QA_MOVES[item.status].includes(to)) {
-        const message = `cannot move from ${item.status} to ${to}`
-        return res(
-          ctx.status(422),
-          ctx.json(authErrorBody(message, 'validation_error', [{ field: 'status', in: 'body', message }]))
-        )
+        return res(ctx.status(422), ctx.json(qaInvalid('status', `cannot move from ${item.status} to ${to}`)))
+      }
+      const allowed =
+        item.status === 'open'
+          ? user.roles.includes('qa_agent') && item.assignee_user_id === user.id
+          : user.roles.includes('super_admin')
+      if (!allowed) {
+        const message =
+          'only the assigned QA Agent reviews an open sale, and only a Super Admin resolves a dispute'
+        return res(ctx.status(403), ctx.json(authErrorBody(message, 'auth.forbidden')))
       }
       recordQa(item.interaction_id, {
         kind: 'status_changed',
@@ -3078,7 +3937,11 @@ export const handlers = [
         previous_status: item.status,
         status: to,
         note,
+        score,
       })
+      if (item.status === 'open') {
+        Object.assign(item, { score, reviewed_by: user.id, reviewed_at: new Date().toISOString() })
+      }
       item.status = to
     }
     return res(ctx.status(200), ctx.json(qaItemBody(item)))
@@ -3092,66 +3955,160 @@ export const handlers = [
 
     // Deprecated, but req.body is MSW 1.x's only multipart reader.
     const form = req.body as { file?: File }
-    if (!(form.file instanceof File) || form.file.size === 0) {
-      return res(ctx.status(422), ctx.json(policyFileProblem('That file is empty.')))
-    }
-    if (form.file.size > 1_048_576) {
-      return res(ctx.status(422), ctx.json(policyFileProblem('Up to 1 MB.')))
-    }
-    const head = new Uint8Array(await form.file.slice(0, 2).arrayBuffer())
-    // An Excel workbook is a zip, which the mock does not unpack: it answers a sample.
-    const cells =
-      head[0] === 0x50 && head[1] === 0x4b
-        ? ['Policy number', 'POL-10001', 'POL-10004', 'POL-99999']
-        : (await form.file.text())
-            .replace(/^\uFEFF/, '')
-            .split(/\r?\n/)
-            .map((line) => (line.split(',')[0] ?? '').trim())
+    const read = await mockPolicyLookup(
+      form.file,
+      actor.roles.includes('super_admin') ? null : [actor.team_id]
+    )
+    if ('problem' in read) return res(ctx.status(422), ctx.json(policyFileProblem(read.problem)))
+    return res(ctx.status(200), ctx.json(read.lookup))
+  }),
 
-    const teams = actor.roles.includes('super_admin') ? null : [actor.team_id]
-    const matches: object[] = []
-    const unmatched: { row: number; policy_number: string }[] = []
-    const skipped: { row: number; value: string; reason: string; first_row: number | null }[] = []
-    const firstRowOf = new Map<string, number>()
-    let read = 0
-    cells.forEach((value, index) => {
-      const row = index + 1
-      if (!value || (row === 1 && value.toLowerCase().includes('policy'))) return
-      read += 1
-      if (value.length > 64) {
-        skipped.push({ row, value, reason: 'too_long', first_row: null })
-        return
-      }
-      const key = value.toLowerCase()
-      const first = firstRowOf.get(key)
-      if (first !== undefined) {
-        skipped.push({ row, value, reason: 'duplicate', first_row: first })
-        return
-      }
-      firstRowOf.set(key, row)
-      const found = MOCK_POLICY_SALES.filter(
-        (sale) =>
-          sale.policy_number.toLowerCase() === key && (!teams || teams.includes(sale.team_id))
+  rest.post('/reporting/paid-uploads', async (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = superAdminRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const actor = mockActor(authorization)!
+
+    const form = req.body as { file?: File; month?: string }
+    const month = typeof form.month === 'string' ? form.month : ''
+    const monthProblem = !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)
+      ? "String should match pattern '^\\d{4}-(0[1-9]|1[0-2])$'"
+      : month > new Date().toISOString().slice(0, 7)
+        ? 'month must not be after this month'
+        : null
+    if (monthProblem) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody(monthProblem, 'validation_error', [
+            { field: 'month', in: 'body', message: monthProblem },
+          ])
+        )
       )
-      if (found.length === 0) unmatched.push({ row, policy_number: value })
-      for (const sale of found) matches.push({ ...sale, row, policy_number: value })
-    })
-    if (read === 0) {
-      return res(ctx.status(422), ctx.json(policyFileProblem('That file has no policy numbers in it.')))
     }
-    if (read > 5000) {
-      return res(ctx.status(422), ctx.json(policyFileProblem('Up to 5,000 policy numbers at a time.')))
+    const read = await mockPolicyLookup(form.file, null)
+    if ('problem' in read) return res(ctx.status(422), ctx.json(policyFileProblem(read.problem)))
+
+    // A sale made after the month cannot have been paid in it.
+    const kept = read.lookup.matches.filter((sale) => sale.sold_at.slice(0, 7) <= month)
+    const sales = kept.map((sale) => sale.interaction_id)
+    const upload = {
+      id: `paid-upload-${mockPaidUploads.length + 1}`,
+      month: `${month}-01`,
+      file_name: form.file?.name ?? 'upload',
+      rows: read.lookup.summary.rows,
+      matched: sales.length,
+      newly_paid: kept.filter((sale) => sale.paid_month === null).length,
+      uploaded_by: actor.name,
+      uploaded_at: new Date().toISOString(),
+      undone_at: null,
+      undone_by: null,
     }
-    const matched = read - unmatched.length - skipped.length
+    mockPaidUploads.push({ upload, sales })
+    return res(ctx.status(201), ctx.json(upload))
+  }),
+
+  rest.get('/reporting/paid-uploads', (req, res, ctx) => {
+    const refused = superAdminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const items = [...mockPaidUploads].reverse().map((row) => row.upload)
+    return res(ctx.status(200), ctx.json({ items }))
+  }),
+
+  rest.post('/reporting/paid-uploads/:uploadId/undo', (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = superAdminRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const found = mockPaidUploads.find((row) => row.upload.id === req.params.uploadId)
+    if (!found) {
+      return res(ctx.status(404), ctx.json(authErrorBody('paid upload not found', 'not_found')))
+    }
+    if (!found.upload.undone_at) {
+      found.upload = {
+        ...found.upload,
+        undone_at: new Date().toISOString(),
+        undone_by: mockActor(authorization)!.name,
+      }
+    }
+    return res(ctx.status(200), ctx.json(found.upload))
+  }),
+
+  rest.get('/retention/pending', (req, res, ctx) => {
+    const refused = retentionRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const limit = Number(req.url.searchParams.get('limit') ?? 20)
+    const offset = Number(req.url.searchParams.get('offset') ?? 0)
+    const pending = MOCK_POLICY_SALES.map(retentionSale)
+      .filter((sale) => sale.status === 'pending')
+      .sort((a, b) => (a.status_at ?? '').localeCompare(b.status_at ?? ''))
     return res(
       ctx.status(200),
-      ctx.json({
-        matches,
-        unmatched,
-        skipped,
-        summary: { rows: read, matched, unmatched: unmatched.length, skipped: skipped.length },
-      })
+      ctx.json({ items: pending.slice(offset, offset + limit), total: pending.length, limit, offset })
     )
+  }),
+
+  rest.get('/retention/sales', (req, res, ctx) => {
+    const refused = retentionRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const number = req.url.searchParams.get('policy_number') ?? ''
+    const sale = saleWithNumber(number)
+    return res(ctx.status(200), ctx.json({ items: sale ? [retentionSale(sale)] : [] }))
+  }),
+
+  rest.get('/retention/sales/:interactionId', (req, res, ctx) => {
+    const refused = retentionRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const sale = MOCK_POLICY_SALES.find((row) => row.interaction_id === req.params.interactionId)
+    if (!sale) {
+      return res(
+        ctx.status(404),
+        ctx.json(authErrorBody('no such sale with a policy number', 'interaction.not_found'))
+      )
+    }
+    return res(ctx.status(200), ctx.json(retentionDetail(sale)))
+  }),
+
+  rest.post('/retention/sales/:interactionId/status', async (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = retentionRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const sale = MOCK_POLICY_SALES.find((row) => row.interaction_id === req.params.interactionId)
+    if (!sale) {
+      return res(
+        ctx.status(404),
+        ctx.json(authErrorBody('no such sale with a policy number', 'interaction.not_found'))
+      )
+    }
+    const body = (await req.json()) as { status?: PolicyStatus; note?: string | null }
+    const note = (body.note ?? '').trim() || null
+    recordStatus(sale.interaction_id, sale.policy_number, body.status ?? 'pending', mockActor(authorization)!.name, { note })
+    return res(ctx.status(201), ctx.json(asEvent(mockStatusChanges[mockStatusChanges.length - 1])))
+  }),
+
+  rest.post('/retention/uploads/check', async (req, res, ctx) => {
+    const refused = retentionRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    // Deprecated, but req.body is MSW 1.x's only multipart reader.
+    const read = await mockStatusCheck((req.body as { file?: File }).file)
+    if ('problem' in read) return res(ctx.status(422), ctx.json(policyFileProblem(read.problem)))
+    return res(ctx.status(200), ctx.json(read.check))
+  }),
+
+  rest.post('/retention/uploads', async (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = retentionRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const file = (req.body as { file?: File }).file
+    const read = await mockStatusCheck(file)
+    if ('problem' in read) return res(ctx.status(422), ctx.json(policyFileProblem(read.problem)))
+    const actor = mockActor(authorization)!.name
+    for (const row of read.check.changes) {
+      // The cart's own spelling, as a change typed in keeps.
+      recordStatus(row.interaction_id, saleWithNumber(row.policy_number)!.policy_number, row.status, actor, {
+        fileName: file?.name ?? 'upload',
+      })
+    }
+    return res(ctx.status(201), ctx.json({ saved: read.check.changes.length }))
   }),
 
   rest.get('/reporting/live', (req, res, ctx) => {
@@ -3287,6 +4244,179 @@ export const handlers = [
     )
   }),
 
+  rest.get('/reporting/agents', (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = adminRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const actor = mockActor(authorization) as MockUser
+    const params = req.url.searchParams
+    const stage = mockAgentStage(params)
+    if (!stage) {
+      const bad = mockFieldRefusal('stage', 'Field required')
+      return res(ctx.status(bad.status), ctx.json(bad.body))
+    }
+    const scope = mockReportTeam(authorization, params.get('team_id'))
+    if ('refused' in scope && scope.refused) {
+      return res(ctx.status(scope.refused.status), ctx.json(scope.refused.body))
+    }
+    const teamId = 'teamId' in scope ? scope.teamId : null
+    const asked = mockAgentWindow(params, actor)
+    if ('refused' in asked) return res(ctx.status(asked.refused.status), ctx.json(asked.refused.body))
+
+    const agentId = params.get('agent_id')
+    const agents = MOCK_USERS.filter(
+      (user) =>
+        user.roles.includes(stage) &&
+        (!teamId || user.team_id === teamId) &&
+        (!agentId || user.id === agentId)
+    )
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((user) => mockAgentRow(user, stage, asked.window))
+      .filter((row) => row.active || mockAgentCounted(row))
+    const { period, start, end, timezone } = asked.window
+    return res(ctx.status(200), ctx.json({ period, start, end, timezone, agents }))
+  }),
+
+  rest.get('/reporting/agents/:userId/sales', (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = adminRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const found = mockScopedAgent(authorization, String(req.params.userId))
+    if ('refused' in found) return res(ctx.status(found.refused.status), ctx.json(found.refused.body))
+
+    const params = req.url.searchParams
+    const stage = mockAgentStage(params)
+    const kind = mockSaleKind(params)
+    if (!stage || !kind) {
+      const bad = mockFieldRefusal(stage ? 'kind' : 'stage', 'Field required')
+      return res(ctx.status(bad.status), ctx.json(bad.body))
+    }
+    const asked = mockAgentWindow(params, found.actor)
+    if ('refused' in asked) return res(ctx.status(asked.refused.status), ctx.json(asked.refused.body))
+    if (kind === 'paid' && asked.window.period !== 'month') {
+      return res(ctx.status(MOCK_PAID_NEEDS_MONTH.status), ctx.json(MOCK_PAID_NEEDS_MONTH.body))
+    }
+    const row = mockAgentRow(found.agent, stage, asked.window)
+    const amounts = found.actor.roles.includes('super_admin')
+    return res(
+      ctx.status(200),
+      ctx.json(mockAgentSales(row, asked.window, kind, mockAgentPage(params), amounts))
+    )
+  }),
+
+  rest.get('/reporting/agents/:userId/leads', (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = adminRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const found = mockScopedAgent(authorization, String(req.params.userId))
+    if ('refused' in found) return res(ctx.status(found.refused.status), ctx.json(found.refused.body))
+
+    const params = req.url.searchParams
+    const stage = mockAgentStage(params)
+    if (!stage) {
+      const bad = mockFieldRefusal('stage', 'Field required')
+      return res(ctx.status(bad.status), ctx.json(bad.body))
+    }
+    const asked = mockAgentWindow(params, found.actor)
+    if ('refused' in asked) return res(ctx.status(asked.refused.status), ctx.json(asked.refused.body))
+    const row = mockAgentRow(found.agent, stage, asked.window)
+    return res(ctx.status(200), ctx.json(mockAgentLeads(row, asked.window, mockAgentPage(params))))
+  }),
+
+  rest.put('/reporting/agents/:userId/targets', async (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = adminRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const found = mockScopedAgent(authorization, String(req.params.userId))
+    if ('refused' in found) return res(ctx.status(found.refused.status), ctx.json(found.refused.body))
+
+    const body = (await req.json()) as Partial<AgentTargets> & { stage?: string }
+    const stage = body.stage === 'fronter' || body.stage === 'closer' ? body.stage : null
+    if (!stage || !found.agent.roles.includes(stage)) {
+      const bad = mockFieldRefusal('stage', `this user is not a ${body.stage ?? 'agent'}`, 'body')
+      return res(ctx.status(bad.status), ctx.json(bad.body))
+    }
+    const targets: AgentTargets = { daily: null, weekly: null, monthly: null }
+    for (const key of ['daily', 'weekly', 'monthly'] as const) {
+      const value = body[key] ?? null
+      if (value !== null && (!Number.isInteger(value) || value < 1 || value > MOCK_TARGET_MAX)) {
+        const bad = mockFieldRefusal(key, `Input should be between 1 and ${MOCK_TARGET_MAX}`, 'body')
+        return res(ctx.status(bad.status), ctx.json(bad.body))
+      }
+      targets[key] = value
+    }
+    MOCK_AGENT_TARGETS.set(`${found.agent.id}:${stage}`, targets)
+    return res(ctx.status(200), ctx.json(targets))
+  }),
+
+  rest.get('/me/stats', (req, res, ctx) => {
+    const user = mockActor(req.headers.get('authorization'))
+    if (!user || !user.active) {
+      return res(
+        ctx.status(401),
+        ctx.json(authErrorBody('Could not validate credentials', 'auth.not_authenticated'))
+      )
+    }
+    const held = user.roles.filter((r): r is 'fronter' | 'closer' => r === 'fronter' || r === 'closer')
+    const params = req.url.searchParams
+    const askedStage = mockAgentStage(params)
+    if (held.length === 0 || (askedStage && !held.includes(askedStage))) {
+      return res(
+        ctx.status(403),
+        ctx.json(authErrorBody('Insufficient role for this operation', 'auth.forbidden'))
+      )
+    }
+    if (!askedStage && held.length === 2) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody(
+            'stage is required when the caller holds both fronter and closer',
+            'validation.stage_required'
+          )
+        )
+      )
+    }
+    const asked = mockAgentWindow(params, user)
+    if ('refused' in asked) return res(ctx.status(asked.refused.status), ctx.json(asked.refused.body))
+    const { period, start, end, timezone } = asked.window
+    const agents = [mockAgentRow(user, askedStage ?? held[0], asked.window)]
+    return res(ctx.status(200), ctx.json({ period, start, end, timezone, agents }))
+  }),
+
+  rest.get('/me/stats/sales', (req, res, ctx) => {
+    const user = mockActor(req.headers.get('authorization'))
+    if (!user || !user.active) {
+      return res(
+        ctx.status(401),
+        ctx.json(authErrorBody('Could not validate credentials', 'auth.not_authenticated'))
+      )
+    }
+    if (!user.roles.includes('closer')) {
+      return res(
+        ctx.status(403),
+        ctx.json(authErrorBody('Insufficient role for this operation', 'auth.forbidden'))
+      )
+    }
+    const params = req.url.searchParams
+    const kind = mockSaleKind(params)
+    if (!kind) {
+      const bad = mockFieldRefusal('kind', 'Field required')
+      return res(ctx.status(bad.status), ctx.json(bad.body))
+    }
+    const asked = mockAgentWindow(params, user)
+    if ('refused' in asked) return res(ctx.status(asked.refused.status), ctx.json(asked.refused.body))
+    if (kind === 'paid' && asked.window.period !== 'month') {
+      return res(ctx.status(MOCK_PAID_NEEDS_MONTH.status), ctx.json(MOCK_PAID_NEEDS_MONTH.body))
+    }
+    const row = mockAgentRow(user, 'closer', asked.window)
+    return res(
+      ctx.status(200),
+      ctx.json(mockAgentSales(row, asked.window, kind, mockAgentPage(params), false))
+    )
+  }),
+
   rest.get('/interactions', (_req, res, ctx) => {
     return res(ctx.status(200), ctx.json(Object.values(MOCK_INTERACTIONS)))
   }),
@@ -3389,6 +4519,115 @@ export const handlers = [
 
     const lead = addMockFormLead(actor.team_id, actor.id, { ...body, phone_no: phone })
     return res(ctx.status(201), ctx.json(leadBody(lead)))
+  }),
+
+  // Before /leads/:leadId, so own-sale is not read as a lead id.
+  rest.get('/leads/own-sale', (req, res, ctx) => {
+    const checked = mockOwnSaleCheck(
+      req.headers.get('authorization'),
+      req.url.searchParams.get('phone_no') ?? '',
+      'query'
+    )
+    if ('refused' in checked) {
+      return res(ctx.status(checked.refused.status), ctx.json(checked.refused.body))
+    }
+    const { phone, lead } = checked
+    return res(
+      ctx.status(200),
+      ctx.json({
+        phone_no: phone,
+        lead: lead
+          ? {
+              id: lead.id,
+              first_name: lead.first_name ?? null,
+              last_name: lead.last_name ?? null,
+              vehicle_make: lead.vehicle_make ?? null,
+              vehicle_year: lead.vehicle_year ?? null,
+              vehicle_model: lead.vehicle_model ?? null,
+              vin: lead.vin ?? null,
+              license_plate: lead.license_plate ?? null,
+              created_at: lead.created_at,
+            }
+          : null,
+      })
+    )
+  }),
+
+  rest.post('/leads/own-sale', async (req, res, ctx) => {
+    const body = (await req.json()) as LeadFormBody
+    const checked = mockOwnSaleCheck(
+      req.headers.get('authorization'),
+      String(body.phone_no ?? ''),
+      'body'
+    )
+    if ('refused' in checked) {
+      return res(ctx.status(checked.refused.status), ctx.json(checked.refused.body))
+    }
+    const formErrors = mockValidateLeadForm(body)
+    if (formErrors.length > 0) {
+      return res(
+        ctx.status(422),
+        ctx.json(authErrorBody('validation failed', 'validation_error', formErrors))
+      )
+    }
+
+    const { actor, teamId, phone } = checked
+    const now = new Date().toISOString()
+    const fields = {
+      first_name: body.first_name!.trim(),
+      last_name: body.last_name!.trim(),
+      vehicle_make: body.vehicle_make!.trim(),
+      vehicle_year: body.vehicle_year!,
+      vehicle_model: body.vehicle_model!.trim(),
+      vin: body.vin?.trim() || null,
+      license_plate: body.license_plate?.trim() || null,
+    }
+    let lead = checked.lead
+    if (lead) {
+      Object.assign(lead, fields, { updated_at: now })
+    } else {
+      issuedLeads += 1
+      // No fronter: the closer started it.
+      lead = {
+        id: `lead-own-sale-${issuedLeads}`,
+        phone_no: phone,
+        source: 'manual',
+        team_id: teamId,
+        created_at: now,
+        updated_at: now,
+        ...fields,
+      }
+      MOCK_TEAM_LEADS.unshift(lead)
+    }
+    MOCK_LEADS[lead.id] = leadBody(lead)
+
+    issuedLeads += 1
+    const interactionId = `int-own-sale-${issuedLeads}`
+    MOCK_INTERACTIONS[interactionId] = {
+      id: interactionId,
+      lead_id: lead.id,
+      created_at: now,
+      updated_at: now,
+      qualification: null,
+      own_sale_closer_id: actor.id,
+    }
+    qualificationSeq += 1
+    const vehicle = [fields.vehicle_year, fields.vehicle_make, fields.vehicle_model].join(' ')
+    MOCK_QUALIFICATIONS.set(interactionId, {
+      id: `qual-${qualificationSeq}`,
+      interaction_id: interactionId,
+      version: 1,
+      snapshot_json: { ...fields, phone_no: phone, vehicle },
+      consent_dnc: {
+        consent_given: true,
+        consent_captured_at: now,
+        dnc_flagged: false,
+        dnc_source: null,
+      },
+      customer: customerFromLead(MOCK_LEADS[lead.id]),
+      created_at: now,
+    })
+    return res(ctx.status(201), ctx.json({ interaction_id: interactionId, lead_id: lead.id }))
   }),
 
   rest.post('/leads/bulk', async (req, res, ctx) => {
@@ -3595,17 +4834,12 @@ export const handlers = [
 
     const sold = [...history.events].reverse().find((event) => event.kind === 'sold')
     const cart = history.carts.find((row) => row.interaction_id === sold?.interaction_id)
-    const sale =
-      sold && cart
-        ? {
-            sold_at: sold.at,
-            policy_number: cart.policy_number,
-            total_payment: cart.total_payment,
-            down_payment: cart.down_payment,
-            monthly_payment: cart.monthly_payment,
-          }
-        : null
-    return res(ctx.status(200), ctx.json({ status: history.status, sale }))
+    // No amounts and nothing from the payment, as the API sends a Team Admin.
+    const sale = sold ? { sold_at: sold.at, policy_number: cart?.policy_number ?? null } : null
+    return res(
+      ctx.status(200),
+      ctx.json({ lead: history.lead, status: history.status, form: history.form, sale })
+    )
   }),
 
   rest.get('/leads/:leadId/history', (req, res, ctx) => {
@@ -3688,7 +4922,11 @@ export const handlers = [
       return res(ctx.status(200), ctx.json(MOCK_FRONTER_CALLBACKS))
     }
     if (role === 'closer') {
-      return res(ctx.status(200), ctx.json(MOCK_CLOSER_QUEUE))
+      const actor = mockActor(req.headers.get('authorization'))
+      return res(
+        ctx.status(200),
+        ctx.json([...MOCK_CLOSER_QUEUE, ...mockOwnSaleRows(actor?.id ?? null)])
+      )
     }
     return res(
       ctx.status(422),
@@ -3850,7 +5088,14 @@ export const handlers = [
   }),
 
   rest.get('/transfers/closers', (_req, res, ctx) => {
-    return res(ctx.status(200), ctx.json({ items: MOCK_AVAILABLE_CLOSERS }))
+    const pending = [...MOCK_TRANSFERS.values()].filter(
+      (row) => row.status === 'initiated' || row.status === 'offered'
+    )
+    const items: AvailableCloserItem[] = MOCK_AVAILABLE_CLOSERS.map((row) => ({
+      ...row,
+      waiting: pending.filter((transfer) => transfer.closer_user_id === row.user_id).length,
+    }))
+    return res(ctx.status(200), ctx.json({ items }))
   }),
 
   rest.post('/transfers', async (req, res, ctx) => {
@@ -3879,24 +5124,23 @@ export const handlers = [
       )
     }
 
-    // Omit → any free closer. Set → pin; busy / unknown → same 422 as the API.
-    const pinnedId = body.closer_user_id ?? null
-    if (pinnedId) {
-      const pinned = MOCK_AVAILABLE_CLOSERS.find((row) => row.user_id === pinnedId)
-      if (!pinned || pinned.status !== 'available') {
-        return res(
-          ctx.status(422),
-          ctx.json({
-            detail: 'no closer available for transfer',
-            code: 'transfer.no_closer_available',
-          })
-        )
-      }
-    } else if (!MOCK_AVAILABLE_CLOSERS.some((row) => row.status === 'available')) {
+    // A closer must be named, busy or free; an unknown one gets the API's 422.
+    const pinnedId = body.closer_user_id
+    if (!pinnedId) {
       return res(
         ctx.status(422),
         ctx.json({
-          detail: 'no closer available for transfer',
+          detail: 'Field required',
+          code: 'validation_error',
+          fields: [{ field: 'closer_user_id', message: 'Field required' }],
+        })
+      )
+    }
+    if (!MOCK_AVAILABLE_CLOSERS.some((row) => row.user_id === pinnedId)) {
+      return res(
+        ctx.status(422),
+        ctx.json({
+          detail: 'that closer cannot be sent a transfer',
           code: 'transfer.no_closer_available',
         })
       )
@@ -3958,40 +5202,16 @@ export const handlers = [
     return res(ctx.status(200), ctx.json(transfer))
   }),
 
-  rest.post('/transfers/:transferId/reject', async (req, res, ctx) => {
-    const transferId = req.params.transferId as string
-    const body = (await req.json()) as { closer_user_id: string }
-    const existing = MOCK_TRANSFERS.get(transferId)
-    if (!existing) {
-      return res(
-        ctx.status(404),
-        ctx.json({ detail: 'transfer not found', code: 'transfer.not_found' })
-      )
-    }
-    if (existing.status !== 'initiated' && existing.status !== 'offered') {
-      return res(
-        ctx.status(409),
-        ctx.json({
-          detail: `this transfer is already ${existing.status}`,
-          code: 'transfer.not_answerable',
-        })
-      )
-    }
-
-    const now = new Date().toISOString()
-    const transfer: TransferResponse = {
-      ...existing,
-      status: 'rejected',
-      closer_user_id: body.closer_user_id,
-      updated_at: now,
-    }
-    MOCK_TRANSFERS.set(transferId, transfer)
-
-    const queueIdx = MOCK_CLOSER_QUEUE.findIndex((row) => row.id === transferId)
-    if (queueIdx >= 0) MOCK_CLOSER_QUEUE.splice(queueIdx, 1)
-
-    return res(ctx.status(200), ctx.json(transfer))
-  }),
+  // As the API: an offer waits in its closer's queue until they accept it.
+  rest.post('/transfers/:transferId/reject', (_req, res, ctx) =>
+    res(
+      ctx.status(403),
+      ctx.json({
+        detail: 'a transfer cannot be rejected; it waits until the closer accepts it',
+        code: 'auth.forbidden',
+      })
+    )
+  ),
 
   rest.get('/transfers/:transferId', (req, res, ctx) => {
     const transfer = MOCK_TRANSFERS.get(req.params.transferId as string)
@@ -4008,15 +5228,23 @@ export const handlers = [
     const stage = req.url.searchParams.get('stage')
     const items =
       stage === 'fronter' || stage === 'closer'
-        ? MOCK_DISPOSITION_CATALOG.filter((d) => d.stage === stage)
-        : MOCK_DISPOSITION_CATALOG
+        ? MOCK_DISPOSITION_CATALOG.filter((d) => d.stage === stage && !d.retired)
+        : MOCK_DISPOSITION_CATALOG.filter((d) => !d.retired)
     return res(ctx.status(200), ctx.json({ items }))
   }),
 
   rest.get('/interactions/:interactionId/dispositions', (req, res, ctx) => {
     const interactionId = req.params.interactionId as string
     const items = MOCK_INTERACTION_DISPOSITIONS.get(interactionId) ?? []
-    return res(ctx.status(200), ctx.json({ items }))
+    const standing = mockStanding(interactionId)
+    return res(
+      ctx.status(200),
+      ctx.json({
+        items,
+        locked: standing.closed !== null,
+        callback_status: standing.callback_status,
+      })
+    )
   }),
 
   rest.get('/interactions/:interactionId/cart', (req, res, ctx) => {
@@ -4052,6 +5280,8 @@ export const handlers = [
     if (!actor) return res(ctx.status(401), ctx.json({ detail: 'Not authenticated.' }))
     const body = (await req.json()) as CartSaveRequest
     const interactionId = req.params.interactionId as string
+    const closed = mockClosedRefusal(interactionId)
+    if (closed) return res(ctx.status(409), ctx.json(closed))
     const before = MOCK_CARTS.get(interactionId)
     const found = checkCart(
       {
@@ -4069,6 +5299,23 @@ export const handlers = [
     const fields = Object.entries(found)
       .filter(([, message]) => message)
       .map(([field, message]) => ({ field, in: 'body', message: message as string }))
+    // A policy number belongs to one sale, so to one cart, in any case.
+    const number = (body.policy_number ?? '').trim().toLowerCase()
+    const taken =
+      number &&
+      ([...MOCK_CARTS].some(
+        ([id, cart]) => id !== interactionId && cart.policy_number?.toLowerCase() === number
+      ) ||
+        MOCK_POLICY_SALES.some(
+          (sale) => sale.interaction_id !== interactionId && sale.policy_number.toLowerCase() === number
+        ))
+    if (taken && fields.length === 0) {
+      fields.push({
+        field: 'policy_number',
+        in: 'body',
+        message: 'this policy number is already on another sale; check the number',
+      })
+    }
     if (fields.length > 0) {
       return res(
         ctx.status(422),
@@ -4114,6 +5361,10 @@ export const handlers = [
     if (!catalog) {
       return res(ctx.status(422), ctx.json({ detail: 'Unknown disposition.' }))
     }
+    if (catalog.stage === 'closer' && closerOnly(actor)) {
+      const closed = mockClosedRefusal(interactionId)
+      if (closed) return res(ctx.status(409), ctx.json(closed))
+    }
     if (catalog.counts_as_sale && !MOCK_CARTS.has(interactionId)) {
       const message = 'save the cart before recording a sale'
       return res(
@@ -4142,6 +5393,21 @@ export const handlers = [
       created_at: now,
     }
     MOCK_INTERACTION_DISPOSITIONS.set(interactionId, [...existing, record])
+    if (
+      catalog.stage === 'closer' &&
+      catalog.label === 'Callback Scheduled' &&
+      !actor.roles.includes('super_admin')
+    ) {
+      MOCK_CALLBACK_REQUESTS.push({
+        id: `callback-request-${++callbackRequestSeq}`,
+        interaction_id: interactionId,
+        outcome_id: record.id,
+        status: 'pending',
+        requested_at: now,
+        decided_by_name: null,
+        decided_at: null,
+      })
+    }
 
     // Callback → fronter callback list (same rule as GET /queue?role=fronter).
     if (catalog.stage === 'fronter' && catalog.label === 'Callback') {
@@ -4178,6 +5444,115 @@ export const handlers = [
     }
 
     return res(ctx.status(201), ctx.json(record))
+  }),
+
+  // A Super Admin sees every request, a Team Admin their team's.
+  rest.get('/callback-requests', (req, res, ctx) => {
+    const refused = adminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const user = mockActor(req.headers.get('authorization'))!
+    const superAdmin = user.roles.includes('super_admin')
+    const params = req.url.searchParams
+    const status = params.get('status')
+    const limit = Number(params.get('limit') ?? 20)
+    const offset = Number(params.get('offset') ?? 0)
+    const matching = MOCK_CALLBACK_REQUESTS.filter((request) => {
+      if (status && request.status !== status) return false
+      return superAdmin || acceptedCloser(request.interaction_id)?.team_id === user.team_id
+    }).sort((a, b) =>
+      status === 'pending'
+        ? a.requested_at.localeCompare(b.requested_at)
+        : b.requested_at.localeCompare(a.requested_at)
+    )
+    return res(
+      ctx.status(200),
+      ctx.json({
+        items: matching.slice(offset, offset + limit).map(mockCallbackItem),
+        total: matching.length,
+        limit,
+        offset,
+      })
+    )
+  }),
+
+  rest.post('/callback-requests/:requestId/decision', async (req, res, ctx) => {
+    const refused = superAdminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const actor = mockActor(req.headers.get('authorization'))!
+    const body = (await req.json()) as { status: 'approved' | 'rejected' }
+    const request = MOCK_CALLBACK_REQUESTS.find((row) => row.id === req.params.requestId)
+    if (!request) {
+      return res(ctx.status(404), ctx.json(authErrorBody('callback request not found', 'not_found')))
+    }
+    if (request.status !== 'pending') {
+      const message = 'this request was already decided'
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody(message, 'validation_error', [{ field: 'status', in: 'body', message }])
+        )
+      )
+    }
+    Object.assign(request, {
+      status: body.status,
+      decided_by_name: actor.name,
+      decided_at: new Date().toISOString(),
+    })
+    return res(ctx.status(200), ctx.json(mockCallbackItem(request)))
+  }),
+
+  // The closer's correction of the fronter's details: the lead, and the next version.
+  rest.put('/interactions/:interactionId/details', async (req, res, ctx) => {
+    const actor = mockActor(req.headers.get('authorization'))
+    if (!actor) return res(ctx.status(401), ctx.json({ detail: 'Not authenticated.' }))
+    if (!actor.roles.includes('closer')) {
+      return res(
+        ctx.status(403),
+        ctx.json(authErrorBody('Insufficient role for this operation', 'auth.forbidden'))
+      )
+    }
+    const interactionId = req.params.interactionId as string
+    const existing = MOCK_QUALIFICATIONS.get(interactionId)
+    if (acceptedCloser(interactionId)?.id !== actor.id || !existing) {
+      return res(
+        ctx.status(404),
+        ctx.json(authErrorBody('interaction not found', 'interaction.not_found'))
+      )
+    }
+    const closed = mockClosedRefusal(interactionId)
+    if (closed) return res(ctx.status(409), ctx.json(closed))
+
+    const body = (await req.json()) as FronterDetails
+    const lead = leadForInteraction(interactionId)
+    Object.assign(lead, {
+      first_name: body.first_name,
+      last_name: body.last_name,
+      vehicle_make: body.vehicle_make,
+      vehicle_year: body.vehicle_year,
+      vehicle_model: body.vehicle_model,
+      vin: body.vin ?? null,
+      license_plate: body.license_plate ?? null,
+      updated_at: new Date().toISOString(),
+    })
+    // The lead wins, and a field it no longer has is dropped, as in the API.
+    const customer = customerFromLead(lead)
+    const fields = Object.entries(customer).filter(([key]) => key !== 'lead_id')
+    const kept = Object.entries(existing.snapshot_json as Record<string, unknown>).filter(
+      ([key]) => !fields.some(([field]) => field === key)
+    )
+    const record: QualificationResponse = {
+      ...existing,
+      id: `qual-${++qualificationSeq}`,
+      version: existing.version + 1,
+      snapshot_json: Object.fromEntries([
+        ...kept,
+        ...fields.filter(([, value]) => value != null),
+      ]) as QualificationResponse['snapshot_json'],
+      customer,
+      created_at: new Date().toISOString(),
+    }
+    MOCK_QUALIFICATIONS.set(interactionId, record)
+    return res(ctx.status(200), ctx.json(record))
   }),
 
   rest.get('/reconciliation/exceptions', (req, res, ctx) => {

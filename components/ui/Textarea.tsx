@@ -49,7 +49,8 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
       disabled={disabled}
       required={required}
       slotProps={{
-        htmlInput: htmlTextareaProps,
+        // Off unless a field asks for it: forms are typed by hand, never filled in.
+        htmlInput: { autoComplete: 'off', ...htmlTextareaProps },
       }}
     />
   )

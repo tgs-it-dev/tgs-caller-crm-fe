@@ -71,7 +71,7 @@ export type LeadCreateFormValues = {
   identity_kind: LeadIdentityKind
   vin: string
   license_plate: string
-  /** Empty = open Active Call without capturing an outcome yet. */
+  /** Empty until the fronter picks one; saving needs one. */
   disposition_id: string
 }
 
@@ -157,7 +157,20 @@ export function leadUpdatePayload(values: LeadCreateFormValues): LeadUpdate {
   }
 }
 
-export function leadFormValuesFromLead(lead: LeadResponse): LeadCreateFormValues {
+/** The form filled from a lead, or from anything carrying its fields, such as an Own Sale lookup. */
+export function leadFormValuesFromLead(
+  lead: Pick<
+    LeadResponse,
+    | 'first_name'
+    | 'last_name'
+    | 'phone_no'
+    | 'vehicle_make'
+    | 'vehicle_year'
+    | 'vehicle_model'
+    | 'vin'
+    | 'license_plate'
+  >
+): LeadCreateFormValues {
   const vin = lead.vin ?? ''
   const plate = lead.license_plate ?? ''
   return {
@@ -368,11 +381,16 @@ export function LeadCreateForm({
       {dispositions && (
         <Section title="Disposition">
           <Select
-            label="Call outcome"
+            label={
+              <>
+                Call outcome
+                <RequiredMark />
+              </>
+            }
             value={values.disposition_id}
             onChange={(e) => onChange({ disposition_id: e.target.value })}
           >
-            <option value="">Select disposition</option>
+            <option value="">Choose an outcome</option>
             {dispositions.map((option) => (
               <option key={option.id} value={option.id}>
                 {option.label}

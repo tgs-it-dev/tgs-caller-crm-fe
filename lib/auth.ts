@@ -32,8 +32,8 @@ const ROLE_LANDING: Record<Role, string> = {
   administrator: '/admin',
   // QA Manager oversees every team's QA from the admin desk.
   qa_manager: '/admin/qa',
-  qa_lead: '/qa',
   qa_agent: '/qa',
+  retention: '/retention',
   // Super Admin modules are Users / Teams / Campaigns — not the Team Admin dashboard.
   super_admin: '/admin/users',
 }
@@ -88,6 +88,16 @@ export async function updateMyTimezone(timezone: TimeZoneName, token: string): P
   return res.json() as Promise<CurrentUser>
 }
 
+/** Record that Print Screen was pressed on `page`. Always 204 for a signed-in user. */
+export async function reportScreenshot(page: string, token: string): Promise<void> {
+  const res = await fetch(apiUrl('/auth/me/screenshots'), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ page }),
+  })
+  if (!res.ok) throw await authError(res)
+}
+
 /**
  * Change your own password. The API ends every session, this one's included, and
  * hands back a fresh pair; call it through `changePassword` in `lib/session.ts`,
@@ -115,8 +125,8 @@ const ROLE_PRIORITY: Role[] = [
   'qa_manager',
   'closer',
   'fronter',
-  'qa_lead',
   'qa_agent',
+  'retention',
 ]
 
 /**
@@ -143,11 +153,14 @@ export function adminDeskRole(
   return null
 }
 
-/** The `/qa` desk is the QA Lead's when they hold it, otherwise the QA Agent's. */
-export function qaDeskRole(roles: readonly Role[]): 'qa_lead' | 'qa_agent' | null {
-  if (roles.includes('qa_lead')) return 'qa_lead'
-  if (roles.includes('qa_agent')) return 'qa_agent'
-  return null
+/** The `/qa` desk is the QA Agent's. */
+export function qaDeskRole(roles: readonly Role[]): 'qa_agent' | null {
+  return roles.includes('qa_agent') ? 'qa_agent' : null
+}
+
+/** The `/retention` desk is the Retention role's. */
+export function retentionDeskRole(roles: readonly Role[]): 'retention' | null {
+  return roles.includes('retention') ? 'retention' : null
 }
 
 /** Super Admin has no team pin — never invent a fake membership in the UI. */
@@ -175,8 +188,8 @@ const DESK_LABEL: Record<Role, string> = {
   closer: 'CRM — Closer',
   administrator: 'CRM — Team Admin',
   qa_manager: 'CRM — QA Manager',
-  qa_lead: 'CRM - QA Lead',
   qa_agent: 'CRM — QA Agent',
+  retention: 'CRM - Retention',
   super_admin: 'CRM — Super Admin',
 }
 
@@ -185,8 +198,8 @@ const ROLE_NAME: Record<Role, string> = {
   closer: 'Closer',
   administrator: 'Team Admin',
   qa_manager: 'QA Manager',
-  qa_lead: 'QA Lead',
   qa_agent: 'QA Agent',
+  retention: 'Retention',
   super_admin: 'Super Admin',
 }
 
@@ -209,6 +222,8 @@ export function heldDesks(roles: Role[]): Role[] {
   if (roles.includes('fronter')) desks.push('fronter')
   const qa = qaDeskRole(roles)
   if (qa && !admin) desks.push(qa)
+  const retention = retentionDeskRole(roles)
+  if (retention && !admin) desks.push(retention)
   return desks
 }
 
@@ -230,6 +245,7 @@ export function deskRoleFromPath(pathname: string, roles?: readonly Role[]): Rol
   if (pathname === '/qa' || pathname.startsWith('/qa/')) {
     return (roles && qaDeskRole(roles)) ?? 'qa_agent'
   }
+  if (pathname === '/retention' || pathname.startsWith('/retention/')) return 'retention'
   if (pathname === '/closer' || pathname.startsWith('/closer/')) return 'closer'
   if (pathname === '/fronter' || pathname.startsWith('/fronter/')) return 'fronter'
   return null

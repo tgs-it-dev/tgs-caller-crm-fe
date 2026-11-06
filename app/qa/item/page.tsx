@@ -3,7 +3,7 @@ import { RequireRole } from '@/components/auth/RequireRole'
 import { QaItemScreen } from '@/components/qa/QaItemScreen'
 import type { Role } from '@/lib/auth'
 
-const QA_DESK_ROLES: readonly Role[] = ['qa_lead', 'qa_agent']
+const QA_DESK_ROLES: readonly Role[] = ['qa_agent']
 
 export default function QaItemPage() {
   return (

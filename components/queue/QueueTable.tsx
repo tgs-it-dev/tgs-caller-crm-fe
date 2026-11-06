@@ -17,6 +17,15 @@ const CLOSER_STATUS: Record<
   offered: { label: 'Offered', tone: 'signal' },
   initiated: { label: 'Initiated', tone: 'caution' },
   accepted: { label: 'On Call', tone: 'accepted' },
+  own_sale: { label: 'Own Sale', tone: 'accepted' },
+}
+
+/** Theirs to work: a transfer they accepted, or a call they started as an Own Sale. */
+function openHref(entry: CloserQueueEntry): string | null {
+  if (entry.status === 'accepted') return closerWorkspaceHref(entry.interaction_id, entry.id)
+  // An Own Sale row has no transfer: its id is the call.
+  if (entry.status === 'own_sale') return closerWorkspaceHref(entry.interaction_id)
+  return null
 }
 
 function closerColumns(
@@ -30,28 +39,31 @@ function closerColumns(
     {
       id: 'lead',
       header: 'Lead',
-      render: (entry) => (
-        <>
-          {entry.status === 'accepted' ? (
-            <Link
-              href={closerWorkspaceHref(entry.interaction_id, entry.id)}
-              className="font-medium hover:text-navy hover:underline"
-            >
-              {entry.lead_name}
-            </Link>
-          ) : (
-            <span className="font-medium">{entry.lead_name}</span>
-          )}
-          <span className="mt-1 block text-xs text-slate">{formatPhone(entry.lead_phone)}</span>
-        </>
-      ),
+      render: (entry) => {
+        const href = openHref(entry)
+        return (
+          <>
+            {href ? (
+              <Link href={href} className="font-medium hover:text-navy hover:underline">
+                {entry.lead_name}
+              </Link>
+            ) : (
+              <span className="font-medium">{entry.lead_name}</span>
+            )}
+            <span className="mt-1 block text-xs text-slate">{formatPhone(entry.lead_phone)}</span>
+          </>
+        )
+      },
     },
     {
       id: 'transfer',
       header: 'Transfer',
-      render: (entry) => (
-        <span className="font-mono text-xs text-slate">{entry.id.slice(0, 8)}…</span>
-      ),
+      render: (entry) =>
+        entry.status === 'own_sale' ? (
+          <span className="text-slate">-</span>
+        ) : (
+          <span className="font-mono text-xs text-slate">{entry.id.slice(0, 8)}…</span>
+        ),
     },
     {
       id: 'wait',
@@ -68,7 +80,7 @@ function closerColumns(
       render: (entry) => (
         <Badge
           tone={CLOSER_STATUS[entry.status].tone}
-          dot={entry.status === 'offered' || entry.status === 'accepted'}
+          dot={entry.status !== 'initiated'}
         >
           {CLOSER_STATUS[entry.status].label}
         </Badge>
@@ -78,12 +90,13 @@ function closerColumns(
       id: 'actions',
       header: 'Actions',
       render: (entry) => {
-        if (entry.status === 'accepted') {
+        const href = openHref(entry)
+        if (href) {
           return (
             <div className="whitespace-nowrap">
               <MuiButton
                 component={Link}
-                href={closerWorkspaceHref(entry.interaction_id, entry.id)}
+                href={href}
                 size="small"
                 variant="outlined"
                 color="primary"
@@ -94,7 +107,7 @@ function closerColumns(
           )
         }
 
-        if (!isPendingTransfer(entry.status)) return null
+        if (entry.status === 'own_sale' || !isPendingTransfer(entry.status)) return null
 
         const rowBusy = opts.busyTransferId === entry.id
         return (

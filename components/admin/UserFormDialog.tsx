@@ -1,6 +1,7 @@
 'use client'
 
 import { useId, useState, type FormEvent } from 'react'
+import MuiAlert from '@mui/material/Alert'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import Radio from '@mui/material/Radio'
 import RadioGroup from '@mui/material/RadioGroup'
@@ -17,6 +18,7 @@ import { AuthError, isQaManager, isSuperAdmin, isTeamAdmin, type Role } from '@/
 import { newPasswordProblem } from '@/lib/passwords'
 import { withSession } from '@/lib/session'
 import type { Team } from '@/lib/teams'
+import { listAvailableClosers } from '@/lib/transfers'
 import {
   createUser,
   grantableRoles,
@@ -66,7 +68,19 @@ const sameRoles = (a: Role[], b: Role[]) =>
   a.length === b.length && a.every((role) => b.includes(role))
 
 /** These cover every team, so an account holding one has no team and no other role. */
-const COMPANY_WIDE: readonly Role[] = ['super_admin', 'qa_manager']
+const COMPANY_WIDE: readonly Role[] = ['super_admin', 'qa_manager', 'qa_agent', 'retention']
+/** Whether an account has a team turns on these, so they are set only when it is made. */
+const FIXED_AT_CREATION: readonly Role[] = ['qa_manager', 'qa_agent', 'retention']
+
+/** Offers waiting on this closer, or 0 when that cannot be read, so a save is never blocked. */
+async function waitingFor(user: User): Promise<number> {
+  try {
+    const closers = await withSession((token) => listAvailableClosers(token))
+    return closers.find((row) => row.user_id === user.id)?.waiting ?? 0
+  } catch {
+    return 0
+  }
+}
 
 export function UserFormDialog({
   user,
@@ -84,9 +98,9 @@ export function UserFormDialog({
   isSelf: boolean
   /**
    * The teams to pick from. A Super Admin picks one when creating and may change
-   * it when editing; a QA Manager picks one only when creating. Neither picks one
-   * for a super_admin or qa_manager account. A Team Admin leaves `team_id` out and
-   * the API pins the account to their own team.
+   * it when editing, except for a super_admin, qa_manager or qa_agent account,
+   * which has none. A QA Manager only ever creates QA Agents, so never picks one.
+   * A Team Admin leaves `team_id` out and the API pins the account to their own team.
    */
   teams: Pick<Team, 'id' | 'name'>[]
   onClose: () => void
@@ -109,15 +123,20 @@ export function UserFormDialog({
   const [teamId, setTeamId] = useState(startingTeam)
   const creatingSuperAdmin = !user && roles.includes('super_admin')
   const companyWide = roles.some((role) => COMPANY_WIDE.includes(role))
-  // Changing someone's team stays the Super Admin's; a QA Manager names it for a new account.
-  const showTeamField = !companyWide && (canPickTeam || (qaManagerOnly && !user))
+  // Picking or changing someone's team is the Super Admin's.
+  const showTeamField = !companyWide && canPickTeam
   const mustPickTeam = !user && showTeamField
+  const strands =
+    Boolean(user?.active && user.roles.includes('closer')) &&
+    (!active || !roles.includes('closer') || (showTeamField && Boolean(teamId) && teamId !== startingTeam))
   const [signIn, setSignIn] = useState<SignInMethod>('password')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [problems, setProblems] = useState<Record<string, string>>({})
   const [banner, setBanner] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  // Shown once before a save that leaves a closer's waiting offers with nobody to take them.
+  const [strandWarning, setStrandWarning] = useState<string | null>(null)
   // A Super Admin editing someone can switch this dialog to set their password.
   const canResetPassword = Boolean(user) && canPickTeam
   const resetFormId = useId()
@@ -129,9 +148,10 @@ export function UserFormDialog({
   })
 
   function roleLocked(role: Role): boolean {
-    // qa_manager decides whether an account has a team, so it is set only when the
-    // account is made; a QA Manager's roles stay as they are.
-    if (user && (role === 'qa_manager' || user.roles.includes('qa_manager'))) return true
+    // A QA or Retention account's roles stay as they are, and nobody else becomes one.
+    if (user && FIXED_AT_CREATION.some((fixed) => role === fixed || user.roles.includes(fixed))) {
+      return true
+    }
     // Only lock the elevated role the actor themselves holds — SA ≠ Team Admin ≠ QA Manager.
     if (!isSelf) return false
     if (role === 'super_admin') return isSuperAdmin(actorRoles)
@@ -192,6 +212,17 @@ export function UserFormDialog({
         if (!sameRoles(roles, user.roles)) patch.roles = roles
         if (active !== user.active) patch.active = active
         if (showTeamField && teamId && teamId !== startingTeam) patch.team_id = teamId
+        if (strands && !strandWarning) {
+          const waiting = await waitingFor(user)
+          if (waiting > 0) {
+            setStrandWarning(
+              `${user.name} has ${waiting} ${waiting === 1 ? 'lead' : 'leads'} waiting in their queue. ` +
+                `They stay there until ${user.name} can take them again.`
+            )
+            setSaving(false)
+            return
+          }
+        }
         if (Object.keys(patch).length > 0) {
           await withSession((token) => updateUser(user.id, patch, token))
         }
@@ -199,8 +230,8 @@ export function UserFormDialog({
         // The key is left out entirely for an invitation, never sent empty: the
         // API validates `password` whenever it is present at all, so `''` would
         // be a 422 rather than "no password given". Same for team_id: a Team Admin
-        // omits it so the API pins their own team; a Super Admin or QA Manager
-        // sends one, except for a super_admin or qa_manager account (no team).
+        // omits it so the API pins their own team; a Super Admin sends one, except
+        // for a company-wide account (no team).
         await withSession((token) =>
           createUser(
             {
@@ -280,7 +311,7 @@ export function UserFormDialog({
               isLoading={saving}
               loadingText={user ? 'Saving…' : 'Creating…'}
             >
-              {user ? 'Save changes' : 'Create user'}
+              {user ? (strands && strandWarning ? 'Save anyway' : 'Save changes') : 'Create user'}
             </Button>
           </div>
         )
@@ -291,6 +322,11 @@ export function UserFormDialog({
       ) : (
         <form id={formId} onSubmit={submit} noValidate className="space-y-5 pt-1">
           {banner && <Alert>{banner}</Alert>}
+          {strands && strandWarning && (
+            <MuiAlert severity="warning" role="status" sx={{ mb: 0 }}>
+              {strandWarning}
+            </MuiAlert>
+          )}
 
           <Input
             label="Name"
@@ -356,6 +392,16 @@ export function UserFormDialog({
           {canPickTeam && !user && roles.includes('qa_manager') && (
             <p className="text-xs leading-[150%] text-slate">
               A QA Manager oversees every team, so is not assigned to one.
+            </p>
+          )}
+          {!user && roles.includes('qa_agent') && (
+            <p className="text-xs leading-[150%] text-slate">
+              A QA Agent reviews sales from every team, so is not assigned to one.
+            </p>
+          )}
+          {!user && roles.includes('retention') && (
+            <p className="text-xs leading-[150%] text-slate">
+              Retention works policies from every team, so is not assigned to one.
             </p>
           )}
 
@@ -439,18 +485,27 @@ export function UserFormDialog({
             </div>
             {isSuperAdmin(actorRoles) && !user && (
               <p className="mt-2 text-xs leading-[150%] text-slate">
-                Only Super Admin can create a QA Manager. QA Managers create QA Leads and
-                QA Agents on any team.
+                Only Super Admin can create a QA Manager. QA Managers create QA Agents.
               </p>
             )}
             {qaManagerOnly && (
               <p className="mt-2 text-xs leading-[150%] text-slate">
-                You can create QA Leads and QA Agents on any team.
+                You can create QA Agents. They review sales from every team.
               </p>
             )}
             {user?.roles.includes('qa_manager') && (
               <p className="mt-2 text-xs leading-[150%] text-slate">
                 A QA Manager&apos;s role is set when the account is created.
+              </p>
+            )}
+            {user?.roles.includes('qa_agent') && (
+              <p className="mt-2 text-xs leading-[150%] text-slate">
+                A QA Agent&apos;s role is set when the account is created.
+              </p>
+            )}
+            {user?.roles.includes('retention') && (
+              <p className="mt-2 text-xs leading-[150%] text-slate">
+                A Retention account&apos;s role is set when the account is created.
               </p>
             )}
             {isSelf && isTeamAdmin(actorRoles) && !isSuperAdmin(actorRoles) && (

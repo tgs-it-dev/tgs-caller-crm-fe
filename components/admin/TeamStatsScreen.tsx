@@ -67,20 +67,31 @@ function rowSx(row: Row) {
   return undefined
 }
 
-/** The rate first, a bar to compare teams by eye, then the counts it came from. */
+/**
+ * The rate first, a bar to compare teams by eye, then the counts it came from.
+ * The bar stops at full; the rate is never capped, since old sales paid now can
+ * outnumber the sales made.
+ */
 function Conversion({ row }: { row: Row }) {
-  if (row.conversion_rate === null) return <>{formatPercent(null)}</>
+  if (row.conversion_rate === null) {
+    return (
+      <span className="tabular-nums">
+        {formatPercent(null)}
+        {row.paid > 0 && <span className="text-slate"> ({row.paid} paid, no sales)</span>}
+      </span>
+    )
+  }
   return (
     <span className="inline-flex items-center gap-3 tabular-nums">
       <span aria-hidden className="h-1.5 w-16 overflow-hidden rounded-full bg-light-grey">
         <span
           className="block h-full rounded-full bg-navy"
-          style={{ width: `${row.conversion_rate * 100}%` }}
+          style={{ width: `${Math.min(row.conversion_rate, 1) * 100}%` }}
         />
       </span>
       <span>{formatPercent(row.conversion_rate)}</span>
       <span className="text-slate">
-        {row.sold} of {row.leads}
+        {row.paid} of {row.sales}
       </span>
     </span>
   )
@@ -90,7 +101,6 @@ const COMPARISON: DataColumn<Row>[] = [
   // The team column takes the slack, so each row's figures sit together.
   { id: 'team', header: 'Team', width: '24%', render: (row) => row.name },
   { id: 'leads', header: 'Leads', align: 'right', render: (row) => row.leads },
-  { id: 'no_answer', header: 'No answer', align: 'right', render: (row) => row.no_answer },
   { id: 'callback', header: 'Callback', align: 'right', render: (row) => row.callback },
   { id: 'qualified', header: 'Qualified', align: 'right', render: (row) => row.qualified },
   { id: 'transferred', header: 'Transferred', align: 'right', render: (row) => row.transferred },
@@ -199,19 +209,19 @@ export function TeamStatsScreen() {
                 value={load.report.total.leads}
                 icon={<Contact strokeWidth={2} aria-hidden />}
               />
+              {/* Sold and conversion count different things, so each says which. */}
               <StatTile
                 label="Sold"
                 value={load.report.total.sold}
+                detail="of the leads added in these dates"
                 icon={<CircleDollarSign strokeWidth={2} aria-hidden />}
               />
               <StatTile
                 label="Conversion"
                 value={formatPercent(load.report.total.conversion_rate)}
-                detail={
-                  load.report.total.conversion_rate === null
-                    ? undefined
-                    : `${load.report.total.sold} of ${load.report.total.leads} sold`
-                }
+                detail={`${load.report.total.paid} paid of ${load.report.total.sales} ${
+                  load.report.total.sales === 1 ? 'sale' : 'sales'
+                } made in these dates`}
                 icon={<TrendingUp strokeWidth={2} aria-hidden />}
               />
             </div>
@@ -229,7 +239,10 @@ export function TeamStatsScreen() {
               toolbar={
                 <p className="text-sm leading-[140%] text-slate">
                   These are the leads added during these dates, and where each one stands now.
-                  Sales below are listed by the day they were made.
+                  Conversion is the sales paid during these dates over the sales made in them,
+                  so old sales paid now can take it past 100%. Paid comes from the monthly upload
+                  and counts on the 1st of its month, so this month fills in once its file is
+                  uploaded. Sales below are listed by the day they were made.
                 </p>
               }
               rows={rows}

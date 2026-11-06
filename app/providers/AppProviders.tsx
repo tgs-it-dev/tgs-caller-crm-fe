@@ -3,7 +3,9 @@
 import { ReactNode } from 'react'
 import { AppRouterCacheProvider } from '@mui/material-nextjs/v16-appRouter'
 import { ThemeProvider } from '@mui/material/styles'
+import { CopyGuard } from '@/components/auth/CopyGuard'
 import { CurrentUserProvider } from '@/components/auth/CurrentUserProvider'
+import { ScreenGuard } from '@/components/auth/ScreenGuard'
 import { SessionKeeper } from '@/components/auth/SessionKeeper'
 import { theme } from '@/lib/theme'
 import MockProvider from './MockProvider'
@@ -19,6 +21,8 @@ export default function AppProviders({ children }: { children: ReactNode }) {
         <MockProvider>
           <CurrentUserProvider>
             <SessionKeeper />
+            <CopyGuard />
+            <ScreenGuard />
             {children}
           </CurrentUserProvider>
         </MockProvider>

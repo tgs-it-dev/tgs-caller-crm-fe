@@ -34,7 +34,7 @@ function bannerFor(err: AuthError): string {
     return 'You are not on a team yet, so you cannot create leads.'
   }
   if (err.code === 'transfer.no_closer_available') {
-    return 'No closers available right now. Pick someone free, or clear the pin for any closer.'
+    return 'That closer cannot take transfers. Choose another.'
   }
   if (err.code === 'transfer.disposition_not_transferable') {
     return err.message
@@ -114,7 +114,7 @@ export function LeadCreateDialog({
         if (!cancelled) {
           setDispositions([])
           setClosers([])
-          setBanner('Could not load dispositions or closers. You can still save the lead.')
+          setBanner('Could not load outcomes or closers. Close this and try again.')
         }
       })
     return () => {
@@ -153,7 +153,8 @@ export function LeadCreateDialog({
   async function transferLead(
     lead: LeadResponse,
     disposition: DispositionResponse,
-    fronterUserId: string
+    fronterUserId: string,
+    closerUserId: string
   ): Promise<LeadCreateResult> {
     const interactionId = lead.interaction_id!
     const year = Number(values.vehicle_year.trim())
@@ -202,16 +203,13 @@ export function LeadCreateDialog({
         {
           interaction_id: interactionId,
           fronter_user_id: fronterUserId,
-          ...(selectedCloserUserId ? { closer_user_id: selectedCloserUserId } : {}),
+          closer_user_id: closerUserId,
         },
         token
       )
     )
 
-    const closerName =
-      selectedCloserUserId == null
-        ? null
-        : (closers?.find((row) => row.user_id === selectedCloserUserId)?.name ?? null)
+    const closerName = closers?.find((row) => row.user_id === closerUserId)?.name ?? null
 
     return { next: 'transferred', lead, disposition, transfer, closerName }
   }
@@ -224,14 +222,11 @@ export function LeadCreateDialog({
     }
 
     const found = validateLeadCreateForm(values)
+    if (!selected) found.disposition_id = 'Choose an outcome.'
+    else if (transferNow && !selectedCloserUserId) found.closer = 'Choose a closer.'
     setProblems(found)
     setBanner(null)
     if (Object.keys(found).length > 0) return
-
-    if (transferNow && closers && !closers.some((row) => row.status === 'available')) {
-      setProblems({ closer: 'No closers are available right now.' })
-      return
-    }
 
     setSaving(true)
     try {
@@ -262,8 +257,8 @@ export function LeadCreateDialog({
         return
       }
 
-      if (transferNow && selected) {
-        const result = await transferLead(saved, selected, currentUser.user.id)
+      if (transferNow && selected && selectedCloserUserId) {
+        const result = await transferLead(saved, selected, currentUser.user.id, selectedCloserUserId)
         onCreated(result)
         return
       }

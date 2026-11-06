@@ -45,6 +45,7 @@ export const tokens = {
     qualified: '#7A5FA3',
     transferred: '#C99A3E',
     sold: '#4F8A5B',
+    paid: '#2D6A4A',
   },
   /** Pill fills from Figma — all lighter than a 10% alpha of their text colour. */
   badge: {

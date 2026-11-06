@@ -2,13 +2,16 @@ import type { components } from '@/lib/generated/schema'
 import { AuthError } from '@/lib/auth'
 import {
   captureDisposition,
+  getInteractionDispositions,
   listDispositions,
   listInteractionDispositions,
   type DispositionCaptureRequest,
   type DispositionResponse,
+  type InteractionDispositionList,
   type InteractionDispositionResponse,
 } from '@/lib/dispositions'
 import { type TodaysStatsResponse } from '@/lib/fronterStats'
+import { getInteractionDetailResponse } from '@/lib/interactions'
 import { getLatestQualification, type QualificationResponse } from '@/lib/qualification'
 import {
   acceptTransfer,
@@ -22,7 +25,7 @@ export type { TransferResponse }
 export type ConsentDnc = components['schemas']['ConsentDnc']
 
 /**
- * Closer-facing read model for the Qualification Snapshot card.
+ * Closer-facing read model for the Lead Details card.
  * Prefer `QualificationResponse.customer` (lead fields); fall back to
  * `snapshot_json` vehicle_* for older saves that predate the customer block.
  */
@@ -51,12 +54,54 @@ export type TodaysDispositionRow = {
   disposition_label: string | null
 }
 
+/** Whether the call is closed to its closer, and the callback request behind it. */
+export type CallStanding = Pick<InteractionDispositionList, 'locked' | 'callback_status'>
+
 export type CloserWorkspaceData = {
-  transfer: TransferResponse
+  /** Null on a call the closer started as an Own Sale. */
+  transfer: TransferResponse | null
+  ownSale: boolean
+  /** When the closer took the call: the accept, or the Own Sale start. */
+  startedAt: string | null
   qualification: QualificationResponse | null
   options: DispositionResponse[]
   captured: InteractionDispositionResponse[]
+  standing: CallStanding
 }
+
+/** Where a call closed to its closer stands: a badge and one line, in their words. */
+export type ClosedCall = {
+  badge: string
+  tone: 'amber' | 'red' | 'neutral'
+  message: string
+}
+
+/** Null while the call is open to its closer. */
+export function closedCall(standing: CallStanding): ClosedCall | null {
+  if (!standing.locked) return null
+  if (standing.callback_status === 'pending') {
+    return {
+      badge: 'Waiting for approval',
+      tone: 'amber',
+      message: 'It opens from your Callbacks once a Super Admin approves it.',
+    }
+  }
+  if (standing.callback_status === 'rejected') {
+    return {
+      badge: 'Rejected',
+      tone: 'red',
+      message: 'A Super Admin rejected it, so the call stays closed.',
+    }
+  }
+  return {
+    badge: 'Closed',
+    tone: 'neutral',
+    message: "The call is closed, so the outcome and cart can't change.",
+  }
+}
+
+/** Nothing was handed over on an Own Sale call, so this outcome is left out there. */
+export const TRANSFER_DROPPED_LABEL = 'Transfer Dropped'
 
 const DEFAULT_INTERACTION_ID = 'int-1001'
 
@@ -71,7 +116,8 @@ export const CLOSER_DEFAULT_TRANSFER_ID = transferIdForInteraction(DEFAULT_INTER
 /**
  * Workspace URL. Query params (not a path segment) so static export / S3 can
  * soft-navigate without pre-rendering every interaction id.
- * `transferId` is required to accept/load against the real API.
+ * `transferId` accepts and loads a handed-over call; without it the call must be
+ * one the closer started as an Own Sale.
  */
 export function closerWorkspaceHref(interactionId: string, transferId?: string | null): string {
   const params = new URLSearchParams({ id: interactionId })
@@ -79,7 +125,7 @@ export function closerWorkspaceHref(interactionId: string, transferId?: string |
   return `/closer/workspace/?${params.toString()}`
 }
 
-/** Seeded snapshot matching the closer Qualification Snapshot card. */
+/** Seeded snapshot matching the closer Lead Details card. */
 export const MOCK_CLOSER_SNAPSHOT: CloserQualificationSnapshot = {
   first_name: 'Jane',
   last_name: 'D.',
@@ -227,15 +273,18 @@ export function latestCloserDisposition(
 
 /**
  * Accept a pending transfer when needed, then load qualification + dispositions.
+ * With no transfer, the call is one the closer started as an Own Sale.
  * Coalesces concurrent loads (Strict Mode remount) for the same transfer.
  */
 const inflightByTransfer = new Map<string, Promise<CloserWorkspaceData>>()
 
+type WorkspaceOpts = { interactionId: string; transferId: string | null; closerUserId: string }
+
 export function loadCloserWorkspace(
-  opts: { interactionId: string; transferId: string; closerUserId: string },
+  opts: WorkspaceOpts,
   token: string
 ): Promise<CloserWorkspaceData> {
-  const key = `${opts.transferId}:${opts.closerUserId}`
+  const key = `${opts.transferId ?? opts.interactionId}:${opts.closerUserId}`
   let inflight = inflightByTransfer.get(key)
   if (!inflight) {
     inflight = resolveCloserWorkspace(opts, token).finally(() => {
@@ -248,11 +297,49 @@ export function loadCloserWorkspace(
   return inflight
 }
 
-async function resolveCloserWorkspace(
-  opts: { interactionId: string; transferId: string; closerUserId: string },
+async function loadCall(interactionId: string, token: string) {
+  const [qualification, options, list] = await Promise.all([
+    getLatestQualification(interactionId, token),
+    listDispositions(token, 'closer'),
+    getInteractionDispositions(interactionId, token),
+  ])
+  return {
+    qualification,
+    options,
+    captured: list.items,
+    standing: { locked: list.locked, callback_status: list.callback_status },
+  }
+}
+
+async function resolveOwnSaleWorkspace(
+  interactionId: string,
   token: string
 ): Promise<CloserWorkspaceData> {
-  let transfer = await getTransfer(opts.transferId, token)
+  const detail = await getInteractionDetailResponse(interactionId, token)
+  if (!detail.own_sale) {
+    throw new AuthError(
+      'No active transfer for this call. Open it from the Queue.',
+      404,
+      'transfer.not_found'
+    )
+  }
+  const call = await loadCall(interactionId, token)
+  return {
+    ...call,
+    transfer: null,
+    ownSale: true,
+    startedAt: detail.created_at,
+    options: call.options.filter((option) => option.label !== TRANSFER_DROPPED_LABEL),
+  }
+}
+
+async function resolveCloserWorkspace(
+  opts: WorkspaceOpts,
+  token: string
+): Promise<CloserWorkspaceData> {
+  if (!opts.transferId) return resolveOwnSaleWorkspace(opts.interactionId, token)
+  const transferId = opts.transferId
+  let transfer = await getTransfer(transferId, token)
   if (!transfer) {
     throw new AuthError('No transfer found for this interaction.', 404, 'transfer.not_found')
   }
@@ -267,14 +354,14 @@ async function resolveCloserWorkspace(
   if (isPendingTransfer(transfer.status)) {
     try {
       transfer = await acceptTransfer(
-        opts.transferId,
+        transferId,
         { closer_user_id: opts.closerUserId },
         token
       )
     } catch (err) {
       // Two tabs / Strict Mode: offer already answered — refetch.
       if (err instanceof AuthError && err.code === 'transfer.not_answerable') {
-        const again = await getTransfer(opts.transferId, token)
+        const again = await getTransfer(transferId, token)
         if (again?.status === 'accepted') {
           transfer = again
         } else {
@@ -292,13 +379,12 @@ async function resolveCloserWorkspace(
     )
   }
 
-  const [qualification, options, captured] = await Promise.all([
-    getLatestQualification(opts.interactionId, token),
-    listDispositions(token, 'closer'),
-    listInteractionDispositions(opts.interactionId, token),
-  ])
-
-  return { transfer, qualification, options, captured }
+  return {
+    ...(await loadCall(opts.interactionId, token)),
+    transfer,
+    ownSale: false,
+    startedAt: transfer.status === 'accepted' ? transfer.updated_at : null,
+  }
 }
 
 export async function createCloserDisposition(
@@ -315,4 +401,4 @@ export async function listCloserDispositionOptions(
   return listDispositions(token, 'closer')
 }
 
-export { listInteractionDispositions, getLatestQualification }
+export { getInteractionDispositions, listInteractionDispositions, getLatestQualification }

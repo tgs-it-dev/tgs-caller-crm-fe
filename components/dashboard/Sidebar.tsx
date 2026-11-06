@@ -8,6 +8,7 @@ import MuiMenu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import {
   Bell,
+  ChartColumn,
   ChartLine,
   Check,
   ChevronDown,
@@ -15,13 +16,16 @@ import {
   Contact,
   FileSearch,
   Headset,
+  LifeBuoy,
   ListOrdered,
   LogOut,
   Menu,
   Phone,
+  PhoneCall,
   PhoneIncoming,
   Settings,
   Shield,
+  Upload,
 } from 'lucide-react'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import {
@@ -58,8 +62,20 @@ function StatsIcon() {
   return <ChartLine {...NAV_ICON} />
 }
 
+function AgentStatsIcon() {
+  return <ChartColumn {...NAV_ICON} />
+}
+
 function PolicyIcon() {
   return <FileSearch {...NAV_ICON} />
+}
+
+function UploadIcon() {
+  return <Upload {...NAV_ICON} />
+}
+
+function CallbackIcon() {
+  return <PhoneCall {...NAV_ICON} />
 }
 
 function BellIcon() {
@@ -104,6 +120,10 @@ function AdminDeskIcon() {
 
 function QaDeskIcon() {
   return <ClipboardCheck {...DESK_ICON_PROPS} />
+}
+
+function RetentionDeskIcon() {
+  return <LifeBuoy {...DESK_ICON_PROPS} />
 }
 
 function DashboardIcon() {
@@ -178,8 +198,8 @@ const BASE_PATH: Record<Role, string> = {
   closer: '/closer',
   administrator: '/admin',
   qa_manager: '/admin',
-  qa_lead: '/qa',
   qa_agent: '/qa',
+  retention: '/retention',
   super_admin: '/admin',
 }
 
@@ -189,12 +209,12 @@ const DESK_ICON: Record<Role, ComponentType> = {
   closer: CloserDeskIcon,
   administrator: AdminDeskIcon,
   qa_manager: AdminDeskIcon,
-  qa_lead: QaDeskIcon,
   qa_agent: QaDeskIcon,
+  retention: RetentionDeskIcon,
   super_admin: AdminDeskIcon,
 }
 
-/** Team Admin desk: Dashboard / Reports / Exceptions / Users / Leads. */
+/** Team Admin desk: Dashboard, Reports, Agent stats, Policy lookup, Callback requests, Users. */
 const TEAM_ADMIN_NAV: NavItem[] = [
   { href: '/admin', label: 'Dashboard', icon: DashboardIcon, isActive: (p) => p === '/admin' },
   {
@@ -204,10 +224,22 @@ const TEAM_ADMIN_NAV: NavItem[] = [
     isActive: (p) => p.startsWith('/admin/reports'),
   },
   {
+    href: '/admin/agent-stats',
+    label: 'Agent stats',
+    icon: AgentStatsIcon,
+    isActive: (p) => p.startsWith('/admin/agent-stats'),
+  },
+  {
     href: '/admin/policies',
     label: 'Policy lookup',
     icon: PolicyIcon,
     isActive: (p) => p.startsWith('/admin/policies'),
+  },
+  {
+    href: '/admin/callbacks',
+    label: 'Callback requests',
+    icon: CallbackIcon,
+    isActive: (p) => p.startsWith('/admin/callbacks'),
   },
   // {
   //   href: '/admin/exceptions',
@@ -232,16 +264,25 @@ const TEAM_ADMIN_NAV: NavItem[] = [
   // },
 ]
 
-/** Every team's QA, for a Super Admin or QA Manager. */
-const ADMIN_QA_NAV_ITEM: NavItem = {
-  href: '/admin/qa',
-  label: 'QA',
-  icon: QaDeskIcon,
-  isActive: (p) => p.startsWith('/admin/qa'),
-}
+/** Every team's QA, and what each agent reviewed, for a Super Admin or QA Manager. */
+const ADMIN_QA_NAV_ITEMS: NavItem[] = [
+  {
+    href: '/admin/qa',
+    label: 'QA',
+    icon: QaDeskIcon,
+    isActive: (p) => p.startsWith('/admin/qa') && !p.startsWith('/admin/qa/stats'),
+  },
+  {
+    href: '/admin/qa/stats',
+    label: 'QA stats',
+    icon: StatsIcon,
+    isActive: (p) => p.startsWith('/admin/qa/stats'),
+  },
+]
 
 /**
- * Super Admin modules: Users, Teams, Campaigns, Reports, Team stats and QA.
+ * Super Admin modules: Users, Teams, Campaigns, Reports, Team stats, Agent stats,
+ * Retention, Callback requests, QA and QA stats.
  * Reports is how they reach a lead's full view, through its drill-down.
  */
 const SUPER_ADMIN_NAV: NavItem[] = [
@@ -281,12 +322,30 @@ const SUPER_ADMIN_NAV: NavItem[] = [
     icon: StatsIcon,
     isActive: (p) => p.startsWith('/admin/team-stats'),
   },
-  ADMIN_QA_NAV_ITEM,
+  {
+    href: '/admin/agent-stats',
+    label: 'Agent stats',
+    icon: AgentStatsIcon,
+    isActive: (p) => p.startsWith('/admin/agent-stats'),
+  },
+  {
+    href: '/admin/retention',
+    label: 'Retention',
+    icon: RetentionDeskIcon,
+    isActive: (p) => p.startsWith('/admin/retention'),
+  },
+  {
+    href: '/admin/callbacks',
+    label: 'Callback requests',
+    icon: CallbackIcon,
+    isActive: (p) => p.startsWith('/admin/callbacks'),
+  },
+  ...ADMIN_QA_NAV_ITEMS,
 ]
 
-/** QA Manager: QA and Users, with no Teams, Campaigns or company reporting. */
+/** QA Manager: QA, QA stats and Users, with no Teams, Campaigns or company reporting. */
 const QA_MANAGER_NAV: NavItem[] = [
-  ADMIN_QA_NAV_ITEM,
+  ...ADMIN_QA_NAV_ITEMS,
   {
     href: '/admin/users',
     label: 'Users',
@@ -301,7 +360,7 @@ function adminNavFor(role: Role): NavItem[] {
   return TEAM_ADMIN_NAV
 }
 
-/** The QA Lead's team queue, or the QA Agent's own sales. */
+/** The QA Agent's own open sales, and what they have reviewed. */
 function qaDeskNav(): NavItem[] {
   return [
     {
@@ -309,6 +368,30 @@ function qaDeskNav(): NavItem[] {
       label: 'QA',
       icon: QaDeskIcon,
       isActive: (p) => p === '/qa' || p.startsWith('/qa/item'),
+    },
+    {
+      href: '/qa/stats',
+      label: 'QA stats',
+      icon: StatsIcon,
+      isActive: (p) => p.startsWith('/qa/stats'),
+    },
+  ]
+}
+
+/** The Pending list, where a sale opens, and the upload. */
+function retentionDeskNav(): NavItem[] {
+  return [
+    {
+      href: '/retention',
+      label: 'Pending',
+      icon: RetentionDeskIcon,
+      isActive: (p) => p === '/retention' || p.startsWith('/retention/sale'),
+    },
+    {
+      href: '/retention/upload',
+      label: 'Upload',
+      icon: UploadIcon,
+      isActive: (p) => p.startsWith('/retention/upload'),
     },
   ]
 }
@@ -320,11 +403,17 @@ function normalizePath(pathname: string): string {
 
 /**
  * The path the menu lights up for. A lead's full view lives under Reports, but
- * opened from Policy lookup (`?from=policies`) it belongs to that page instead.
+ * opened from Policy lookup or Callback requests (`?from=`) it belongs to that page.
  */
+const OPENED_FROM: Record<string, string> = {
+  policies: '/admin/policies',
+  callbacks: '/admin/callbacks',
+  agents: '/admin/agent-stats',
+}
+
 function menuPath(pathname: string, from: string | null): string {
   const path = normalizePath(pathname)
-  return path === '/admin/reports/lead' && from === 'policies' ? '/admin/policies' : path
+  return path === '/admin/reports/lead' ? (OPENED_FROM[from ?? ''] ?? path) : path
 }
 
 function deskNav(role: 'fronter' | 'closer', activeCallHref: string): NavItem[] {
@@ -445,13 +534,15 @@ function SidebarInner() {
     : basePath
 
   // Team Admin / Super Admin / QA Manager share /admin with different modules;
-  // QA Lead and QA Agent work from /qa.
+  // QA Agents work from /qa, and Retention from /retention.
   const navItems =
     role === 'administrator' || role === 'super_admin' || role === 'qa_manager'
       ? adminNavFor(role)
-      : role === 'qa_agent' || role === 'qa_lead'
+      : role === 'qa_agent'
         ? qaDeskNav()
-        : deskNav(role, activeCallHref)
+        : role === 'retention'
+          ? retentionDeskNav()
+          : deskNav(role, activeCallHref)
 
   // Somebody may hold more than one role, and the nav only ever shows the desk
   // they are on — so without a way across, the others are unreachable. One role

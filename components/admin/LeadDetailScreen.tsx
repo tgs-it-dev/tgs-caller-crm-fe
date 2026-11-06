@@ -13,6 +13,8 @@ import { AuthError } from '@/lib/auth'
 import { revealCartNumbers, type CartNumbers } from '@/lib/cart'
 import { formatDateTime, formatMoney, formatPhone, localZoneName } from '@/lib/format'
 import { SOURCE_LABEL } from '@/lib/leadSource'
+import { formatMonth } from '@/lib/policies'
+import { POLICY_STATUS_LABEL, POLICY_STATUS_TONE } from '@/lib/retention'
 import {
   fetchLeadHistory,
   isLeadNotFound,
@@ -33,7 +35,8 @@ type Lead = LeadHistory['lead']
 type Status = LeadHistory['status']
 type Outcome = NonNullable<Status['latest_fronter']>
 type Cart = LeadHistory['carts'][number]
-type Row = LeadHistoryEvent & { id: string }
+/** `ownSale`: the event is on a call a closer started as an Own Sale, which has no fronter. */
+type Row = LeadHistoryEvent & { id: string; ownSale: boolean }
 
 const HISTORY_PAGE_SIZE = 10
 
@@ -47,6 +50,7 @@ export const STAGE_BADGE: Record<Status['stage'], { label: string; tone: Tone }>
   qualified: { label: 'Qualified', tone: 'teal' },
   transferred: { label: 'Transferred', tone: 'amber' },
   sold: { label: 'Sold', tone: 'done' },
+  paid: { label: 'Paid', tone: 'done' },
 }
 
 const FIELD_LABEL: Record<string, string> = {
@@ -79,7 +83,7 @@ function messageFor(err: unknown): string {
   return 'Could not load this lead.'
 }
 
-function vehicleOf(lead: Lead) {
+export function vehicleOf(lead: Lead) {
   return [lead.vehicle_year, lead.vehicle_make, lead.vehicle_model]
     .filter((part) => part !== null && part !== '')
     .join(' ')
@@ -90,7 +94,7 @@ function labelFor(key: string) {
   return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
-function Card({
+export function Card({
   title,
   caption,
   actions,
@@ -116,7 +120,7 @@ function Card({
 }
 
 /** Labels beside their values; two pairs to a row when `wide` and there is room. */
-function Pairs({ wide = false, children }: { wide?: boolean; children: ReactNode }) {
+export function Pairs({ wide = false, children }: { wide?: boolean; children: ReactNode }) {
   return (
     <dl
       className={`grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-2.5 ${
@@ -128,7 +132,7 @@ function Pairs({ wide = false, children }: { wide?: boolean; children: ReactNode
   )
 }
 
-function Pair({ label, meta, children }: { label: string; meta?: ReactNode; children: ReactNode }) {
+export function Pair({ label, meta, children }: { label: string; meta?: ReactNode; children: ReactNode }) {
   return (
     <>
       <dt className="text-sm leading-[140%] text-slate">{label}</dt>
@@ -150,11 +154,12 @@ function since(outcome: Outcome) {
   return [`Since ${formatDateTime(outcome.at)}`, outcome.actor_name].filter(Boolean).join(' · ')
 }
 
-function LeadCard({ lead }: { lead: Lead }) {
+/** The lead's details, headed by its name unless `title` names the card instead. */
+export function LeadCard({ lead, title }: { lead: Lead; title?: string }) {
   const by = lead.added_by_name ? ` by ${lead.added_by_name}` : ''
   return (
     <section className="h-full min-w-0 rounded-xl border-hairline border-slate bg-white p-5 lg:col-span-2">
-      <h2 className="text-xl font-semibold leading-[120%] text-ink">{lead.lead_name}</h2>
+      <h2 className="text-xl font-semibold leading-[120%] text-ink">{title ?? lead.lead_name}</h2>
       <p className="mt-1 text-sm leading-[140%] text-slate">
         Added {formatDateTime(lead.created_at)}
         {by}
@@ -263,7 +268,18 @@ type Reveal =
   | { status: 'error' }
 
 /** A call's cart, masked until a Super Admin asks to see the full numbers. */
-function CartCard({ cart, revealable }: { cart: Cart; revealable: boolean }) {
+/** One call's cart. `before` puts more pairs ahead of the payment, in the same grid. */
+export function CartCard({
+  cart,
+  revealable,
+  title = 'Cart and payment',
+  before,
+}: {
+  cart: Cart
+  revealable: boolean
+  title?: string
+  before?: ReactNode
+}) {
   const [reveal, setReveal] = useState<Reveal>({ status: 'hidden' })
   const shown = reveal.status === 'shown' ? reveal.numbers : null
   const by = cart.saved_by ? ` by ${cart.saved_by}` : ''
@@ -299,7 +315,7 @@ function CartCard({ cart, revealable }: { cart: Cart; revealable: boolean }) {
 
   return (
     <Card
-      title="Cart and payment"
+      title={title}
       caption={`Saved ${formatDateTime(cart.saved_at)}${by}`}
       actions={revealable ? toggle : undefined}
     >
@@ -309,6 +325,7 @@ function CartCard({ cart, revealable }: { cart: Cart; revealable: boolean }) {
         </p>
       )}
       <Pairs wide>
+        {before}
         <Pair label="Account">
           <span className="tabular-nums">
             {shown ? shown.account_number : `•••• ${cart.account_last4}`}
@@ -328,6 +345,16 @@ function CartCard({ cart, revealable }: { cart: Cart; revealable: boolean }) {
         <Pair label="Expiry">{cart.expiry ?? '-'}</Pair>
         <Pair label="Monthly">{formatMoney(cart.monthly_payment)}</Pair>
         <Pair label="Policy number">{cart.policy_number ?? '-'}</Pair>
+        <Pair label="Paid">{cart.paid_month ? formatMonth(cart.paid_month) : 'Not paid'}</Pair>
+        <Pair label="Policy status">
+          {cart.policy_status ? (
+            <Badge tone={POLICY_STATUS_TONE[cart.policy_status]}>
+              {POLICY_STATUS_LABEL[cart.policy_status]}
+            </Badge>
+          ) : (
+            '-'
+          )}
+        </Pair>
       </Pairs>
     </Card>
   )
@@ -351,7 +378,7 @@ function Carts({ history, revealable }: { history: LeadHistory; revealable: bool
 }
 
 /** What happened, in words, with the pills and the detail that belong beside it. */
-function describe(event: LeadHistoryEvent): {
+function describe(event: Row): {
   text: string
   badges: ReactNode[]
   detail?: ReactNode
@@ -385,7 +412,21 @@ function describe(event: LeadHistoryEvent): {
         )
       }
       return { text: `Fronter outcome: ${event.outcome}`, badges, detail: replaced }
+    case 'own_sale_started':
+      badges.push(
+        <Badge key="own-sale" tone="teal">
+          Own Sale
+        </Badge>
+      )
+      return { text: `Started by ${event.closer_name ?? 'a closer'}, no transfer`, badges }
     case 'qualification':
+      if (event.ownSale) {
+        return {
+          text: (event.version ?? 1) > 1 ? 'Lead details updated' : 'Lead details saved',
+          badges,
+          detail: `Version ${event.version}`,
+        }
+      }
       return {
         text: (event.version ?? 1) > 1 ? 'Fronter form updated' : 'Fronter form saved',
         badges,
@@ -487,9 +528,18 @@ function historyColumns(): DataColumn<Row>[] {
 }
 
 function History({ history }: { history: LeadHistory }) {
+  const ownSaleCalls = new Set(
+    history.events
+      .filter((event) => event.kind === 'own_sale_started')
+      .map((event) => event.interaction_id)
+  )
   const rows: Row[] = history.events
     .filter(shownInHistory)
-    .map((event, index) => ({ ...event, id: String(index) }))
+    .map((event, index) => ({
+      ...event,
+      id: String(index),
+      ownSale: event.interaction_id != null && ownSaleCalls.has(event.interaction_id),
+    }))
   return (
     <DataTable
       title="History"
@@ -537,15 +587,19 @@ export function LeadRecord({
   )
 }
 
-/** Where the back link goes: Policy lookup when it opened the lead, Reports otherwise. */
-const POLICIES = { href: '/admin/policies', label: 'Back to Policy lookup' }
+/** Where the back link goes: the page that opened the lead, Reports otherwise. */
+const BACK_FROM: Record<string, { href: string; label: string }> = {
+  policies: { href: '/admin/policies', label: 'Back to Policy lookup' },
+  callbacks: { href: '/admin/callbacks', label: 'Back to Callback requests' },
+  agents: { href: '/admin/agent-stats', label: 'Back to Agent stats' },
+}
 const REPORTS = { href: '/admin/reports', label: 'Back to Reports' }
 
 /** A Super Admin's view of one lead: everything recorded on it, and everything that happened. */
 export function LeadDetailScreen() {
   const params = useSearchParams()
   const leadId = params.get('id') ?? ''
-  const back = params.get('from') === 'policies' ? POLICIES : REPORTS
+  const back = BACK_FROM[params.get('from') ?? ''] ?? REPORTS
   const [load, setLoad] = useState<LoadState>({ status: 'loading' })
 
   // Adjusting state during render, not in an effect, when another lead is opened.

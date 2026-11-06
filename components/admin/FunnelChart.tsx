@@ -8,6 +8,7 @@ export const STAGE_LABEL: Record<FunnelStage, string> = {
   // Doesn't claim the closer reached the lead; the caption says so.
   transferred: 'Transferred',
   sold: 'Sold',
+  paid: 'Paid',
 }
 
 const STAGES = [
@@ -15,6 +16,7 @@ const STAGES = [
   { field: 'qualified', fill: 'bg-funnel-qualified' },
   { field: 'transferred', fill: 'bg-funnel-transferred' },
   { field: 'sold', fill: 'bg-funnel-sold' },
+  { field: 'paid', fill: 'bg-funnel-paid' },
 ] as const satisfies readonly { field: FunnelStage; fill: string }[]
 
 export function FunnelChart({
@@ -91,8 +93,9 @@ export function FunnelChart({
       <p className="mt-5 text-xs leading-[150%] text-slate">
         These are the leads added during these dates, each counted once at the furthest stage it
         has reached. Qualified means its latest fronter outcome qualifies it, Transferred that a
-        closer accepted it (not that they reached the lead, which isn’t recorded), and Sold that
-        one of its calls ended in a sale. Percentages are of Leads.
+        closer accepted it (not that they reached the lead, which isn’t recorded), Sold that one
+        of its calls ended in a sale, and Paid that a monthly upload has since marked that sale
+        Paid, in any month. Percentages are of Leads.
       </p>
     </>
   )

@@ -67,10 +67,11 @@ Contract (typed in `lib/generated/schema.d.ts`):
   that user, so a refresh token must never be sent twice.
 - `POST /auth/logout` `{refresh_token}` → 204, whether or not the token was live.
 - `GET /auth/me` (Bearer token) → `{id, email, name, active, roles, team_id, created_at}`
-- `RoleName = "fronter" | "closer" | "administrator" | "qa_manager" | "qa_lead" |
-  "qa_agent" | "super_admin"`. A user can hold multiple roles; frontend picks the
-  landing route by priority (`super_admin` > `administrator` > `qa_manager` >
-  `closer` > `fronter` > `qa_lead` > `qa_agent`), see `lib/auth.ts`.
+- `RoleName = "fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" |
+  "retention" | "super_admin"`. A user can hold multiple roles; frontend picks the landing
+  route by priority (`super_admin` > `administrator` > `qa_manager` > `closer` >
+  `fronter` > `qa_agent` > `retention`), see `lib/auth.ts`. There is no QA Lead: that role was
+  merged into QA Agent.
   Super Admin inherits every Team Admin `/admin` surface (`roleSatisfies`).
 - Every error response is `{detail, code, fields?}`, read with `readApiError()`.
   Branch on `code`, never on `detail`: `auth.not_authenticated` (token missing,
@@ -127,11 +128,13 @@ Frontend pieces:
   own `isActive(pathname)`. A new page goes under its role's segment and into
   that role's list.
 - **A Super Admin's list is `SUPER_ADMIN_NAV`**: Users, Teams, Campaigns,
-  Reports, Team stats and QA. Reports is there because its drill-down is how they
+  Reports, Policy lookup, Team stats, Agent stats, Retention, Callback requests, QA and
+  QA stats. A Team Admin's has Agent stats too. Reports is there because its drill-down is how they
   reach a lead's full view. Exceptions stays out: without the dialer it is empty.
-- **QA desks.** A QA Manager works from `/admin` with QA and Users. A QA Lead and
-  a QA Agent work from `/qa`, which `deskRoleFromPath()` resolves to whichever of
-  the two they hold (`qaDeskRole()`).
+- **QA desks.** A QA Manager works from `/admin` with QA, QA stats and Users. A
+  QA Agent works from `/qa` with QA and QA stats (`qaDeskRole()`).
+- **Retention desk.** Retention works from `/retention` with Pending and Upload
+  (`retentionDeskRole()`). A Super Admin gets the same screens at `/admin/retention`.
 - **Somebody may hold more than one role**, and the nav only ever shows the desk
   they are on, so the sidebar identity doubles as a desk menu — `heldDesks()` in
   `lib/auth.ts` lists every desk held, the current one ticked. A single-role
@@ -172,24 +175,21 @@ The administrator dashboard (`/admin`) is fed by `lib/liveStatus.ts`:
 leads by hand: New lead, and one Leads table, read from `GET /leads/search`
 through `searchLeads()` in `lib/leads.ts`.
 
-- **The list is the team's leads not yet with a closer.** A lead leaves it once
-  a closer accepts it or it is sold, by the same per-lead stage Reports counts.
-  Longest waiting first: since the latest fronter disposition, or since the lead
-  was added.
-- **It opens on Callback,** so the desk still starts as the callback list did.
-  The Disposition select also offers All, No disposition yet (uploaded and
-  untouched leads) and each fronter disposition, matched against the lead's
-  latest one. It applies as soon as it changes.
+- **The list is the team's callbacks, and nothing else.** A lead is on it while
+  its latest fronter outcome is Callback and no closer has accepted it, longest
+  waiting first. There is no outcome filter, and search stays inside the list.
+- **A fronter records Callback or Transferred, and must pick one.** Transferred
+  must name a closer, on a call or not. The offer waits in that closer's queue
+  with no time limit until they accept it, and it cannot be rejected. The closers
+  table shows how many offers each closer already has waiting.
 - **No Search button.** The box searches 300ms after typing stops, from the
   first character, and matches part of the name, and part of the phone too when
   it is a number: one digit already searches phones, one letter names. A search
   with a letter in it stays on names, or its stray digits would match nearly
-  every phone. Any filter change goes back to page one, and only the newest
+  every phone. A new search goes back to page one, and only the newest
   reply is drawn, so a slow one can't replace it. The table reloads every 30
   seconds: each load is a full query on a busy team.
-- **The table's heading names what it shows** (Scheduled callbacks, All leads,
-  Leads with no disposition yet, Marked No Answer), so it never repeats the
-  page's own "Leads".
+- **The table is titled Callbacks,** so it never repeats the page's own "Leads".
 - **Opening a lead creates nothing.** `LeadEditDialog` asks for a call through
   `openLeadCall()` (`POST /leads/{id}/calls`) only when a save records a
   disposition or a transfer. The backend answers with the lead's latest call
@@ -259,14 +259,19 @@ the API calls and rules are in `lib/cart.ts`.
   until the call has one, and `CloserDispositionCard` says so first: Save
   Disposition turns off with a short note. `cartSaved` is `null` until the cart
   has loaded, so a sold call doesn't flash the note and a failed load leaves the
-  decision to the server. Other outcomes need no cart, and the policy number
-  stays optional because it can be added once it's issued.
+  decision to the server. Other outcomes need no cart. The policy number stays
+  optional, but the cart locks once the outcome is recorded, so a sale saved
+  without one can't be marked Paid; its hint says so. A number belongs to one
+  sale: one already on another cart, in any case, comes back as a 422 on
+  `policy_number` and shows under the field.
 
 ## Closer callbacks
 
 The closer's Queue page lists **Callbacks** under the transfer queue
 (`components/queue/QueueScreen.tsx`, `GET /queue/callbacks`): the calls this
 closer accepted whose latest closer outcome is Callback Scheduled, oldest first.
+Each shows its request's status, and Open works only once a Super Admin approved
+it (or it has no request); a waiting or rejected one stays listed, blocked.
 
 - **Open goes back to the same call.** The workspace loads its cart and saved
   outcome, and saving another outcome records the next closer version on that
@@ -276,12 +281,65 @@ closer accepted whose latest closer outcome is Callback Scheduled, oldest first.
 - **It loads on its own and refreshes every 30 seconds**, so a queue error never
   hides it, and the reverse.
 
+## The closed call and callback requests
+
+A closer's outcome closes the call to them. `GET /interactions/{id}/dispositions`
+carries `locked` and `callback_status`, and `closedCall()` in `lib/closer.ts`
+turns them into a badge and one line for the workspace.
+
+- **A final outcome** locks the cart, the outcome and the fronter's details. The
+  disposition card swaps its form for the saved outcome with a Closed, Waiting for
+  approval or Rejected badge, and the cart shows read-only (`CartPaymentCard readOnly`).
+  The API answers a write with 409 `interaction.locked`.
+- **Callback Scheduled** from anyone but a Super Admin sends a request. Until a
+  Super Admin approves it, the call stays locked and blocked on Callbacks;
+  approved, it opens until the next outcome. Rejected, it stays locked and shows
+  as Rejected. A callback with no request, set before requests existed or by a
+  Super Admin, counts as approved.
+- **The list** is `components/callbacks/CallbackRequestsScreen.tsx` at
+  `/admin/callbacks`: a Super Admin approves or rejects with one confirm, no
+  note, and Open on any row goes to the lead's full view (`?from=callbacks`, which
+  its back link and the menu follow, as `?from=policies` does); a Team Admin sees
+  their team's, read-only. A closer has no page of their own: Callbacks shows them
+  where each request stands.
+- **The fronter's details.** While the call is open, the Lead Details card
+  (`QualificationSnapshot`) has Edit (`FronterDetailsDialog`,
+  `PUT /interactions/{id}/details`).
+  It reuses the fronter's `LeadCreateForm` and its checks, with the phone
+  locked. Saving updates the lead for everyone and adds a qualification version.
+
+## Own Sale
+
+A closer with no transfer waiting starts a call of their own: no fronter, no
+transfer. Own Sale on the Queue (closers only, styled as the fronter's New lead)
+opens `components/closer/OwnSaleDialog.tsx`, and `lib/ownSale.ts` talks to the API.
+The screens write it "Own Sale", the client's name for it.
+
+- **Phone first.** `GET /leads/own-sale` checks the number: Do Not Call, or a number
+  waiting in a transfer or already on a call (409 `own_sale.lead_busy`), shows on
+  the phone field. A number already on the team fills the details step from its
+  lead, with "Already a lead on your team since".
+- **Then the details.** `LeadCreateForm` with the phone locked. Start sale
+  (`POST /leads/own-sale`) goes to `closerWorkspaceHref(interaction_id)`, with no
+  transfer id.
+- **The call screen** loads a call with no transfer id by reading the call:
+  `own_sale` on `GET /interactions/{id}` says it is an Own Sale call, and anything
+  else shows "No active transfer". The header reads Own Sale, everything that
+  waits on an accepted transfer opens, and Transfer Dropped is left out of the
+  outcomes. The Task 6 lock and callback approval apply as on any call.
+- **The Queue** lists an open Own Sale call as an `own_sale` row whose `id` is the
+  call, and an Own Sale callback has a null `transfer_id`; both open by the call.
+- **The lead's full view** shows an Own sale event ("Started by <closer>, no
+  transfer") where a transfer would be, and its
+  details save as "Lead details saved", not the fronter's form.
+
 ## Reporting
 
 `/admin/reports` reads `GET /reporting/funnel` through `fetchFunnel()` in
 `lib/reporting.ts` for an inclusive range of business days: Leads, Qualified,
-Transferred and Sold, counting the **leads added in the dates, each at the
-furthest stage it has reached**.
+Transferred, Sold and Paid, counting the **leads added in the dates, each at the
+furthest stage it has reached**. The card is titled "Lead funnel", so "conversion"
+only ever means Team stats' paid over sales.
 
 - **It counts leads, not interactions.** Each fronter form save opens another
   interaction and an uploaded lead has none, so interactions stopped matching
@@ -290,7 +348,8 @@ furthest stage it has reached**.
   its calls (or it is sold), Qualified when its latest fronter outcome across all
   calls qualifies it (or it got further). So each bar sits inside the one before,
   and each is drawn as a share of Leads, with that share printed beside the
-  count. ADR 0003 in the backend defines it all.
+  count. Paid sits inside Sold: one of its sales has since been marked Paid by a
+  monthly upload, in any month. ADR 0003 in the backend defines it all.
 - **Qualified can read higher than Team stats' Qualified, and that is correct.**
   Team stats files a lead under its latest fronter outcome, so a transferred lead
   called back later sits under Callback there; here it has still reached
@@ -324,9 +383,11 @@ furthest stage it has reached**.
 - **Only a Super Admin can open a lead,** through Open, which goes to
   `/admin/reports/lead/?id=…`. A Team Admin gets Summary in the same column:
   `LeadSummaryDialog`, reading `GET /leads/{id}/summary`, says who worked the lead,
-  where it stands, and for a sale its figures. It has no card details, form
-  answers or timeline. The row supplies the name, phone and stage, and the dialog
-  is `dismissible`, because a read-only view has nothing to lose.
+  where it stands, the lead details the row doesn't show (vehicle, VIN, plate,
+  source, who added it), and for a sale its policy number and when it sold. It
+  has no card details, amounts or timeline: the API sends none.
+  The row supplies the name, phone and stage, and the dialog is `dismissible`,
+  because a read-only view has nothing to lose.
 
 ## Lead detail
 
@@ -380,18 +441,26 @@ Admin only, in all three places: the sidebar item, `RequireRole
 role="super_admin"`, and the API's 403.
 
 - **The team table counts the leads added during the dates, and where each one
-  stands now.** Each lead counts once: No answer, Callback and Qualified by its
+  stands now.** Each lead counts once: Callback and Qualified by its
   latest fronter outcome, Transferred if a closer accepted a transfer on any of
   its calls, Sold if the latest closer outcome on any of its calls is a sale. A
   range's figures keep moving as its leads are worked. An "All teams" row sits
   under the teams.
-- **Conversion is Sold over Leads.** A cell shows the rate, a bar to compare
-  teams by eye, then "8 of 100". It cannot pass 100%. "n/a" means no leads.
+- **Conversion is Paid over Sales,** both by date, not by the leads added: the
+  sales paid during the dates (a paid month counts on its 1st) over the sales
+  made in them. A cell shows the rate, a bar to compare teams by eye, then
+  "12 of 40". Old sales paid now can take it past 100%, and the rate is shown as
+  it is; only the bar stops at full. "n/a" means no sales. This month reads low
+  until its file is uploaded, the month after, and the note under the table says
+  so. The two tiles say which they count, "of the leads added in these dates" and
+  "sales made in these dates", since Sold and the sales can differ by a lead added
+  in the range but sold after it.
 - **The sales list goes by the day of the sale**, not the day the lead came in,
   so its count can differ from the table's Sold. Newest first, paged on the
   server (`ServerPaging`, 50 to a page), with totals across every matching sale.
   A sale with no cart shows `-` for its amounts and adds nothing to the sums. No
-  card values or policy number come back.
+  card values or policy number come back. A Paid column shows the month it was
+  marked Paid in, or `-`.
 - **The agent filter belongs to the sales list**: closers from `listUsers()`,
   narrowed to the chosen team's. Changing the team resets it, and changing any
   filter goes back to the first page. The list loads and fails on its own, so a
@@ -404,6 +473,45 @@ role="super_admin"`, and the API's 403.
   (`paginate={false}`), the Team column takes the slack (`width` on its column),
   the "All teams" row is shaded and bold, and a team with no leads in the range
   is drawn in grey.
+
+## Agent stats and My Stats
+
+Each agent's figures for a day, a week or a month, and the targets Team Admins
+set. `lib/agentStats.ts` talks to the API, and the pieces both screens share live
+in `components/stats/`.
+
+- **The period** is `PeriodPicker`: Today, Week or Month, and arrows back through
+  earlier ones, never past today. Weeks run Monday to Sunday. The arrows send a
+  day just outside the period shown and the server works out the period, so the
+  label always comes from the dates it answered with. Switching tabs goes back to
+  the current period.
+- **Paid and Conversion are monthly.** A sale is Paid in the month its upload
+  names, so they show on the Month tab only; Today and Week say so in their
+  place, and the Paid list is offered on a month only (the API refuses it
+  otherwise).
+- **My Stats** (`components/stats/MyStatsScreen.tsx`, used by both
+  `app/fronter/stats` and `app/closer/stats`) reads `GET /me/stats`. A fronter
+  sees Qualifications, Transfers, Callbacks, Paid and their target; a closer
+  Sold, Paid, Conversion, Cancelled, Retained, Pending, the average QA score and
+  their target. A closer also gets `AgentSalesTable`, their Sold, Paid and
+  Cancelled policies with policy number, status, paid month, QA score and QA
+  notes, and no amounts. Today's outcomes (`GET /me/stats/today`) show under them
+  on the current day only.
+- **Agent stats** (`/admin/agent-stats`, `components/admin/AgentStatsScreen.tsx`)
+  is for Team Admins and Super Admins (`RequireRole role="administrator"`).
+  Filters: Team (Super Admin only), Agent, Fronters or Closers, and the period,
+  all in the URL so Back from a lead returns to the same view. All agents is a
+  table with their figures and target; picking one (View or the Agent filter)
+  shows their tiles, `AgentLeadsTable` and `AgentSalesTable`. A Team Admin sees
+  only their team and no amounts; a Super Admin also gets Total, Down and
+  Monthly on the sales.
+- **A lead opens as Reports opens one**: the full view for a Super Admin, with
+  `?from=agents` so the menu and back link say Agent stats, and
+  `LeadSummaryDialog` (no stage badge here) for a Team Admin.
+- **Targets** (`AgentTargetsDialog`) are daily, weekly and monthly, qualifications
+  for a fronter and sales for a closer, blank for none, set from the table or the
+  agent's view. Each period's figures carry its own target. Agents see their
+  progress and never edit it.
 
 ## Exceptions and interaction detail
 
@@ -488,13 +596,13 @@ state or team. Administrator-only, like the rest of `/admin`.
 - **An email address cannot be changed** — `UpdateUserRequest` carries name,
   roles, active and `team_id`, and nothing else. The field is shown disabled
   rather than hidden, so nobody goes looking for it.
-- **Team is set by a Super Admin, or by a QA Manager when adding.** A Super
-  Admin must pick it when adding and can change it when editing; the edit sends
-  `team_id` in the same PATCH as the rest, and only when it changed. A QA Manager
-  picks it only when adding staff, from `/qa/summary`, since they may not read
-  `/teams`; moving someone stays the Super Admin's. Super Admin and QA Manager
-  accounts have no team: ticking either role makes it the only one and hides the
-  field, and `qa_manager` is fixed once the account exists. Picking a different team shows a note that the move takes
+- **Team is set by a Super Admin.** They must pick it when adding and can change
+  it when editing; the edit sends `team_id` in the same PATCH as the rest, and
+  only when it changed. Super Admin, QA Manager, QA Agent and Retention accounts
+  have no team: ticking any of those roles makes it the only one and hides the
+  field, and `qa_manager`, `qa_agent` and `retention` are fixed once the account
+  exists. Only a Super Admin adds a Retention account. A QA Manager
+  only adds QA Agents, so never picks a team. Picking a different team shows a note that the move takes
   effect on save and that anyone on a call should record its outcome first. The
   API does not block a move mid-call. Team Admins never see the field: the API
   puts their users on their own team and refuses `team_id` from them.
@@ -527,62 +635,156 @@ state or team. Administrator-only, like the rest of `/admin`.
 
 ## QA
 
-QA reviews sales. Every sold call is a QA item in its team's queue, through
-`lib/qa.ts` (`/qa/items`, `/qa/summary`, `/qa/agents`, and the assignee and status
-routes).
+QA reviews sales, company-wide: QA Managers and QA Agents have no team. Every
+sold call is a QA item, through `lib/qa.ts` (`/qa/items`, `/qa/summary`,
+`/qa/agents`, `/qa/stats`, and the assignee and status routes).
 
 - **Who sees what:**
   - a Super Admin and a QA Manager see every team at `/admin/qa`: count tiles for
     all teams together, a Teams table with each team's counts (its name filters
     the queue), then the queue;
-  - a QA Lead sees their team at `/qa` ("QA · <team>"), and assigns each sale from
-    the "Assigned to" dropdown in its row, which saves on change. It opens on
-    Unassigned whenever anything is waiting;
   - the count tiles are the Users screen's `StatCard`, in the order the work goes
     (Unassigned, Open, Disputed, Resolve Dispute, Closed). Each one filters the
-    queue, and clicking the selected one clears it. Unassigned means not closed
-    and nobody has it, the same as the API's `assignee=none`;
-  - a QA Agent sees only what is assigned to them at `/qa`, as "Assigned to me".
-    They never call `/qa/summary` or `/qa/agents`, which answer them 403.
-- **Assigning** is the QA Lead's (and Super Admin's). A QA Manager sees the
-  assignee as text. The API only accepts an active QA Agent on the sale's team.
-- **The sale page** (`/admin/qa/item?id=`, `/qa/item?id=`) is `QaItemScreen`: a
-  Review card with the status, one button per move the role may make
-  (`movesFor()` mirrors the API's flow: Open to Disputed or Closed, Disputed to
-  Resolve Dispute, Resolve Dispute to Closed; a QA Agent moves only while Open),
-  and the assignee. A "Reason" box above the buttons goes with whichever move is
-  made; the API takes it as optional, and the screen does not say so. Then a
-  Review history card (who assigned it, who moved it, when, and the reason),
-  which the API reads back from the audit trail. Below it is `LeadRecord` from
-  `LeadDetailScreen`, the same cards as the Super Admin lead page; only a Super
-  Admin gets "Show full numbers".
-- **Mocks** keep a fixed set of five sales per team in memory; each lead id is one
-  `mockLeadHistory` reads as sold, so a sale opens onto its full history. Quinn QA
-  (QA Manager, no team), Leo Lead and Aria Agent (Default Team) sign in with
-  `password1`.
+    queue, and clicking the selected one clears it. Unassigned means open and
+    nobody has it, the same as the API's `assignee=none`;
+  - a QA Agent sees only the open sales assigned to them at `/qa`, as "Assigned
+    to me", with no filters. Once they close or dispute one it leaves their queue
+    and its page answers them 404. They never call `/qa/summary` or `/qa/agents`,
+    which answer them 403.
+- **Assigning** is the QA Manager's and the Super Admin's, from the "Assigned to"
+  dropdown in each row or on the sale page, which saves on change. Only an open
+  sale can be assigned, to any active QA Agent; after that it shows as text.
+- **The flow** has two paths, Open to Closed and Open to Disputed to Resolve
+  Dispute, and both ends are final. `movesFor()` mirrors the API: the assigned
+  agent gets Close and Dispute on an open sale, a Super Admin gets Resolve
+  dispute on a disputed one, and nobody else gets a button. A QA Manager never
+  moves a sale.
+- **The sale page** (`/admin/qa/item?id=`, `/qa/item?id=`) is `QaItemScreen`,
+  laid out around what the reviewer checks:
+  - a header with the lead's name, the team, who sold it and when, and the
+    status pill (and "Open lead" to the full record, for a Super Admin);
+  - on the left, two cards: the lead's details (`LeadCard`), and Sale, which
+    starts with the closer and when they sold it, since that is how the agent
+    finds the call recording, then this sale's own cart, masked (`CartCard`
+    from `LeadDetailScreen`, with a `title` and a `before` row), or "No cart was
+    saved for this sale". The API sends QA nothing else from the lead, and only
+    a Super Admin gets "Show full numbers";
+  - on the right, a panel that stays in view, with one job per person. The
+    assigned agent gets "Your review": a 0 to 100 slider that starts unscored
+    (a hollow thumb and "Not scored yet", so nothing closes on a default),
+    optional Notes, then "Close with score N" (disabled until scored) and a red
+    Dispute that takes a score or not. A Super Admin on a disputed sale sees the
+    agent's verdict, score and notes, and Resolve dispute. Anyone else sees the
+    verdict once there is one, and the QA Manager and Super Admin the "Assigned
+    to" picker while the sale is open;
+  - at the bottom, Review history (who assigned it, who moved it, when, the notes
+    and the score, read back from the audit trail), folded away for an agent and
+    open for everyone else.
 
-## Policy lookup
+  After an agent's move the page goes back to their queue.
+- **QA stats** (`/admin/qa/stats`, `/qa/stats`) is `QaStatsScreen`: a
+  Today | This week | This month switch with the days and zone the figures cover
+  beside it, right above them (`Segmented` in `components/ui`; ranges from
+  `businessDay`, `weekToDate` with weeks from Monday, and `monthToDate`). Then
+  three `StatTile`s, Reviewed, Closed and Disputed (with its share of
+  reviewed), added up on screen: an agent's own, or every agent's together.
+  There is no score here: it grades the closer's sale, not the agent's work,
+  and belongs to the closers' stats. The QA Manager and Super Admin also get
+  Custom, which opens the `DateRangePicker` Team stats uses, and a table
+  comparing agents: most reviewed first, Disputed with its share, agents with
+  no reviews greyed, and an All agents row. A review counts on the day the agent
+  closed or disputed the sale, in the user's own zone. The client asked for
+  daily, weekly and monthly figures for the agent targets, so the same three
+  presets keep the stats pages alike.
+- **Mocks** keep a fixed set of five sales per team in memory; each lead id is one
+  `mockLeadHistory` reads as sold, so a sale opens onto its lead and cart. Quinn
+  QA (QA Manager), Aria Agent and Leo Lead (now a QA Agent) have no team and
+  sign in with `password1`. Aria has one dispute and one close from today, so the
+  stats have figures.
+
+## Policy lookup and Paid policies
 
 `/admin/policies` (Team Admin and Super Admin) takes a CSV or Excel file with one
-policy number per row and shows the sale behind each, through `lib/policies.ts`
-(`POST /reporting/policy-lookup`).
+policy number per row and shows the sale behind each, and whether it is Paid,
+through `lib/policies.ts` (`POST /reporting/policy-lookup`). The lookup saves
+nothing. A Super Admin then marks the matches Paid for a month.
 
 - **The API reads the file:** the first column, a header row and blank rows
   passed over, case and surrounding spaces ignored, up to 5,000 numbers and 1 MB.
   A file it cannot read comes back as a 422 naming `file`, and its message shows
   under the upload. A Team Admin only finds their own team's sales; another
   team's reads as not found.
-- **The upload** is one drop zone: drag a file in, or Choose file, then Look up.
-- **Results** have a header naming the file, with Download results, then three
-  `StatCard` tiles, Matched, Not found and Skipped, that each show their own table,
-  20 to a page in the browser. Matched shows each lead's phone; a Super Admin also
-  sees the team and gets an Open button for the lead's full view.
-- **Download results** is built in the browser (`policyResultCsv`): every uploaded
-  number with its status, lead, phone and sale, in the upload's order, so no row
-  column is needed. It starts with a byte order mark so Excel reads it as UTF-8,
-  and a cell a spreadsheet would run as a formula gets a leading apostrophe.
+- **The upload** is one drop zone (`PolicyFileDrop`, shared with Retention's
+  upload): drag a file in, or Choose file, then Look up.
+- **Results** have a header naming the file, then three `StatCard` tiles,
+  Matched, Not found and Skipped, that each show their own table, 20 to a page in
+  the browser. Matched shows each lead's phone; a Super Admin also sees the team,
+  the amounts and an Open button for the lead's full view.
+- **A Team Admin gets no amounts and no download.** The API sends their amounts
+  as null, and each match has Summary instead of Open: the same
+  `LeadSummaryDialog` as Reports.
+- **Download results** is the Super Admin's, built in the browser
+  (`policyResultCsv`): every uploaded number with its status, lead, phone and
+  sale, in the upload's order, so no row column is needed. It starts with a byte
+  order mark so Excel reads it as UTF-8, and a cell a spreadsheet would run as a
+  formula gets a leading apostrophe.
+- **Matched shows a Paid column** for both roles: the month, or "Not paid", and
+  a Policy status column, as Retention set it. The same two show in Team stats'
+  sales list and on a lead's cart.
+- **Mark as Paid is the Super Admin's next step** (`MarkPaidPanel`), between the
+  tiles and the tables once a lookup has matches. They choose the month (this one
+  and the 23 before it, no default), read what will happen ("42 sales will be
+  marked Paid. 8 are Paid already and keep their month."), and confirm in a
+  dialog. `markPaid()` sends the same file and the month to
+  `POST /reporting/paid-uploads`, and the API reads it afresh. It can be saved
+  when every match is already Paid, since those matches are what an undo falls
+  back to. Afterwards the lookup is read again, so the Paid column shows the new
+  month, and the panel becomes "Saved as the October 2026 upload" with no button,
+  so one lookup is never saved twice. A new lookup brings the panel back.
+- **The first upload wins.** A sale keeps the month of the earliest upload still
+  standing that matched it; a repeat upload or a later month never moves it.
+- **A sale made after the month is left out**, since it cannot have been paid in
+  it. The panel counts it out once a month is chosen and says so, and Mark as
+  Paid stays off when nothing is left.
+- **Paid uploads** (`PaidUploadsSection`, Super Admin only, under the lookup)
+  lists every upload newest first: month, file, matched, newly paid, who and
+  when. Undo asks first, then the sales it marked go back to unpaid, or to the
+  next upload that matched them. An undone upload stays, as "Undone by ...". After
+  an undo the lookup on screen is read again, and if it was that upload's, its
+  panel resets.
+- **The file stays with the cached lookup**, in memory only, so coming back from
+  a lead can still mark it.
 - **Mocks** know `POL-10001` to `POL-10030`, spread across the mock teams. An
   Excel upload gets a fixed sample answer, since the mock does not unpack it.
+  Paid uploads live in memory with the first-upload-wins rule, and a marked sale's
+  lead reads as Paid on its full view.
+
+## Retention
+
+`/retention` (Retention) and `/admin/retention` (Super Admin) record each sale's
+policy status, Pending, Retained or Cancelled, through `lib/retention.ts`. The screens
+take their link base, so both desks share them.
+
+- **A status belongs to the sale,** and a policy number to one sale, so the
+  number is how it is found. A sale has none until one is set. Conversion, the funnel and Paid never
+  read it: a cancelled policy stays Paid.
+- **Pending and search** (`RetentionScreen`): find a sale by its whole policy
+  number, in any case, which opens it, and below, the policies that are
+  Pending, the longest since their last change first. Nothing else is listed, so
+  Retention never browses the sales.
+- **A sale** (`RetentionSaleScreen`): the customer, phone, vehicle, team, closer
+  and sale date, the status history newest first (who, when, the note, typed or
+  which file), and QA's review with `ReviewHistory` from the QA screen. Never
+  the paid month, amounts or bank details: the API never sends them. The panel
+  sets the status, with an optional note.
+- **Upload** (`RetentionUploadScreen`): the template is
+  `public/retention-template.csv`. The API finds the columns by their headings,
+  one with "policy" in it and one with "status", and reads "Canceled" and
+  "Retention" as Cancelled and Retained. Check saves nothing and shows five
+  tiles: Changes, No change, Not found, Invalid status and Skipped. Save asks
+  first and saves only the changes, checked afresh.
+- **Mocks** keep the history in memory, with POL-10002 and POL-10003 Pending and
+  POL-10005 Cancelled to start, and `rita.retention@tgs.com` signs in as Retention.
 
 ## Settings
 
@@ -680,6 +882,39 @@ password ever gets set. The first two are one component —
 - Mock handlers seed four tokens — `live-link`, `expired-link`, `used-link`,
   `superseded-link` — and a newly issued invitation logs its URL to the console,
   the mock equivalent of the backend's `log` transport.
+
+## Copy and paste
+
+`components/auth/CopyGuard.tsx`, mounted once in `AppProviders`.
+
+- **Everyone but a Super Admin types every form by hand.** Once signed in, copy,
+  cut, paste, right-click, text selection and dragging do nothing, and nothing on
+  screen says so.
+- **Two things still work:** paste into a password field, for password managers,
+  and dropping a file onto an upload. The sign-in, invite, reset and
+  forgot-password pages are left alone.
+
+## Screenshots
+
+`components/auth/ScreenGuard.tsx`, mounted next to CopyGuard, for the same people
+(`useGuarded()`).
+
+- **The whole page blurs** while Alt or the Windows key is down, while the window
+  is out of focus and while the tab is hidden. That beats Alt + Print Screen,
+  Win + Print Screen, Win + Shift + S and the Snipping Tool.
+- **A plain Print Screen can't be beaten:** Windows takes the image before the
+  page hears the key. Its release calls `POST /auth/me/screenshots` with the page,
+  and the agent sees "Screenshot recorded". No screen shows the log yet.
+- **The blur is an overlay** (`.screen-guard-overlay` in `styles/globals.css`),
+  shown by `data-screen-blur` on `<html>`, which the listeners set directly so it
+  lands on the next frame. A filter on the page would move fixed elements.
+- **Selection is CSS.** The guard sets `data-copy-guard` on `<html>`, and
+  `styles/globals.css` turns selection off under it, except inside fields, where
+  correcting what was typed needs it.
+- **Autofill is off for every role.** `Input` and `Textarea` default
+  `autoComplete` to `off`; only password and sign-in fields name their own.
+- **It discourages, it doesn't prevent.** Developer tools get around it, and no
+  website can stop a screenshot.
 
 ## UI conventions
 

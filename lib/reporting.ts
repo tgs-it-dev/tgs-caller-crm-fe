@@ -145,3 +145,13 @@ export function monthToDate(timeZone: string = displayTimeZone()): DateRange {
   const today = businessDay(new Date(), timeZone)
   return { start: `${today.slice(0, 8)}01`, end: today }
 }
+
+/** This week's Monday through today. */
+export function weekToDate(timeZone: string = displayTimeZone()): DateRange {
+  const today = businessDay(new Date(), timeZone)
+  const [y, m, d] = today.split('-').map(Number)
+  const monday = new Date(Date.UTC(y, m - 1, d))
+  // getUTCDay counts from Sunday, so Monday is (day + 6) % 7 days back.
+  monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7))
+  return { start: monday.toISOString().slice(0, 10), end: today }
+}

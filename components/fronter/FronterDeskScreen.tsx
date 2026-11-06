@@ -11,14 +11,12 @@ import { Button } from '@/components/ui/Button'
 import { DataTable, type DataColumn } from '@/components/ui/DataTable'
 import { Input } from '@/components/ui/Input'
 import { PageShell } from '@/components/ui/PageShell'
-import { Select } from '@/components/ui/Select'
-import { listDispositions, type DispositionResponse } from '@/lib/dispositions'
+import { listDispositions } from '@/lib/dispositions'
 import { formatDateTime, formatPhone } from '@/lib/format'
 import { CALLBACK_DISPOSITION_LABEL } from '@/lib/leadFormDraft'
 import {
   leadDisplayName,
   searchLeads,
-  type DispositionFilter,
   type LeadSearch,
   type LeadSearchItem,
 } from '@/lib/leads'
@@ -30,8 +28,6 @@ const POLL_MS = 30_000
 const PAGE_SIZE = 10
 /** Long enough to wait out a word being typed, short enough to feel live. */
 const TYPING_PAUSE_MS = 300
-/** The filter value for leads nobody has given a fronter disposition yet. */
-const NO_DISPOSITION = 'none'
 
 type LeadsLoad =
   | { status: 'loading' }
@@ -48,7 +44,7 @@ function noticeForResult(result: {
   if (result.next === 'transferred') {
     return result.closerName
       ? `${name} offered to ${result.closerName}.`
-      : `${name} offered to available closers.`
+      : `${name} offered to a closer.`
   }
   if (result.next === 'desk' && result.disposition) {
     return `${name} saved as ${result.disposition.label}.`
@@ -111,65 +107,45 @@ function leadColumns(onEdit: (lead: LeadSearchItem) => void): DataColumn<LeadSea
   ]
 }
 
-/** The table says what the filter is showing, rather than repeating the page's title. */
-function tableTitle(
-  disposition: DispositionFilter,
-  callbackId: string | null,
-  dispositions: DispositionResponse[] | null
-) {
-  if (disposition && disposition === callbackId) return 'Scheduled callbacks'
-  if (disposition === NO_DISPOSITION) return 'Leads with no disposition yet'
-  const chosen = dispositions?.find((row) => row.id === disposition)
-  return chosen ? `Marked ${chosen.label}` : 'All leads'
-}
-
-function emptyMessage(searching: boolean, disposition: DispositionFilter, callbackId: string | null) {
-  if (searching) return 'No leads match that search.'
-  if (disposition && disposition === callbackId) return 'No callbacks right now.'
-  if (disposition === NO_DISPOSITION) return 'Every lead has a disposition.'
-  if (disposition) return 'No leads with that disposition right now.'
-  return 'No leads to work right now.'
+function emptyMessage(searching: boolean) {
+  return searching ? 'No callbacks match that search.' : 'No callbacks right now.'
 }
 
 /**
- * Fronter home: the team's leads not yet with a closer, opening on the
- * callbacks. Searching and filtering apply as they change; there is no button.
+ * Fronter home: the team's callbacks, the only leads a fronter works. Searching
+ * applies as it is typed; there is no button.
  */
 export function FronterDeskScreen() {
   const [createOpen, setCreateOpen] = useState(false)
   const [editing, setEditing] = useState<LeadSearchItem | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const [dispositions, setDispositions] = useState<DispositionResponse[] | null>(null)
-  // Undefined until the catalogue says which id Callback is, so the list opens on it.
-  const [disposition, setDisposition] = useState<DispositionFilter | undefined>(undefined)
+  // Undefined until the catalogue says which id Callback is, null if it could not.
+  const [callbackId, setCallbackId] = useState<string | null | undefined>(undefined)
   const [typed, setTyped] = useState('')
   const [query, setQuery] = useState('')
   const [offset, setOffset] = useState(0)
   const [tick, setTick] = useState(0)
   const [load, setLoad] = useState<LeadsLoad>({ status: 'loading' })
-
-  const callbackId =
-    dispositions?.find((row) => row.label === CALLBACK_DISPOSITION_LABEL)?.id ?? null
+  // Asked again on each refresh until it answers, so one failed load is not the end.
+  const needsCatalogue = typeof callbackId !== 'string'
 
   useEffect(() => {
+    if (!needsCatalogue) return
     let cancelled = false
     waitForMocking()
       .then(() => withSession((token) => listDispositions(token, 'fronter')))
       .then((rows) => {
-        if (cancelled) return
-        setDispositions(rows)
-        setDisposition(rows.find((row) => row.label === CALLBACK_DISPOSITION_LABEL)?.id ?? null)
+        if (!cancelled) {
+          setCallbackId(rows.find((row) => row.label === CALLBACK_DISPOSITION_LABEL)?.id ?? null)
+        }
       })
-      // Without the catalogue the filter offers All and No disposition yet only.
       .catch(() => {
-        if (cancelled) return
-        setDispositions([])
-        setDisposition(null)
+        if (!cancelled) setCallbackId(null)
       })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [needsCatalogue, tick])
 
   // Waits for a pause in typing, then searches from the first page.
   useEffect(() => {
@@ -181,13 +157,13 @@ export function FronterDeskScreen() {
   }, [typed])
 
   useEffect(() => {
-    if (disposition === undefined) return
+    if (!callbackId) return
     let cancelled = false
 
     waitForMocking()
       .then(() =>
         withSession((token) =>
-          searchLeads({ q: query, disposition, limit: PAGE_SIZE, offset }, token)
+          searchLeads({ q: query, disposition: callbackId, limit: PAGE_SIZE, offset }, token)
         )
       )
       .then((page) => {
@@ -195,23 +171,18 @@ export function FronterDeskScreen() {
         if (!cancelled) setLoad({ status: 'ready', page })
       })
       .catch(() => {
-        if (!cancelled) setLoad({ status: 'error', message: 'Unable to load leads right now.' })
+        if (!cancelled) setLoad({ status: 'error', message: 'Unable to load callbacks right now.' })
       })
 
     return () => {
       cancelled = true
     }
-  }, [query, disposition, offset, tick])
+  }, [query, callbackId, offset, tick])
 
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), POLL_MS)
     return () => clearInterval(id)
   }, [])
-
-  function chooseDisposition(next: string) {
-    setDisposition(next || null)
-    setOffset(0)
-  }
 
   const page = load.status === 'ready' ? load.page : null
   const searching = query.trim().length > 0
@@ -237,14 +208,11 @@ export function FronterDeskScreen() {
           </MuiAlert>
         )}
         {load.status === 'error' && <Alert>{load.message}</Alert>}
+        {callbackId === null && <Alert>Unable to load callbacks right now.</Alert>}
 
         <DataTable
-          title={
-            disposition === undefined
-              ? 'Leads'
-              : tableTitle(disposition, callbackId, dispositions)
-          }
-          ariaLabel="The team's leads not yet with a closer"
+          title="Callbacks"
+          ariaLabel="The team's callbacks"
           toolbar={
             <div className="flex flex-wrap items-end gap-3">
               <div className="w-full max-w-[320px]">
@@ -256,31 +224,17 @@ export function FronterDeskScreen() {
                   startAdornment={<Search className="h-4 w-4 text-slate" strokeWidth={2} aria-hidden />}
                 />
               </div>
-              <div className="w-[220px]">
-                <Select
-                  label="Disposition"
-                  value={disposition ?? ''}
-                  onChange={(event) => chooseDisposition(event.target.value)}
-                  disabled={dispositions === null}
-                >
-                  <option value="">All</option>
-                  <option value={NO_DISPOSITION}>No disposition yet</option>
-                  {(dispositions ?? []).map((row) => (
-                    <option key={row.id} value={row.id}>
-                      {row.label}
-                    </option>
-                  ))}
-                </Select>
-              </div>
             </div>
           }
           rows={page?.items ?? []}
           columns={leadColumns((lead) => setEditing(lead))}
           getRowId={(lead) => lead.lead_id}
           emptyMessage={
-            load.status === 'loading'
-              ? 'Loading leads…'
-              : emptyMessage(searching, disposition ?? null, callbackId)
+            callbackId === null
+              ? 'No callbacks to show.'
+              : load.status === 'loading'
+                ? 'Loading callbacks…'
+                : emptyMessage(searching)
           }
           paginate={false}
           paging={

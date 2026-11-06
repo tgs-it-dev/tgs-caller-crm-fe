@@ -198,6 +198,10 @@ function ActiveCallBody({ interactionId }: { interactionId: string }) {
     }
 
     if (!disposition) return
+    if (!selectedCloserUserId) {
+      setTransferError('Choose a closer to transfer to.')
+      return
+    }
 
     setIsTransferring(true)
     setTransferError(null)
@@ -209,16 +213,13 @@ function ActiveCallBody({ interactionId }: { interactionId: string }) {
       // Typed reason, or the checklist default when required snapshot keys are
       // still blank after parse — omit when the gate needs nothing.
       const reason = resolveTransferOverrideReason(form, overrideReason)
-      // Omit closer_user_id when unset — same auto-assign as before. Sending
-      // null would also work, but omit matches the optional-field pattern used
-      // for override_reason (and invitation passwords).
       const transfer = await withSession((token) =>
         createTransfer(
           {
             interaction_id: interactionId,
             fronter_user_id: user.id,
             ...(reason ? { override_reason: reason } : {}),
-            ...(selectedCloserUserId ? { closer_user_id: selectedCloserUserId } : {}),
+            closer_user_id: selectedCloserUserId,
           },
           token
         )
@@ -227,11 +228,7 @@ function ActiveCallBody({ interactionId }: { interactionId: string }) {
       setTransferStatus(transfer.status)
     } catch (err) {
       if (err instanceof AuthError && err.code === 'transfer.no_closer_available') {
-        setTransferError(
-          selectedCloserUserId
-            ? 'That closer is busy or unavailable. Pick someone else, clear the selection for any free closer, or end the call.'
-            : 'No closers available right now. Try again when someone is free, or end the call.'
-        )
+        setTransferError('That closer cannot take transfers. Pick someone else, or end the call.')
       } else if (err instanceof AuthError && err.code === 'transfer.disposition_not_transferable') {
         setTransferError(err.message)
       } else {

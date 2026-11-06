@@ -20,16 +20,26 @@ export async function listDispositions(
   return data.items
 }
 
-export async function listInteractionDispositions(
+export type InteractionDispositionList =
+  components['schemas']['InteractionDispositionListResponse']
+
+/** The call's outcomes, and whether it is closed to its closer. */
+export async function getInteractionDispositions(
   interactionId: string,
   token: string
-): Promise<InteractionDispositionResponse[]> {
+): Promise<InteractionDispositionList> {
   const res = await fetch(apiUrl(`/interactions/${interactionId}/dispositions`), {
     headers: { Authorization: `Bearer ${token}` },
   })
   if (!res.ok) throw await authError(res)
-  const data = (await res.json()) as components['schemas']['InteractionDispositionListResponse']
-  return data.items
+  return (await res.json()) as InteractionDispositionList
+}
+
+export async function listInteractionDispositions(
+  interactionId: string,
+  token: string
+): Promise<InteractionDispositionResponse[]> {
+  return (await getInteractionDispositions(interactionId, token)).items
 }
 
 export async function captureDisposition(
