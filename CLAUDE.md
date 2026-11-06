@@ -128,7 +128,8 @@ Frontend pieces:
   own `isActive(pathname)`. A new page goes under its role's segment and into
   that role's list.
 - **A Super Admin's list is `SUPER_ADMIN_NAV`**: Users, Teams, Campaigns,
-  Reports, Team stats, Retention, Callback requests, QA and QA stats. Reports is there because its drill-down is how they
+  Reports, Policy lookup, Team stats, Agent stats, Retention, Callback requests, QA and
+  QA stats. A Team Admin's has Agent stats too. Reports is there because its drill-down is how they
   reach a lead's full view. Exceptions stays out: without the dialer it is empty.
 - **QA desks.** A QA Manager works from `/admin` with QA, QA stats and Users. A
   QA Agent works from `/qa` with QA and QA stats (`qaDeskRole()`).
@@ -472,6 +473,45 @@ role="super_admin"`, and the API's 403.
   (`paginate={false}`), the Team column takes the slack (`width` on its column),
   the "All teams" row is shaded and bold, and a team with no leads in the range
   is drawn in grey.
+
+## Agent stats and My Stats
+
+Each agent's figures for a day, a week or a month, and the targets Team Admins
+set. `lib/agentStats.ts` talks to the API, and the pieces both screens share live
+in `components/stats/`.
+
+- **The period** is `PeriodPicker`: Today, Week or Month, and arrows back through
+  earlier ones, never past today. Weeks run Monday to Sunday. The arrows send a
+  day just outside the period shown and the server works out the period, so the
+  label always comes from the dates it answered with. Switching tabs goes back to
+  the current period.
+- **Paid and Conversion are monthly.** A sale is Paid in the month its upload
+  names, so they show on the Month tab only; Today and Week say so in their
+  place, and the Paid list is offered on a month only (the API refuses it
+  otherwise).
+- **My Stats** (`components/stats/MyStatsScreen.tsx`, used by both
+  `app/fronter/stats` and `app/closer/stats`) reads `GET /me/stats`. A fronter
+  sees Qualifications, Transfers, Callbacks, Paid and their target; a closer
+  Sold, Paid, Conversion, Cancelled, Retained, Pending, the average QA score and
+  their target. A closer also gets `AgentSalesTable`, their Sold, Paid and
+  Cancelled policies with policy number, status, paid month, QA score and QA
+  notes, and no amounts. Today's outcomes (`GET /me/stats/today`) show under them
+  on the current day only.
+- **Agent stats** (`/admin/agent-stats`, `components/admin/AgentStatsScreen.tsx`)
+  is for Team Admins and Super Admins (`RequireRole role="administrator"`).
+  Filters: Team (Super Admin only), Agent, Fronters or Closers, and the period,
+  all in the URL so Back from a lead returns to the same view. All agents is a
+  table with their figures and target; picking one (View or the Agent filter)
+  shows their tiles, `AgentLeadsTable` and `AgentSalesTable`. A Team Admin sees
+  only their team and no amounts; a Super Admin also gets Total, Down and
+  Monthly on the sales.
+- **A lead opens as Reports opens one**: the full view for a Super Admin, with
+  `?from=agents` so the menu and back link say Agent stats, and
+  `LeadSummaryDialog` (no stage badge here) for a Team Admin.
+- **Targets** (`AgentTargetsDialog`) are daily, weekly and monthly, qualifications
+  for a fronter and sales for a closer, blank for none, set from the table or the
+  agent's view. Each period's figures carry its own target. Agents see their
+  progress and never edit it.
 
 ## Exceptions and interaction detail
 

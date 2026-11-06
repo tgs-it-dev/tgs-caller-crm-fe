@@ -29,6 +29,14 @@ import type {
   QualificationCustomer,
   QualificationResponse,
 } from '../lib/qualification'
+import type {
+  AgentLeadItem,
+  AgentPeriod,
+  AgentSaleItem,
+  AgentSaleKind,
+  AgentStats,
+  AgentTargets,
+} from '../lib/agentStats'
 import { BUSINESS_TIMEZONE, TIME_ZONES, type TimeZoneName } from '../lib/format'
 import type {
   FunnelLeadList,
@@ -40,6 +48,7 @@ import type {
   TeamStats,
   TeamStatsReport,
 } from '../lib/reporting'
+import { businessDay } from '../lib/reporting'
 import type {
   AvailableCloserItem,
   TransferCreateRequest,
@@ -761,6 +770,250 @@ function mockSales(
 }
 
 /** How far the nth newest lead of a funnel got. The newest are the furthest along. */
+// Agent stats: each agent's figures worked out from who they are and the period,
+// so the same period always answers the same figures and another visibly moves them.
+const MOCK_AGENT_TARGETS = new Map<string, AgentTargets>()
+const NO_MOCK_TARGETS: AgentTargets = { daily: null, weekly: null, monthly: null }
+const MOCK_AGENT_PERIODS: readonly AgentPeriod[] = ['today', 'week', 'month']
+const MOCK_TARGET_MAX = 100_000
+
+type MockAgentWindow = { period: AgentPeriod; start: string; end: string; timezone: string }
+
+function mockShiftDay(day: string, by: number): string {
+  const date = new Date(`${day}T00:00:00Z`)
+  date.setUTCDate(date.getUTCDate() + by)
+  return date.toISOString().slice(0, 10)
+}
+
+/** The day, the Monday-to-Sunday week or the calendar month holding `day`, as the API reads it. */
+function mockPeriodWindow(period: AgentPeriod, day: string): { start: string; end: string } {
+  if (period === 'today') return { start: day, end: day }
+  if (period === 'week') {
+    const start = mockShiftDay(day, -((new Date(`${day}T00:00:00Z`).getUTCDay() + 6) % 7))
+    return { start, end: mockShiftDay(start, 6) }
+  }
+  const [year, month] = day.split('-').map(Number)
+  const start = `${day.slice(0, 7)}-01`
+  return { start, end: new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10) }
+}
+
+function mockFieldRefusal(
+  field: string,
+  message: string,
+  inWhere: 'query' | 'body' = 'query'
+): MockRefusal {
+  return {
+    status: 422,
+    body: authErrorBody(message, 'validation_error', [{ field, in: inWhere, message }]),
+  }
+}
+
+/** The period asked for, or what the API refuses: a day after today, or no such period. */
+function mockAgentWindow(
+  params: URLSearchParams,
+  actor: MockUser
+): { window: MockAgentWindow } | { refused: MockRefusal } {
+  const timezone = actor.timezone ?? MOCK_BUSINESS_TIMEZONE
+  const asked = params.get('period') ?? 'today'
+  if (!MOCK_AGENT_PERIODS.includes(asked as AgentPeriod)) {
+    return { refused: mockFieldRefusal('period', "Input should be 'today', 'week' or 'month'") }
+  }
+  const period = asked as AgentPeriod
+  const today = businessDay(new Date(), timezone)
+  const day = params.get('date') ?? today
+  if (day > today) {
+    const message = 'date must not be after today'
+    return {
+      refused: {
+        status: 422,
+        body: authErrorBody(message, 'reporting.window_out_of_range', [
+          { field: 'date', in: 'query', message },
+        ]),
+      },
+    }
+  }
+  return { window: { period, ...mockPeriodWindow(period, day), timezone } }
+}
+
+function mockAgentSeed(text: string): number {
+  return text.split('').reduce((sum, ch) => (sum * 31 + ch.charCodeAt(0)) % 9973, 7)
+}
+
+function mockAgentDays(window: MockAgentWindow): number {
+  return Math.round((Date.parse(window.end) - Date.parse(window.start)) / 86_400_000) + 1
+}
+
+/** One agent's figures. An inactive agent did nothing, so is listed only by name. */
+function mockAgentRow(user: MockUser, stage: 'fronter' | 'closer', window: MockAgentWindow): AgentStats {
+  const seed = mockAgentSeed(`${user.id}:${stage}:${window.start}`)
+  const days = mockAgentDays(window)
+  const worked = user.active ? 1 : 0
+  const monthly = window.period === 'month'
+  const targets = MOCK_AGENT_TARGETS.get(`${user.id}:${stage}`) ?? NO_MOCK_TARGETS
+  const target =
+    window.period === 'today'
+      ? targets.daily
+      : window.period === 'week'
+        ? targets.weekly
+        : targets.monthly
+  const team = MOCK_TEAMS.find((row) => row.id === user.team_id)
+  const base = {
+    user_id: user.id,
+    name: user.name,
+    active: user.active,
+    team_id: team?.id ?? null,
+    team_name: team?.name ?? null,
+    stage,
+    targets,
+  }
+  if (stage === 'fronter') {
+    const qualifications = worked * (days * 3 + (seed % 4))
+    return {
+      ...base,
+      fronter: {
+        qualifications,
+        transfers: Math.max(0, qualifications - (seed % 3)),
+        callbacks: worked * (days * 2 + (seed % 3)),
+        paid: monthly ? Math.floor(qualifications / 4) : null,
+        target,
+      },
+      closer: null,
+    }
+  }
+  const sold = worked * (days + (seed % 3))
+  const paid = monthly ? Math.round(sold * 0.6) : null
+  return {
+    ...base,
+    fronter: null,
+    closer: {
+      sold,
+      paid,
+      cancelled: Math.floor(sold / 6),
+      retained: Math.floor(sold / 3),
+      pending: Math.floor(sold / 4),
+      conversion_rate: paid !== null && sold ? paid / sold : null,
+      average_qa_score: sold ? 70 + (seed % 25) + 0.5 : null,
+      target,
+    },
+  }
+}
+
+function mockAgentCounted(row: AgentStats): boolean {
+  const figures = row.fronter ?? row.closer
+  return Object.entries(figures ?? {}).some(
+    ([name, value]) => name !== 'target' && name !== 'average_qa_score' && Boolean(value)
+  )
+}
+
+/** How many sales stand behind one of an agent's figures. */
+function mockAgentSaleCount(row: AgentStats, kind: AgentSaleKind): number {
+  const sold = row.closer?.sold ?? Math.floor((row.fronter?.qualifications ?? 0) / 3)
+  if (kind === 'cancelled') return row.closer?.cancelled ?? Math.floor(sold / 6)
+  if (kind === 'paid') return row.closer?.paid ?? row.fronter?.paid ?? 0
+  return sold
+}
+
+function mockAgentSales(
+  row: AgentStats,
+  window: MockAgentWindow,
+  kind: AgentSaleKind,
+  page: { limit: number; offset: number },
+  amounts: boolean
+) {
+  const count = mockAgentSaleCount(row, kind)
+  const statuses = [
+    ...Array(row.closer?.cancelled ?? 0).fill('cancelled'),
+    ...Array(row.closer?.retained ?? 0).fill('retained'),
+    ...Array(row.closer?.pending ?? 0).fill('pending'),
+  ]
+  const opens = Date.parse(`${window.start}T15:00:00Z`)
+  const items: AgentSaleItem[] = Array.from({ length: count }, (_, n) => {
+    const nth = mockAgentSeed(`${row.user_id}:${kind}`) + n
+    return {
+      lead_id: `mock-agent-lead-${row.user_id}-${nth}`,
+      interaction_id: `mock-agent-sale-${row.user_id}-${kind}-${window.start}-${n}`,
+      lead_name: mockLeadName(nth),
+      closer_name: row.stage === 'closer' ? row.name : 'Carl Closer',
+      sold_at: new Date(opens + (count - n) * 3_600_000).toISOString(),
+      policy_number: n % 5 === 4 ? null : `POL-${String(10_000 + nth).slice(-5)}`,
+      policy_status:
+        kind === 'cancelled' ? 'cancelled' : ((statuses[n] as AgentSaleItem['policy_status']) ?? null),
+      paid_month: kind === 'paid' ? window.start.slice(0, 8) + '01' : null,
+      qa_score: n % 3 === 2 ? null : 60 + (nth % 40),
+      qa_note:
+        n % 3 === 2 ? null : n % 2 === 0 ? 'Clean call, every disclosure read.' : 'Rushed the price.',
+      total_payment: amounts ? '2400.00' : null,
+      down_payment: amounts ? '400.00' : null,
+      monthly_payment: amounts ? '100.00' : null,
+    }
+  })
+  return {
+    items: items.slice(page.offset, page.offset + page.limit),
+    total: items.length,
+    ...page,
+  }
+}
+
+/** The leads an agent worked: ids the lead views open, on the agent's own team. */
+function mockAgentLeads(row: AgentStats, window: MockAgentWindow, page: { limit: number; offset: number }) {
+  const label = (id: string) => MOCK_DISPOSITION_CATALOG.find((entry) => entry.id === id)?.label ?? null
+  const done = row.fronter
+    ? row.fronter.qualifications + row.fronter.callbacks
+    : (row.closer?.sold ?? 0) + 2
+  const opens = Date.parse(`${window.start}T14:00:00Z`)
+  const items: AgentLeadItem[] = Array.from({ length: done }, (_, n) => {
+    const nth = mockAgentSeed(`${row.user_id}:leads`) + n
+    const sold = row.closer ? n < row.closer.sold : false
+    const qualified = row.fronter ? n < row.fronter.qualifications : false
+    const stage: FunnelStage = sold ? 'sold' : qualified || row.closer ? 'transferred' : 'leads'
+    const addedAt = opens + (done - n) * 3_600_000
+    return {
+      lead_id: mockLeadId(stage, nth, addedAt, row.team_id ?? MOCK_TEAM_ID),
+      lead_name: mockLeadName(nth),
+      lead_phone: mockLeadPhone(nth),
+      outcome: row.fronter
+        ? label(qualified ? 'disp-fronter-qualified' : 'disp-fronter-callback')
+        : sold
+          ? label('disp-closer-sale')
+          : null,
+      worked_at: new Date(addedAt + 30 * 60_000).toISOString(),
+    }
+  })
+  return { items: items.slice(page.offset, page.offset + page.limit), total: items.length, ...page }
+}
+
+/** The agent an admin asked about, when they may see them; the API's 404 otherwise. */
+function mockScopedAgent(
+  authorization: string | null,
+  userId: string
+): { refused: MockRefusal } | { agent: MockUser; actor: MockUser } {
+  const actor = mockActor(authorization)
+  const agent = MOCK_USERS.find((row) => row.id === userId)
+  if (!agent || !actor || (!actor.roles.includes('super_admin') && agent.team_id !== actor.team_id)) {
+    return { refused: { status: 404, body: authErrorBody('user not found', 'user.not_found') } }
+  }
+  return { agent, actor }
+}
+
+function mockAgentStage(params: URLSearchParams): 'fronter' | 'closer' | null {
+  const stage = params.get('stage')
+  return stage === 'fronter' || stage === 'closer' ? stage : null
+}
+
+function mockAgentPage(params: URLSearchParams) {
+  return { limit: Number(params.get('limit') ?? 50), offset: Number(params.get('offset') ?? 0) }
+}
+
+function mockSaleKind(params: URLSearchParams): AgentSaleKind | null {
+  const kind = params.get('kind')
+  return kind === 'sold' || kind === 'paid' || kind === 'cancelled' ? kind : null
+}
+
+const MOCK_PAID_NEEDS_MONTH = mockFieldRefusal(
+  'kind',
+  'Paid is counted by month, so its sales are listed for a month only'
+)
+
 function mockReached(funnel: HistoricalFunnel, nth: number): FunnelStage {
   if (nth < funnel.paid) return 'paid'
   if (nth < funnel.sold) return 'sold'
@@ -3975,6 +4228,179 @@ export const handlers = [
           params.get('timezone') ?? mockActor(req.headers.get('authorization'))?.timezone
         )
       )
+    )
+  }),
+
+  rest.get('/reporting/agents', (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = adminRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+
+    const actor = mockActor(authorization) as MockUser
+    const params = req.url.searchParams
+    const stage = mockAgentStage(params)
+    if (!stage) {
+      const bad = mockFieldRefusal('stage', 'Field required')
+      return res(ctx.status(bad.status), ctx.json(bad.body))
+    }
+    const scope = mockReportTeam(authorization, params.get('team_id'))
+    if ('refused' in scope && scope.refused) {
+      return res(ctx.status(scope.refused.status), ctx.json(scope.refused.body))
+    }
+    const teamId = 'teamId' in scope ? scope.teamId : null
+    const asked = mockAgentWindow(params, actor)
+    if ('refused' in asked) return res(ctx.status(asked.refused.status), ctx.json(asked.refused.body))
+
+    const agentId = params.get('agent_id')
+    const agents = MOCK_USERS.filter(
+      (user) =>
+        user.roles.includes(stage) &&
+        (!teamId || user.team_id === teamId) &&
+        (!agentId || user.id === agentId)
+    )
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((user) => mockAgentRow(user, stage, asked.window))
+      .filter((row) => row.active || mockAgentCounted(row))
+    const { period, start, end, timezone } = asked.window
+    return res(ctx.status(200), ctx.json({ period, start, end, timezone, agents }))
+  }),
+
+  rest.get('/reporting/agents/:userId/sales', (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = adminRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const found = mockScopedAgent(authorization, String(req.params.userId))
+    if ('refused' in found) return res(ctx.status(found.refused.status), ctx.json(found.refused.body))
+
+    const params = req.url.searchParams
+    const stage = mockAgentStage(params)
+    const kind = mockSaleKind(params)
+    if (!stage || !kind) {
+      const bad = mockFieldRefusal(stage ? 'kind' : 'stage', 'Field required')
+      return res(ctx.status(bad.status), ctx.json(bad.body))
+    }
+    const asked = mockAgentWindow(params, found.actor)
+    if ('refused' in asked) return res(ctx.status(asked.refused.status), ctx.json(asked.refused.body))
+    if (kind === 'paid' && asked.window.period !== 'month') {
+      return res(ctx.status(MOCK_PAID_NEEDS_MONTH.status), ctx.json(MOCK_PAID_NEEDS_MONTH.body))
+    }
+    const row = mockAgentRow(found.agent, stage, asked.window)
+    const amounts = found.actor.roles.includes('super_admin')
+    return res(
+      ctx.status(200),
+      ctx.json(mockAgentSales(row, asked.window, kind, mockAgentPage(params), amounts))
+    )
+  }),
+
+  rest.get('/reporting/agents/:userId/leads', (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = adminRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const found = mockScopedAgent(authorization, String(req.params.userId))
+    if ('refused' in found) return res(ctx.status(found.refused.status), ctx.json(found.refused.body))
+
+    const params = req.url.searchParams
+    const stage = mockAgentStage(params)
+    if (!stage) {
+      const bad = mockFieldRefusal('stage', 'Field required')
+      return res(ctx.status(bad.status), ctx.json(bad.body))
+    }
+    const asked = mockAgentWindow(params, found.actor)
+    if ('refused' in asked) return res(ctx.status(asked.refused.status), ctx.json(asked.refused.body))
+    const row = mockAgentRow(found.agent, stage, asked.window)
+    return res(ctx.status(200), ctx.json(mockAgentLeads(row, asked.window, mockAgentPage(params))))
+  }),
+
+  rest.put('/reporting/agents/:userId/targets', async (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = adminRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const found = mockScopedAgent(authorization, String(req.params.userId))
+    if ('refused' in found) return res(ctx.status(found.refused.status), ctx.json(found.refused.body))
+
+    const body = (await req.json()) as Partial<AgentTargets> & { stage?: string }
+    const stage = body.stage === 'fronter' || body.stage === 'closer' ? body.stage : null
+    if (!stage || !found.agent.roles.includes(stage)) {
+      const bad = mockFieldRefusal('stage', `this user is not a ${body.stage ?? 'agent'}`, 'body')
+      return res(ctx.status(bad.status), ctx.json(bad.body))
+    }
+    const targets: AgentTargets = { daily: null, weekly: null, monthly: null }
+    for (const key of ['daily', 'weekly', 'monthly'] as const) {
+      const value = body[key] ?? null
+      if (value !== null && (!Number.isInteger(value) || value < 1 || value > MOCK_TARGET_MAX)) {
+        const bad = mockFieldRefusal(key, `Input should be between 1 and ${MOCK_TARGET_MAX}`, 'body')
+        return res(ctx.status(bad.status), ctx.json(bad.body))
+      }
+      targets[key] = value
+    }
+    MOCK_AGENT_TARGETS.set(`${found.agent.id}:${stage}`, targets)
+    return res(ctx.status(200), ctx.json(targets))
+  }),
+
+  rest.get('/me/stats', (req, res, ctx) => {
+    const user = mockActor(req.headers.get('authorization'))
+    if (!user || !user.active) {
+      return res(
+        ctx.status(401),
+        ctx.json(authErrorBody('Could not validate credentials', 'auth.not_authenticated'))
+      )
+    }
+    const held = user.roles.filter((r): r is 'fronter' | 'closer' => r === 'fronter' || r === 'closer')
+    const params = req.url.searchParams
+    const askedStage = mockAgentStage(params)
+    if (held.length === 0 || (askedStage && !held.includes(askedStage))) {
+      return res(
+        ctx.status(403),
+        ctx.json(authErrorBody('Insufficient role for this operation', 'auth.forbidden'))
+      )
+    }
+    if (!askedStage && held.length === 2) {
+      return res(
+        ctx.status(422),
+        ctx.json(
+          authErrorBody(
+            'stage is required when the caller holds both fronter and closer',
+            'validation.stage_required'
+          )
+        )
+      )
+    }
+    const asked = mockAgentWindow(params, user)
+    if ('refused' in asked) return res(ctx.status(asked.refused.status), ctx.json(asked.refused.body))
+    const { period, start, end, timezone } = asked.window
+    const agents = [mockAgentRow(user, askedStage ?? held[0], asked.window)]
+    return res(ctx.status(200), ctx.json({ period, start, end, timezone, agents }))
+  }),
+
+  rest.get('/me/stats/sales', (req, res, ctx) => {
+    const user = mockActor(req.headers.get('authorization'))
+    if (!user || !user.active) {
+      return res(
+        ctx.status(401),
+        ctx.json(authErrorBody('Could not validate credentials', 'auth.not_authenticated'))
+      )
+    }
+    if (!user.roles.includes('closer')) {
+      return res(
+        ctx.status(403),
+        ctx.json(authErrorBody('Insufficient role for this operation', 'auth.forbidden'))
+      )
+    }
+    const params = req.url.searchParams
+    const kind = mockSaleKind(params)
+    if (!kind) {
+      const bad = mockFieldRefusal('kind', 'Field required')
+      return res(ctx.status(bad.status), ctx.json(bad.body))
+    }
+    const asked = mockAgentWindow(params, user)
+    if ('refused' in asked) return res(ctx.status(asked.refused.status), ctx.json(asked.refused.body))
+    if (kind === 'paid' && asked.window.period !== 'month') {
+      return res(ctx.status(MOCK_PAID_NEEDS_MONTH.status), ctx.json(MOCK_PAID_NEEDS_MONTH.body))
+    }
+    const row = mockAgentRow(user, 'closer', asked.window)
+    return res(
+      ctx.status(200),
+      ctx.json(mockAgentSales(row, asked.window, kind, mockAgentPage(params), false))
     )
   }),
 
