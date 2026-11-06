@@ -8,6 +8,7 @@ import MuiMenu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import {
   Bell,
+  ChartColumn,
   ChartLine,
   Check,
   ChevronDown,
@@ -59,6 +60,10 @@ function QueueIcon() {
 
 function StatsIcon() {
   return <ChartLine {...NAV_ICON} />
+}
+
+function AgentStatsIcon() {
+  return <ChartColumn {...NAV_ICON} />
 }
 
 function PolicyIcon() {
@@ -209,7 +214,7 @@ const DESK_ICON: Record<Role, ComponentType> = {
   super_admin: AdminDeskIcon,
 }
 
-/** Team Admin desk: Dashboard / Reports / Exceptions / Users / Leads. */
+/** Team Admin desk: Dashboard, Reports, Agent stats, Policy lookup, Callback requests, Users. */
 const TEAM_ADMIN_NAV: NavItem[] = [
   { href: '/admin', label: 'Dashboard', icon: DashboardIcon, isActive: (p) => p === '/admin' },
   {
@@ -217,6 +222,12 @@ const TEAM_ADMIN_NAV: NavItem[] = [
     label: 'Reports',
     icon: ReportsIcon,
     isActive: (p) => p.startsWith('/admin/reports'),
+  },
+  {
+    href: '/admin/agent-stats',
+    label: 'Agent stats',
+    icon: AgentStatsIcon,
+    isActive: (p) => p.startsWith('/admin/agent-stats'),
   },
   {
     href: '/admin/policies',
@@ -270,8 +281,8 @@ const ADMIN_QA_NAV_ITEMS: NavItem[] = [
 ]
 
 /**
- * Super Admin modules: Users, Teams, Campaigns, Reports, Team stats, Retention, Callback
- * requests, QA and QA stats.
+ * Super Admin modules: Users, Teams, Campaigns, Reports, Team stats, Agent stats,
+ * Retention, Callback requests, QA and QA stats.
  * Reports is how they reach a lead's full view, through its drill-down.
  */
 const SUPER_ADMIN_NAV: NavItem[] = [
@@ -310,6 +321,12 @@ const SUPER_ADMIN_NAV: NavItem[] = [
     label: 'Team stats',
     icon: StatsIcon,
     isActive: (p) => p.startsWith('/admin/team-stats'),
+  },
+  {
+    href: '/admin/agent-stats',
+    label: 'Agent stats',
+    icon: AgentStatsIcon,
+    isActive: (p) => p.startsWith('/admin/agent-stats'),
   },
   {
     href: '/admin/retention',
@@ -391,6 +408,7 @@ function normalizePath(pathname: string): string {
 const OPENED_FROM: Record<string, string> = {
   policies: '/admin/policies',
   callbacks: '/admin/callbacks',
+  agents: '/admin/agent-stats',
 }
 
 function menuPath(pathname: string, from: string | null): string {

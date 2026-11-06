@@ -132,22 +132,24 @@ function SummaryDetails({ summary, timeZone }: { summary: LeadSummary; timeZone:
 }
 
 /**
- * What a Team Admin sees of a lead, opened from a Reports row or a policy lookup
- * match. The row supplies the name, phone and stage, so those show while the rest
- * loads. No card details or amounts: those are a Super Admin's.
+ * What a Team Admin sees of a lead, opened from a Reports row, a policy lookup
+ * match or an agent's leads. The row supplies the name, phone and any stage, so
+ * those show while the rest loads. No card details or amounts: those are a Super
+ * Admin's.
  */
 export function LeadSummaryDialog({
   lead,
   timeZone,
   onClose,
 }: {
-  lead: Pick<FunnelLead, 'lead_id' | 'lead_name' | 'lead_phone' | 'stage'>
+  lead: Pick<FunnelLead, 'lead_id' | 'lead_name' | 'lead_phone'> &
+    Partial<Pick<FunnelLead, 'stage'>>
   /** The zone the opening list is drawn in. */
   timeZone: string
   onClose: () => void
 }) {
   const [load, setLoad] = useState<LoadState>({ status: 'loading' })
-  const stage = STAGE_BADGE[lead.stage]
+  const stage = lead.stage ? STAGE_BADGE[lead.stage] : null
   // The API falls back to the phone for a lead with no name.
   const named = lead.lead_name !== lead.lead_phone
 
@@ -173,7 +175,7 @@ export function LeadSummaryDialog({
       open
       dismissible
       title={named ? lead.lead_name : formatPhone(lead.lead_phone)}
-      titleAside={<Badge tone={stage.tone}>{stage.label}</Badge>}
+      titleAside={stage ? <Badge tone={stage.tone}>{stage.label}</Badge> : undefined}
       onClose={onClose}
       actions={
         // MUI directly: our Button is `fullWidth`, which outweighs the summary.
