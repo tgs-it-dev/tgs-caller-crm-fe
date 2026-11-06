@@ -14,11 +14,14 @@ export type FronterQueueEntry = components['schemas']['FronterCallbackItem']
 /** @deprecated Prefer `FronterQueueEntry`. */
 export type QueueEntry = FronterQueueEntry
 
-/** Pending offers, plus this closer's open accepted call (not yet dispositioned). */
-export type CloserQueueStatus = 'initiated' | 'offered' | 'accepted'
+/**
+ * Pending offers, plus this closer's open calls (not yet dispositioned): an
+ * accepted transfer, or one they started as an Own Sale.
+ */
+export type CloserQueueStatus = 'initiated' | 'offered' | 'accepted' | 'own_sale'
 
 export type CloserQueueEntry = {
-  /** Transfer id. */
+  /** Transfer id; the call's on an `own_sale` row, which has no transfer. */
   id: string
   /** Interaction id — workspace link target. */
   interaction_id: string

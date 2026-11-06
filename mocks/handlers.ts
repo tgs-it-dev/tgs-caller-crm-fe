@@ -1181,7 +1181,12 @@ const MOCK_LEADS: Record<string, LeadResponse> = {
   },
 }
 
-const MOCK_INTERACTIONS: Record<string, InteractionDetailResponse> = {
+/** `own_sale_closer_id`: the closer who started the call on Own Sale, with no transfer. */
+type MockInteraction = Omit<InteractionDetailResponse, 'own_sale'> & {
+  own_sale_closer_id?: string
+}
+
+const MOCK_INTERACTIONS: Record<string, MockInteraction> = {
   'int-1001': {
     id: 'int-1001',
     lead_id: 'lead-1',
@@ -1230,7 +1235,10 @@ function synthesizeLead(interactionId: string): LeadResponse {
 
 function interactionDetail(interactionId: string): InteractionDetailResponse | null {
   const known = MOCK_INTERACTIONS[interactionId]
-  if (known) return known
+  if (known) {
+    const { own_sale_closer_id: ownSaleCloser, ...detail } = known
+    return { ...detail, own_sale: Boolean(ownSaleCloser) }
+  }
   // Queue rows and unknown workspace ids still need a usable Active Call shell.
   if (!interactionId) return null
   const lead = synthesizeLead(interactionId)
@@ -1240,6 +1248,7 @@ function interactionDetail(interactionId: string): InteractionDetailResponse | n
     created_at: new Date(Date.now() - 3 * 60 * 1000).toISOString(),
     updated_at: new Date().toISOString(),
     qualification: null,
+    own_sale: false,
   }
 }
 
@@ -1309,7 +1318,10 @@ const MOCK_FRONTER_CALLBACKS: FronterQueueEntry[] = Array.from({ length: 6 }, (_
   }
 })
 
-const MOCK_CLOSER_QUEUE: CloserQueueEntry[] = Array.from({ length: 12 }, (_, index) => ({
+// Transfers only: an Own Sale row comes from the calls closers start.
+const MOCK_CLOSER_QUEUE: (Omit<CloserQueueEntry, 'status'> & {
+  status: 'initiated' | 'offered' | 'accepted'
+})[] = Array.from({ length: 12 }, (_, index) => ({
   id: `transfer-${3000 + index}`,
   interaction_id: `int-${1100 + index}`,
   lead_name: QUEUE_LEAD_NAMES[index % QUEUE_LEAD_NAMES.length],
@@ -1801,7 +1813,10 @@ function closerOnly(user: MockUser): boolean {
   )
 }
 
+/** The call's closer: who accepted its transfer, or who started it as an Own Sale. */
 function acceptedCloser(interactionId: string): MockUser | undefined {
+  const ownSaleCloser = MOCK_INTERACTIONS[interactionId]?.own_sale_closer_id
+  if (ownSaleCloser) return MOCK_USERS.find((user) => user.id === ownSaleCloser)
   const transfer = [...MOCK_TRANSFERS.values()].find(
     (row) => row.interaction_id === interactionId && row.status === 'accepted'
   )
@@ -1853,7 +1868,154 @@ function mockCloserCallbacks(closerId: string | null): CloserCallbackEntry[] {
       callback_status: mockStanding(transfer.interaction_id).callback_status,
     })
   }
+  for (const call of Object.values(MOCK_INTERACTIONS)) {
+    const starter = call.own_sale_closer_id
+    if (!starter || (closerId !== null && starter !== closerId)) continue
+    const latest = (MOCK_INTERACTION_DISPOSITIONS.get(call.id) ?? [])
+      .filter((row) => row.stage === 'closer')
+      .at(-1)
+    if (latest?.label !== 'Callback Scheduled') continue
+    const lead = leadForInteraction(call.id)
+    const closer = MOCK_USERS.find((user) => user.id === starter)
+    entries.push({
+      interaction_id: call.id,
+      // Started on Own Sale: it opens by the call alone.
+      transfer_id: null,
+      lead_id: lead.id,
+      lead_name: [lead.first_name, lead.last_name].filter(Boolean).join(' ').trim() || lead.phone_no,
+      lead_phone: lead.phone_no,
+      team_name: MOCK_TEAMS.find((team) => team.id === closer?.team_id)?.name ?? DEFAULT_TEAM_NAME,
+      closer_user_id: starter,
+      closer_name: closer?.name ?? 'Closer',
+      scheduled_at: latest.created_at,
+      callback_status: mockStanding(call.id).callback_status,
+    })
+  }
   return entries.sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at))
+}
+
+/** Whether the closer has recorded an outcome on the call. */
+function closerFinished(interactionId: string): boolean {
+  return (MOCK_INTERACTION_DISPOSITIONS.get(interactionId) ?? []).some(
+    (row) => row.stage === 'closer'
+  )
+}
+
+/** Own Sale calls still waiting on their outcome. */
+function openOwnSaleCalls(): MockInteraction[] {
+  return Object.values(MOCK_INTERACTIONS).filter(
+    (call) => call.own_sale_closer_id && !closerFinished(call.id)
+  )
+}
+
+/** This closer's open Own Sale calls, as their queue lists them. */
+function mockOwnSaleRows(closerId: string | null): CloserQueueEntry[] {
+  return openOwnSaleCalls()
+    .filter((call) => call.own_sale_closer_id === closerId)
+    .map((call) => {
+      const lead = leadForInteraction(call.id)
+      return {
+        id: call.id,
+        interaction_id: call.id,
+        lead_name:
+          [lead.first_name, lead.last_name].filter(Boolean).join(' ').trim() || lead.phone_no,
+        lead_phone: lead.phone_no,
+        fronter_user_id: null,
+        queued_at: call.created_at,
+        status: 'own_sale' as const,
+      }
+    })
+}
+
+const OWN_SALE_BUSY = {
+  waiting: 'this customer is waiting in a transfer to a closer',
+  with_you: 'you already have this customer open in your Queue',
+  with_another: 'this customer is on a call with another closer',
+} as const
+
+/** How the lead is being worked, or null when nothing is in progress on it. */
+function mockOwnSaleBusy(leadId: string, closerId: string): keyof typeof OWN_SALE_BUSY | null {
+  const calls = new Set(
+    Object.values(MOCK_INTERACTIONS)
+      .filter((call) => call.lead_id === leadId)
+      .map((call) => call.id)
+  )
+  const transfers = [...MOCK_TRANSFERS.values()].filter((row) => calls.has(row.interaction_id))
+  const closers = new Set<string>()
+  for (const transfer of transfers) {
+    if (transfer.status === 'accepted' && transfer.closer_user_id && !closerFinished(transfer.interaction_id)) {
+      closers.add(transfer.closer_user_id)
+    }
+  }
+  for (const call of openOwnSaleCalls()) {
+    if (calls.has(call.id) && call.own_sale_closer_id) closers.add(call.own_sale_closer_id)
+  }
+  if (closers.has(closerId)) return 'with_you'
+  if (transfers.some((row) => row.status === 'initiated' || row.status === 'offered')) return 'waiting'
+  return closers.size > 0 ? 'with_another' : null
+}
+
+/** The Own Sale checks both routes share: the closer, their team, and the number. */
+function mockOwnSaleCheck(
+  authorization: string | null,
+  raw: string,
+  location: 'query' | 'body'
+):
+  | { refused: { status: number; body: ReturnType<typeof authErrorBody> } }
+  | { actor: MockUser; teamId: string; phone: string; lead: MockTeamLead | undefined } {
+  const actor = mockActor(authorization)
+  if (!actor) {
+    return {
+      refused: {
+        status: 401,
+        body: authErrorBody('Could not validate credentials', 'auth.not_authenticated'),
+      },
+    }
+  }
+  if (!actor.roles.includes('closer')) {
+    return {
+      refused: {
+        status: 403,
+        body: authErrorBody('Insufficient role for this operation', 'auth.forbidden'),
+      },
+    }
+  }
+  if (!actor.team_id) {
+    return {
+      refused: {
+        status: 422,
+        body: authErrorBody('a team membership is required', 'lead.team_required'),
+      },
+    }
+  }
+  const phone = mockNormalizePhone(raw)
+  if (!phone) {
+    return {
+      refused: {
+        status: 422,
+        body: authErrorBody(`not a usable phone number: '${raw}'`, 'lead.invalid_phone', [
+          { field: 'phone_no', in: location, message: 'not a usable phone number' },
+        ]),
+      },
+    }
+  }
+  if (MOCK_SUPPRESSED_PHONES.has(phone)) {
+    const detail = 'this phone number is on the company do-not-call list'
+    return {
+      refused: {
+        status: 422,
+        body: authErrorBody(detail, 'lead.phone_suppressed', [
+          { field: 'phone_no', in: location, message: detail },
+        ]),
+      },
+    }
+  }
+  const lead = teamLeadFor(actor.team_id, phone)
+  const busy = lead ? mockOwnSaleBusy(lead.id, actor.id) : null
+  if (busy) {
+    return { refused: { status: 409, body: authErrorBody(OWN_SALE_BUSY[busy], 'own_sale.lead_busy') } }
+  }
+  return { actor, teamId: actor.team_id, phone, lead }
 }
 
 /** FE-08 My Stats — `/me/stats/today` seed, keyed by actor user id. */
@@ -3920,6 +4082,115 @@ export const handlers = [
     return res(ctx.status(201), ctx.json(leadBody(lead)))
   }),
 
+  // Before /leads/:leadId, so own-sale is not read as a lead id.
+  rest.get('/leads/own-sale', (req, res, ctx) => {
+    const checked = mockOwnSaleCheck(
+      req.headers.get('authorization'),
+      req.url.searchParams.get('phone_no') ?? '',
+      'query'
+    )
+    if ('refused' in checked) {
+      return res(ctx.status(checked.refused.status), ctx.json(checked.refused.body))
+    }
+    const { phone, lead } = checked
+    return res(
+      ctx.status(200),
+      ctx.json({
+        phone_no: phone,
+        lead: lead
+          ? {
+              id: lead.id,
+              first_name: lead.first_name ?? null,
+              last_name: lead.last_name ?? null,
+              vehicle_make: lead.vehicle_make ?? null,
+              vehicle_year: lead.vehicle_year ?? null,
+              vehicle_model: lead.vehicle_model ?? null,
+              vin: lead.vin ?? null,
+              license_plate: lead.license_plate ?? null,
+              created_at: lead.created_at,
+            }
+          : null,
+      })
+    )
+  }),
+
+  rest.post('/leads/own-sale', async (req, res, ctx) => {
+    const body = (await req.json()) as LeadFormBody
+    const checked = mockOwnSaleCheck(
+      req.headers.get('authorization'),
+      String(body.phone_no ?? ''),
+      'body'
+    )
+    if ('refused' in checked) {
+      return res(ctx.status(checked.refused.status), ctx.json(checked.refused.body))
+    }
+    const formErrors = mockValidateLeadForm(body)
+    if (formErrors.length > 0) {
+      return res(
+        ctx.status(422),
+        ctx.json(authErrorBody('validation failed', 'validation_error', formErrors))
+      )
+    }
+
+    const { actor, teamId, phone } = checked
+    const now = new Date().toISOString()
+    const fields = {
+      first_name: body.first_name!.trim(),
+      last_name: body.last_name!.trim(),
+      vehicle_make: body.vehicle_make!.trim(),
+      vehicle_year: body.vehicle_year!,
+      vehicle_model: body.vehicle_model!.trim(),
+      vin: body.vin?.trim() || null,
+      license_plate: body.license_plate?.trim() || null,
+    }
+    let lead = checked.lead
+    if (lead) {
+      Object.assign(lead, fields, { updated_at: now })
+    } else {
+      issuedLeads += 1
+      // No fronter: the closer started it.
+      lead = {
+        id: `lead-own-sale-${issuedLeads}`,
+        phone_no: phone,
+        source: 'manual',
+        team_id: teamId,
+        created_at: now,
+        updated_at: now,
+        ...fields,
+      }
+      MOCK_TEAM_LEADS.unshift(lead)
+    }
+    MOCK_LEADS[lead.id] = leadBody(lead)
+
+    issuedLeads += 1
+    const interactionId = `int-own-sale-${issuedLeads}`
+    MOCK_INTERACTIONS[interactionId] = {
+      id: interactionId,
+      lead_id: lead.id,
+      created_at: now,
+      updated_at: now,
+      qualification: null,
+      own_sale_closer_id: actor.id,
+    }
+    qualificationSeq += 1
+    const vehicle = [fields.vehicle_year, fields.vehicle_make, fields.vehicle_model].join(' ')
+    MOCK_QUALIFICATIONS.set(interactionId, {
+      id: `qual-${qualificationSeq}`,
+      interaction_id: interactionId,
+      version: 1,
+      snapshot_json: { ...fields, phone_no: phone, vehicle },
+      consent_dnc: {
+        consent_given: true,
+        consent_captured_at: now,
+        dnc_flagged: false,
+        dnc_source: null,
+      },
+      customer: customerFromLead(MOCK_LEADS[lead.id]),
+      created_at: now,
+    })
+    return res(ctx.status(201), ctx.json({ interaction_id: interactionId, lead_id: lead.id }))
+  }),
+
   rest.post('/leads/bulk', async (req, res, ctx) => {
     const authorization = req.headers.get('authorization')
     const refused = adminRefusal(authorization)
@@ -4212,7 +4483,11 @@ export const handlers = [
       return res(ctx.status(200), ctx.json(MOCK_FRONTER_CALLBACKS))
     }
     if (role === 'closer') {
-      return res(ctx.status(200), ctx.json(MOCK_CLOSER_QUEUE))
+      const actor = mockActor(req.headers.get('authorization'))
+      return res(
+        ctx.status(200),
+        ctx.json([...MOCK_CLOSER_QUEUE, ...mockOwnSaleRows(actor?.id ?? null)])
+      )
     }
     return res(
       ctx.status(422),

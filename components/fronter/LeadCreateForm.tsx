@@ -157,7 +157,20 @@ export function leadUpdatePayload(values: LeadCreateFormValues): LeadUpdate {
   }
 }
 
-export function leadFormValuesFromLead(lead: LeadResponse): LeadCreateFormValues {
+/** The form filled from a lead, or from anything carrying its fields, such as an Own Sale lookup. */
+export function leadFormValuesFromLead(
+  lead: Pick<
+    LeadResponse,
+    | 'first_name'
+    | 'last_name'
+    | 'phone_no'
+    | 'vehicle_make'
+    | 'vehicle_year'
+    | 'vehicle_model'
+    | 'vin'
+    | 'license_plate'
+  >
+): LeadCreateFormValues {
   const vin = lead.vin ?? ''
   const plate = lead.license_plate ?? ''
   return {

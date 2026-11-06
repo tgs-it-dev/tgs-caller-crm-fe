@@ -5,11 +5,14 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import MuiAlert from '@mui/material/Alert'
 import MuiButton from '@mui/material/Button'
+import { Plus } from 'lucide-react'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
+import { OwnSaleDialog } from '@/components/closer/OwnSaleDialog'
 import { QueueTable } from '@/components/queue/QueueTable'
 import { Alert } from '@/components/ui/Alert'
 import { DataTable, type DataColumn } from '@/components/ui/DataTable'
 import { Badge } from '@/components/ui/Badge'
+import { Button } from '@/components/ui/Button'
 import { PageShell } from '@/components/ui/PageShell'
 import { AuthError } from '@/lib/auth'
 import { CALLBACK_STATUS_LABEL, CALLBACK_STATUS_TONE } from '@/lib/callbacks'
@@ -252,6 +255,10 @@ function QueueBody() {
 /** Closer transfer queue — fronter dialer queue is gone (lead form + callbacks). */
 export function QueueScreen({ role }: { role: 'closer' }) {
   void role
+  const currentUser = useCurrentUser()
+  const [ownSale, setOwnSale] = useState(false)
+  // A closer's own sale, while no transfer is waiting. Not for anyone viewing the desk.
+  const isCloser = currentUser.status === 'ready' && currentUser.user.roles.includes('closer')
   return (
     <PageShell
       title="Queue"
@@ -260,11 +267,25 @@ export function QueueScreen({ role }: { role: 'closer' }) {
       //     Live
       //   </Badge>
       // }
+      // The same button the fronter's desk has for New lead.
+      actions={
+        isCloser ? (
+          <div className="w-[160px]">
+            <Button size="small" onClick={() => setOwnSale(true)}>
+              <span className="flex items-center justify-center gap-2">
+                <Plus className="h-4 w-4" strokeWidth={2} aria-hidden />
+                Own Sale
+              </span>
+            </Button>
+          </div>
+        ) : undefined
+      }
     >
       <div className="flex flex-col gap-6">
         <QueueBody />
         <CallbacksSection />
       </div>
+      {ownSale && <OwnSaleDialog onClose={() => setOwnSale(false)} />}
     </PageShell>
   )
 }
