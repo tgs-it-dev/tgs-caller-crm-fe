@@ -88,6 +88,16 @@ export async function updateMyTimezone(timezone: TimeZoneName, token: string): P
   return res.json() as Promise<CurrentUser>
 }
 
+/** Record that Print Screen was pressed on `page`. Always 204 for a signed-in user. */
+export async function reportScreenshot(page: string, token: string): Promise<void> {
+  const res = await fetch(apiUrl('/auth/me/screenshots'), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ page }),
+  })
+  if (!res.ok) throw await authError(res)
+}
+
 /**
  * Change your own password. The API ends every session, this one's included, and
  * hands back a fresh pair; call it through `changePassword` in `lib/session.ts`,

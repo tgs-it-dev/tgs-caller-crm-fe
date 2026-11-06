@@ -106,6 +106,26 @@ export interface paths {
         patch: operations["update_me_auth_me_patch"];
         trace?: never;
     };
+    "/auth/me/screenshots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record that you pressed Print Screen
+         * @description Who pressed it, when and on which page. Nothing reads it back over HTTP yet.
+         */
+        post: operations["report_screenshot_auth_me_screenshots_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/password/change": {
         parameters: {
             query?: never;
@@ -4556,6 +4576,17 @@ export interface components {
             total_payment: string;
         };
         /**
+         * ScreenshotReport
+         * @description Print Screen was pressed while the CRM was open.
+         */
+        ScreenshotReport: {
+            /**
+             * Page
+             * @description The path on screen at the time, such as /fronter/workspace/<id>.
+             */
+            page: string;
+        };
+        /**
          * SetAgentTargetsRequest
          * @description All three at once; a blank one clears that target.
          */
@@ -5202,6 +5233,46 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["UserResponse"];
                 };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    report_screenshot_auth_me_screenshots_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScreenshotReport"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Client Error */
             "4XX": {

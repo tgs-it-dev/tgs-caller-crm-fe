@@ -40,6 +40,16 @@ function guard(event: Event) {
   if (!allowed(event)) event.preventDefault()
 }
 
+/** Who the copy and screenshot guards cover: anyone signed in but a Super Admin. */
+export function useGuarded() {
+  const { user } = useCurrentUser()
+  const pathname = usePathname()
+  return (
+    Boolean(user && !isSuperAdmin(user.roles)) &&
+    !OPEN_PAGES.some((page) => pathname.startsWith(page))
+  )
+}
+
 /**
  * Everyone but a Super Admin types every form by hand: copy, cut, paste,
  * right-click, text selection and dragging all do nothing, and nothing on screen
@@ -47,11 +57,7 @@ function guard(event: Event) {
  * onto an upload. `styles/globals.css` turns selection off under the attribute.
  */
 export function CopyGuard() {
-  const { user } = useCurrentUser()
-  const pathname = usePathname()
-  const on =
-    Boolean(user && !isSuperAdmin(user.roles)) &&
-    !OPEN_PAGES.some((page) => pathname.startsWith(page))
+  const on = useGuarded()
 
   useEffect(() => {
     if (!on) return

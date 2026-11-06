@@ -893,6 +893,21 @@ password ever gets set. The first two are one component —
 - **Two things still work:** paste into a password field, for password managers,
   and dropping a file onto an upload. The sign-in, invite, reset and
   forgot-password pages are left alone.
+
+## Screenshots
+
+`components/auth/ScreenGuard.tsx`, mounted next to CopyGuard, for the same people
+(`useGuarded()`).
+
+- **The whole page blurs** while Alt or the Windows key is down, while the window
+  is out of focus and while the tab is hidden. That beats Alt + Print Screen,
+  Win + Print Screen, Win + Shift + S and the Snipping Tool.
+- **A plain Print Screen can't be beaten:** Windows takes the image before the
+  page hears the key. Its release calls `POST /auth/me/screenshots` with the page,
+  and the agent sees "Screenshot recorded". No screen shows the log yet.
+- **The blur is an overlay** (`.screen-guard-overlay` in `styles/globals.css`),
+  shown by `data-screen-blur` on `<html>`, which the listeners set directly so it
+  lands on the next frame. A filter on the page would move fixed elements.
 - **Selection is CSS.** The guard sets `data-copy-guard` on `<html>`, and
   `styles/globals.css` turns selection off under it, except inside fields, where
   correcting what was typed needs it.
