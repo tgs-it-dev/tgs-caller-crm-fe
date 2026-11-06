@@ -60,6 +60,25 @@ html, body, #__next {
   user-select: text;
 }
 
+/*
+ * ScreenGuard sets data-screen-blur on <html>. An overlay rather than a filter on
+ * the page, which would move every position: fixed element. Above MUI's dialogs,
+ * menus and tooltips; clicks pass through it.
+ */
+.screen-guard-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+[data-screen-blur] .screen-guard-overlay {
+  display: block;
+}
+
 /* Keep decorative stroke icons square — flex rows can squash SVG height. */
 svg[aria-hidden="true"] {
   aspect-ratio: 1 / 1;

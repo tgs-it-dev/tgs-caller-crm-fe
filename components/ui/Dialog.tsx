@@ -21,6 +21,7 @@ export function Dialog({
   busy = false,
   dismissible = false,
   maxWidth = 'xs',
+  zIndex,
   actions,
   children,
 }: {
@@ -39,6 +40,8 @@ export function Dialog({
   dismissible?: boolean
   /** `sm` for content that needs the room, such as a table of results. */
   maxWidth?: 'xs' | 'sm'
+  /** Only for a dialog that must sit above the screenshot guard's blur. */
+  zIndex?: number
   actions?: ReactNode
   children: ReactNode
 }) {
@@ -57,6 +60,7 @@ export function Dialog({
       aria-labelledby={titleId}
       fullWidth
       maxWidth={maxWidth}
+      sx={zIndex === undefined ? undefined : { zIndex }}
       slotProps={{ paper: { sx: { borderRadius: '12px', padding: '4px' } } }}
     >
       <DialogTitle

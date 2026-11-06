@@ -3184,6 +3184,19 @@ export const handlers = [
     return res(ctx.status(200), ctx.json(userBody(user)))
   }),
 
+  rest.post('/auth/me/screenshots', async (req, res, ctx) => {
+    const user = mockActor(req.headers.get('authorization'))
+    if (!user || !user.active) {
+      return res(
+        ctx.status(401),
+        ctx.json(authErrorBody('Could not validate credentials', 'auth.not_authenticated'))
+      )
+    }
+    const body = (await req.json()) as { page?: string }
+    console.info(`[mock screenshot] ${user.email} pressed Print Screen on ${body.page}`)
+    return res(ctx.status(204))
+  }),
+
   rest.post('/auth/password/change', async (req, res, ctx) => {
     const user = mockActor(req.headers.get('authorization'))
     if (!user || !user.active) {
