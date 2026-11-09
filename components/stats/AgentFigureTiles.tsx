@@ -85,14 +85,6 @@ export function AgentFigureTiles({ row, period }: { row: AgentStats; period: Age
             />
             <StatTile label="Transfers" value={fronter.transfers} icon={icon(ArrowLeftRight)} />
             <StatTile label="Callbacks" value={fronter.callbacks} icon={icon(PhoneCall)} />
-            {monthly && (
-              <StatTile
-                label="Paid"
-                value={fronter.paid ?? 0}
-                detail="sales on calls handed to a closer"
-                icon={icon(BadgeDollarSign)}
-              />
-            )}
           </>
         )}
         {closer && (
@@ -121,11 +113,9 @@ export function AgentFigureTiles({ row, period }: { row: AgentStats; period: Age
         )}
         <TargetTile row={row} period={period} />
       </div>
-      {!monthly && (
+      {!monthly && closer && (
         <p className="text-sm leading-[150%] text-slate">
-          {closer
-            ? 'Paid and conversion are counted by month, so they show on the Month tab.'
-            : 'Paid is counted by month, so it shows on the Month tab.'}
+          Paid and conversion are counted by month, so they show on the Month tab.
         </p>
       )}
     </div>

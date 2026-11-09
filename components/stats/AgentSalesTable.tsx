@@ -65,16 +65,20 @@ function columnsFor(stage: StatsStage, amounts: boolean): DataColumn<AgentSaleIt
           '-'
         ),
     },
-    {
-      id: 'paid',
-      header: 'Paid',
-      render: (sale) =>
-        sale.paid_month ? (
-          <span className="whitespace-nowrap">{formatMonth(sale.paid_month, 'short')}</span>
-        ) : (
-          '-'
-        ),
-    },
+    ...(stage === 'closer'
+      ? [
+          {
+            id: 'paid',
+            header: 'Paid',
+            render: (sale: AgentSaleItem) =>
+              sale.paid_month ? (
+                <span className="whitespace-nowrap">{formatMonth(sale.paid_month, 'short')}</span>
+              ) : (
+                '-'
+              ),
+          },
+        ]
+      : []),
     {
       id: 'score',
       header: 'QA score',
@@ -107,8 +111,8 @@ function columnsFor(stage: StatsStage, amounts: boolean): DataColumn<AgentSaleIt
 
 /**
  * The sales behind an agent's Sold, Paid or Cancelled figure, newest first. Paid
- * is counted by month, so its tab shows on a month only. With no `userId`, the
- * signed-in closer's own.
+ * is counted by month, so its tab shows on a month only. A fronter has Sold only.
+ * With no `userId`, the signed-in closer's own.
  */
 export function AgentSalesTable({
   userId,
@@ -125,11 +129,8 @@ export function AgentSalesTable({
   // The fields, not the object: a parent may build a new one every render.
   const { period, day } = choice
   const monthly = period === 'month'
-  const kinds: AgentSaleKind[] = [
-    'sold',
-    ...(monthly ? (['paid'] as const) : []),
-    ...(stage === 'closer' ? (['cancelled'] as const) : []),
-  ]
+  const kinds: AgentSaleKind[] =
+    stage === 'closer' ? ['sold', ...(monthly ? (['paid'] as const) : []), 'cancelled'] : ['sold']
   const [picked, setPicked] = useState<AgentSaleKind>('sold')
   const kind = kinds.includes(picked) ? picked : 'sold'
   const [offset, setOffset] = useState(0)
@@ -182,12 +183,14 @@ export function AgentSalesTable({
       ariaLabel={`${SALE_KIND_LABEL[kind]} policies`}
       toolbar={
         <div className="flex flex-col gap-3">
-          <Segmented
-            label="Which policies"
-            options={kinds.map((value) => ({ value, label: SALE_KIND_LABEL[value] }))}
-            value={kind}
-            onChange={choose}
-          />
+          {kinds.length > 1 && (
+            <Segmented
+              label="Which policies"
+              options={kinds.map((value) => ({ value, label: SALE_KIND_LABEL[value] }))}
+              value={kind}
+              onChange={choose}
+            />
+          )}
           {load.status === 'error' && <Alert>{load.message}</Alert>}
         </div>
       }
