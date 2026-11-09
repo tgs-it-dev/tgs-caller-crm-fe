@@ -96,7 +96,7 @@ export function closedCall(standing: CallStanding): ClosedCall | null {
   return {
     badge: 'Closed',
     tone: 'neutral',
-    message: "The call is closed, so the outcome and cart can't change.",
+    message: "The call is closed, so the outcome and card can't change.",
   }
 }
 

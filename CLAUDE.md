@@ -175,9 +175,10 @@ The administrator dashboard (`/admin`) is fed by `lib/liveStatus.ts`:
 leads by hand: New lead, and one Leads table, read from `GET /leads/search`
 through `searchLeads()` in `lib/leads.ts`.
 
-- **The list is the team's callbacks, and nothing else.** A lead is on it while
-  its latest fronter outcome is Callback and no closer has accepted it, longest
-  waiting first. There is no outcome filter, and search stays inside the list.
+- **The list is every lead the team ever saved as Callback, and nothing else.** A
+  lead stays on it once it is transferred, accepted or sold, with Edit still
+  there, as the client asked; its latest outcome shows in the table. Newest
+  first. There is no outcome filter, and search stays inside the list.
 - **A fronter records Callback or Transferred, and must pick one.** Transferred
   must name a closer, on a call or not. The offer waits in that closer's queue
   with no time limit until they accept it, and it cannot be rejected. The closers
@@ -238,7 +239,8 @@ disposition picker and the transfer panel.
 ## Closer cart
 
 `components/closer/CartPaymentCard.tsx`, above the closer's disposition card;
-the API calls and rules are in `lib/cart.ts`.
+the API calls and rules are in `lib/cart.ts`. Screens say **card**, as the client
+does. The code, the API and the database keep `cart`.
 
 - **Unlocks once the transfer is accepted.** Before that the API would refuse
   the save: only the closer who accepted the call may write its cart.
@@ -247,7 +249,7 @@ the API calls and rules are in `lib/cart.ts`.
   alone, never storage or logs.
 - **The full numbers never come back.** `GET /interactions/{id}/cart` gives at
   most the last four digits. A saved cart shows read-only, masked, with an
-  **Edit cart** button. In the form, a saved number shows as its placeholder
+  **Edit card** button. In the form, a saved number shows as its placeholder
   (`•••• 4242`); left blank it is kept (the request leaves it out), and typing
   replaces it. The CVV is checked by the API and discarded.
 - **Money goes as strings** (`"1800.00"`), formatted on blur and shown through
@@ -407,7 +409,7 @@ page.
 - **Labels sit beside their values** (`Pairs` / `Pair`), never at the far ends
   of a wide card, and two pairs share a row where there is room.
 - **Where it stands is the API's status, shown, not worked out here:** the
-  callback list and the closer-on-a-call rule are the backend's own, so this page
+  waiting callback and the closer-on-a-call rule are the backend's own, so this page
   and the queues can't disagree. Waiting for a closer and On a call show only
   when they are true.
 - **The form card shows what the lead card doesn't:** consent, DNC and any other
@@ -485,13 +487,14 @@ in `components/stats/`.
   day just outside the period shown and the server works out the period, so the
   label always comes from the dates it answered with. Switching tabs goes back to
   the current period.
-- **Paid and Conversion are monthly.** A sale is Paid in the month its upload
-  names, so they show on the Month tab only; Today and Week say so in their
-  place, and the Paid list is offered on a month only (the API refuses it
-  otherwise).
+- **Paid and Conversion are monthly, and a closer's.** A sale is Paid in the
+  month its upload names, so they show on the Month tab only; Today and Week say
+  so in their place, and the Paid list is offered on a month only (the API
+  refuses it otherwise). A fronter has no Paid anywhere, on Agent stats either,
+  and their policy list is Sold only.
 - **My Stats** (`components/stats/MyStatsScreen.tsx`, used by both
   `app/fronter/stats` and `app/closer/stats`) reads `GET /me/stats`. A fronter
-  sees Qualifications, Transfers, Callbacks, Paid and their target; a closer
+  sees Qualifications, Transfers, Callbacks and their target; a closer
   Sold, Paid, Conversion, Cancelled, Retained, Pending, the average QA score and
   their target. A closer also gets `AgentSalesTable`, their Sold, Paid and
   Cancelled policies with policy number, status, paid month, QA score and QA

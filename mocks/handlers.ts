@@ -874,7 +874,6 @@ function mockAgentRow(user: MockUser, stage: 'fronter' | 'closer', window: MockA
         qualifications,
         transfers: Math.max(0, qualifications - (seed % 3)),
         callbacks: worked * (days * 2 + (seed % 3)),
-        paid: monthly ? Math.floor(qualifications / 4) : null,
         target,
       },
       closer: null,
@@ -909,7 +908,7 @@ function mockAgentCounted(row: AgentStats): boolean {
 function mockAgentSaleCount(row: AgentStats, kind: AgentSaleKind): number {
   const sold = row.closer?.sold ?? Math.floor((row.fronter?.qualifications ?? 0) / 3)
   if (kind === 'cancelled') return row.closer?.cancelled ?? Math.floor(sold / 6)
-  if (kind === 'paid') return row.closer?.paid ?? row.fronter?.paid ?? 0
+  if (kind === 'paid') return row.closer?.paid ?? 0
   return sold
 }
 
@@ -1162,6 +1161,13 @@ function mockLatestDisposition(leadId: string) {
     }
   }
   return latest
+}
+
+/** Whether a fronter ever gave this mock lead the disposition, on any of its calls. */
+function mockEverGiven(leadId: string, dispositionId: string): boolean {
+  return mockCallsOf(leadId).some((call) =>
+    mockFronterDispositionsOn(call.id).some((row) => row.id === dispositionId)
+  )
 }
 
 /** Accepted by a closer, or sold, on any of its calls: no longer the fronter's to work. */
@@ -4292,6 +4298,10 @@ export const handlers = [
       const bad = mockFieldRefusal(stage ? 'kind' : 'stage', 'Field required')
       return res(ctx.status(bad.status), ctx.json(bad.body))
     }
+    if (stage === 'fronter' && kind === 'paid') {
+      const bad = mockFieldRefusal('kind', "Paid sales are the closer's, so a fronter has no Paid list")
+      return res(ctx.status(bad.status), ctx.json(bad.body))
+    }
     const asked = mockAgentWindow(params, found.actor)
     if ('refused' in asked) return res(ctx.status(asked.refused.status), ctx.json(asked.refused.body))
     if (kind === 'paid' && asked.window.period !== 'month') {
@@ -4749,8 +4759,9 @@ export const handlers = [
     const offset = Number(params.get('offset') ?? 0)
     const digits = q.replace(/\D/g, '')
 
+    const given = disposition !== null && disposition !== 'none'
     const rows = mockWorkableLeads(worker.teamId ?? null)
-      .filter((lead) => !mockWithACloser(lead.id))
+      .filter((lead) => given || !mockWithACloser(lead.id))
       .map((lead) => ({
         lead,
         name: [lead.first_name, lead.last_name].filter(Boolean).join(' ').trim() || lead.phone_no,
@@ -4763,12 +4774,12 @@ export const handlers = [
         const byPhone = digits !== '' && !/\p{L}/u.test(q) && lead.phone_no.includes(digits)
         return byName || byPhone
       })
-      .filter(({ latest }) => {
+      .filter(({ lead, latest }) => {
         if (!disposition) return true
-        return disposition === 'none' ? latest === null : latest?.id === disposition
+        return disposition === 'none' ? latest === null : mockEverGiven(lead.id, disposition)
       })
       .sort((a, b) =>
-        (a.latest?.at ?? a.lead.created_at).localeCompare(b.latest?.at ?? b.lead.created_at)
+        (b.latest?.at ?? b.lead.created_at).localeCompare(a.latest?.at ?? a.lead.created_at)
       )
 
     return res(
@@ -5366,7 +5377,7 @@ export const handlers = [
       if (closed) return res(ctx.status(409), ctx.json(closed))
     }
     if (catalog.counts_as_sale && !MOCK_CARTS.has(interactionId)) {
-      const message = 'save the cart before recording a sale'
+      const message = 'save the card before recording a sale'
       return res(
         ctx.status(422),
         ctx.json(

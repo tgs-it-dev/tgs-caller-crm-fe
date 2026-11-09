@@ -927,10 +927,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The team's leads not yet with a closer, by phone, name and disposition
-         * @description Longest waiting first: since the latest fronter disposition, or since the
-         *     lead was added. A lead leaves the list once a closer accepts it or it is sold.
-         *     Summary fields only.
+         * The team's leads, by phone, name and disposition
+         * @description Newest first: by the latest fronter disposition, or when the lead was added.
+         *     Unless filtered by a disposition it was given, a lead leaves the list once a closer
+         *     accepts it or it is sold. Summary fields only.
          */
         get: operations["search_leads_search_get"];
         put?: never;
@@ -1458,8 +1458,8 @@ export interface paths {
         /**
          * The sales behind one agent's Sold, Paid or Cancelled figure
          * @description Newest first. A closer's are the sales they recorded; a fronter's, the sales on
-         *     calls they handed over. Paid is for a month only. A Team Admin sees the sales on
-         *     their own team's leads, without amounts.
+         *     calls they handed over. Paid is a closer's, for a month only. A Team Admin sees the
+         *     sales on their own team's leads, without amounts.
          */
         get: operations["agent_sale_list_reporting_agents__user_id__sales_get"];
         put?: never;
@@ -2807,8 +2807,6 @@ export interface components {
         FronterFigures: {
             /** Callbacks */
             callbacks: number;
-            /** Paid */
-            paid: number | null;
             /** Qualifications */
             qualifications: number;
             /** Target */
@@ -7018,7 +7016,7 @@ export interface operations {
             query?: {
                 /** @description Part of the name, and of the phone too when it is a number. */
                 q?: string | null;
-                /** @description A fronter disposition the lead's latest one must be, or none for a lead nobody has given one. */
+                /** @description A fronter disposition the lead was ever given, even once a closer has it, or none for a lead nobody has given one. */
                 disposition?: string | "none" | null;
                 limit?: number;
                 offset?: number;

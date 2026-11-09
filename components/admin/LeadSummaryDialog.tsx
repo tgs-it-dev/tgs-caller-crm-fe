@@ -79,7 +79,7 @@ function SummaryDetails({ summary, timeZone }: { summary: LeadSummary; timeZone:
   const notes = [
     callback && (
       <Badge key="callback" tone="caution">
-        On the callback list
+        Waiting on a callback
       </Badge>
     ),
     status.awaiting_closer && (

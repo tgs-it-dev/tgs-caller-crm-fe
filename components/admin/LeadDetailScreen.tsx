@@ -196,7 +196,7 @@ function WhereItStands({ status }: { status: Status }) {
           {closer?.outcome ?? '-'}
         </Pair>
         <Pair label="Callback" meta={callback && since(callback)}>
-          {callback ? <Badge tone="caution">On the callback list</Badge> : 'Not on the list'}
+          {callback ? <Badge tone="caution">Waiting on a callback</Badge> : 'Not on the list'}
         </Pair>
         {status.awaiting_closer && (
           <Pair label="Transfer">
@@ -272,7 +272,7 @@ type Reveal =
 export function CartCard({
   cart,
   revealable,
-  title = 'Cart and payment',
+  title = 'Card and payment',
   before,
 }: {
   cart: Cart
@@ -363,8 +363,8 @@ export function CartCard({
 function Carts({ history, revealable }: { history: LeadHistory; revealable: boolean }) {
   if (history.carts.length === 0) {
     return (
-      <Card title="Cart and payment">
-        <p className="text-sm text-slate">No cart was saved for this lead.</p>
+      <Card title="Card and payment">
+        <p className="text-sm text-slate">No card was saved for this lead.</p>
       </Card>
     )
   }
@@ -465,7 +465,7 @@ function describe(event: Row): {
         `Monthly ${formatMoney(amounts.monthly_payment)}`,
         ...(amounts.policy_number ? [`Policy ${amounts.policy_number}`] : []),
       ]
-      return { text: 'Cart saved', badges, detail: parts?.join(' · ') }
+      return { text: 'Card saved', badges, detail: parts?.join(' · ') }
     }
     case 'closer_outcome':
       return { text: `Closer outcome: ${event.outcome}`, badges, detail: replaced }

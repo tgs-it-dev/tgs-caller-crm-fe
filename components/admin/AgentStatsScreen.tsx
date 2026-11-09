@@ -91,7 +91,6 @@ function columnsFor(
           number('qualifications', 'Qualifications', (row) => row.fronter?.qualifications ?? 0),
           number('transfers', 'Transfers', (row) => row.fronter?.transfers ?? 0),
           number('callbacks', 'Callbacks', (row) => row.fronter?.callbacks ?? 0),
-          ...(monthly ? [number('paid', 'Paid', (row) => row.fronter?.paid ?? 0)] : []),
         ]
       : [
           number('sold', 'Sold', (row) => row.closer?.sold ?? 0),
@@ -341,10 +340,9 @@ export function AgentStatsScreen() {
             title={stage === 'fronter' ? 'Fronters' : 'Closers'}
             ariaLabel={`Each ${stage}'s figures for the period`}
             toolbar={
-              report.period === 'month' ? undefined : (
+              report.period === 'month' || stage === 'fronter' ? undefined : (
                 <p className="text-sm leading-[140%] text-slate">
-                  Paid{stage === 'closer' ? ' and conversion are' : ' is'} counted by month, so
-                  {stage === 'closer' ? ' they show' : ' it shows'} on the Month tab.
+                  Paid and conversion are counted by month, so they show on the Month tab.
                 </p>
               )
             }
