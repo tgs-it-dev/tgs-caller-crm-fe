@@ -38,8 +38,8 @@ const AMOUNTS: CartField[] = ['total_payment', 'down_payment', 'monthly_payment'
 const REPLACE_HINT = 'Saved. Type a new number to replace it.'
 
 function loadMessage(err: unknown) {
-  if (err instanceof AuthError && err.status === 404) return "This call's cart isn't available to you."
-  return 'Could not load the cart. Please try again.'
+  if (err instanceof AuthError && err.status === 404) return "This call's card isn't available to you."
+  return 'Could not load the card. Please try again.'
 }
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
@@ -65,7 +65,7 @@ function SavedCart({ saved }: { saved: CartResponse }) {
   return (
     <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
       <section>
-        <SectionTitle>Cart</SectionTitle>
+        <SectionTitle>Card</SectionTitle>
         <dl>
           <Row label="Account">•••• {saved.account_last4}</Row>
           <Row label="Routing">{saved.routing_last4 ? `•••• ${saved.routing_last4}` : '-'}</Row>
@@ -200,7 +200,7 @@ export function CartPaymentCard({
     } catch (err) {
       const named = problemsFromError(err)
       if (named) setProblems(named)
-      else setBanner(err instanceof Error ? err.message : 'Could not save the cart. Please try again.')
+      else setBanner(err instanceof Error ? err.message : 'Could not save the card. Please try again.')
     } finally {
       setSaving(false)
     }
@@ -246,7 +246,7 @@ export function CartPaymentCard({
       className="flex flex-col rounded-xl border-hairline border-slate bg-white p-6"
     >
       <div className="flex items-baseline justify-between gap-4 border-b-hairline border-light-grey pb-4">
-        <h2 className="text-lg font-medium leading-[120%] text-ink">Cart & Payment</h2>
+        <h2 className="text-lg font-medium leading-[120%] text-ink">Card & Payment</h2>
         {saved && (
           <p className="text-xs text-slate">Saved {formatDateTime(saved.updated_at)}</p>
         )}
@@ -255,23 +255,23 @@ export function CartPaymentCard({
       <div className="mt-4 flex flex-col gap-4">
         {load.status === 'locked' && (
           <p className="text-sm leading-[150%] text-slate">
-            Cart unlocks after the transfer is accepted.
+            Card unlocks after the transfer is accepted.
           </p>
         )}
         {load.status === 'loading' && (
-          <p className="text-sm leading-[150%] text-slate">Loading the cart…</p>
+          <p className="text-sm leading-[150%] text-slate">Loading the card…</p>
         )}
         {load.status === 'error' && <Alert>{load.message}</Alert>}
 
         {saved && (readOnly || !editing) && <SavedCart saved={saved} />}
         {readOnly && load.status === 'ready' && !saved && (
-          <p className="text-sm leading-[150%] text-slate">No cart was saved on this call.</p>
+          <p className="text-sm leading-[150%] text-slate">No card was saved on this call.</p>
         )}
 
         {showForm && (
           <>
             <fieldset className="flex flex-col gap-4" disabled={locked}>
-              <legend className="mb-2 text-sm font-medium text-ink">Cart</legend>
+              <legend className="mb-2 text-sm font-medium text-ink">Card</legend>
               {field(
                 'account_number',
                 'Account number',
@@ -307,7 +307,7 @@ export function CartPaymentCard({
                 error={Boolean(problems.policy_number)}
                 helperText={
                   problems.policy_number ??
-                  'Needed for the sale to be marked Paid. The cart locks once you record the outcome.'
+                  'Needed for the sale to be marked Paid. The card locks once you record the outcome.'
                 }
                 autoComplete="off"
                 maxLength={64}
@@ -350,7 +350,7 @@ export function CartPaymentCard({
               isLoading={saving}
               loadingText="Saving…"
             >
-              Save Cart
+              Save Card
             </Button>
             {saved && (
               <Button
@@ -371,7 +371,7 @@ export function CartPaymentCard({
             variant="secondary"
             onClick={() => startEditing(true)}
           >
-            Edit cart
+            Edit card
           </Button>
         )}
       </div>

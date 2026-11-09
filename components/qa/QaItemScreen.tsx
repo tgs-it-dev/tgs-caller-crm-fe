@@ -272,7 +272,7 @@ function SaleCard({ item, cart, revealable }: { item: QaItem; cart?: Cart; revea
   return (
     <Card title="Sale">
       <Pairs wide>{sold}</Pairs>
-      <p className="mt-4 text-sm text-slate">No cart was saved for this sale.</p>
+      <p className="mt-4 text-sm text-slate">No card was saved for this sale.</p>
     </Card>
   )
 }

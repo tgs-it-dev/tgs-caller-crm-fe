@@ -87,7 +87,7 @@ export function CloserDispositionCard({
 
         {needsCart && (
           <p className="text-sm leading-[150%] text-body-text">
-            Save the cart before recording a sale.
+            Save the card before recording a sale.
           </p>
         )}
 
