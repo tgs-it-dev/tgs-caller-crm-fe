@@ -21,13 +21,13 @@ import { withSession } from '@/lib/session'
 const MIN_PASSWORD_LENGTH = 8
 
 const FIELD_MESSAGES: Record<string, string> = {
-  email: 'Enter a valid email address.',
+  username: 'Enter a valid username.',
   // Short passwords never reach the server — the form stops them first — so a
   // password the server rejects hit its upper limit, which it counts in bytes.
   password: 'Password is too long. Please use a shorter one.',
 }
 
-type FieldKey = 'email' | 'password'
+type FieldKey = 'username' | 'password'
 /**
  * Present key = red border. Non-empty string = helper text under that field;
  * empty string = border only (used when credentials fail both fields but the
@@ -35,21 +35,20 @@ type FieldKey = 'email' | 'password'
  */
 type FieldProblems = Partial<Record<FieldKey, string>>
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
-/** Empty or malformed — same check on blur and on submit. */
-function emailProblem(email: string): string | undefined {
-  const trimmed = email.trim()
-  if (!trimmed) return 'Enter your email address.'
-  if (!EMAIL_PATTERN.test(trimmed)) return 'Enter a valid email address.'
+/**
+ * Only emptiness is checked here, on blur and on submit. The API answers any
+ * other wrong username like a wrong password, so the form does too.
+ */
+function usernameProblem(username: string): string | undefined {
+  if (!username.trim()) return 'Enter your username.'
   return undefined
 }
 
 /** Checked before sending, so the common mistakes never wait on the network. */
-function formProblems(email: string, password: string): FieldProblems {
+function formProblems(username: string, password: string): FieldProblems {
   const found: FieldProblems = {}
-  const emailIssue = emailProblem(email)
-  if (emailIssue) found.email = emailIssue
+  const usernameIssue = usernameProblem(username)
+  if (usernameIssue) found.username = usernameIssue
   if (password.length < MIN_PASSWORD_LENGTH) {
     found.password = `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`
   }
@@ -65,24 +64,24 @@ function loginFailure(err: unknown): FieldProblems {
   // fetch rejects, rather than failing with a status, when no response came back.
   if (!(err instanceof AuthError)) {
     return {
-      email: '',
+      username: '',
       password: 'Unable to reach the server. Please check your connection and try again.',
     }
   }
   if (err.code === 'internal_error') {
-    return { email: '', password: 'Something went wrong on our side. Please try again.' }
+    return { username: '', password: 'Something went wrong on our side. Please try again.' }
   }
   if (err.code === 'validation_error') {
     const fields: FieldProblems = {}
     for (const { field } of err.fields) {
-      if (field === 'email' || field === 'password') {
+      if (field === 'username' || field === 'password') {
         fields[field] = FIELD_MESSAGES[field] ?? err.message
       }
     }
     if (Object.keys(fields).length > 0) return fields
   }
   // auth.invalid_credentials and anything else the form can't name.
-  return { email: '', password: err.message || 'Incorrect email or password' }
+  return { username: '', password: err.message || 'Incorrect username or password' }
 }
 
 function EyeIcon({ open }: { open: boolean }) {
@@ -123,7 +122,7 @@ function GoogleIcon() {
 export default function LoginPage() {
   const router = useRouter()
   const { hydrate } = useCurrentUser()
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [problems, setProblems] = useState<FieldProblems>({})
@@ -147,14 +146,14 @@ export default function LoginPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const local = formProblems(email, password)
+    const local = formProblems(username, password)
     setProblems(local)
     if (Object.keys(local).length > 0) return
 
     setIsSubmitting(true)
     try {
       await waitForMocking()
-      const tokens = await login({ email, password })
+      const tokens = await login({ username, password })
       await storeSession(tokens)
 
       // Profile for the sidebar / gates — same `GET /auth/me` payload.
@@ -193,48 +192,50 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit} noValidate className="mt-6">
           <div className="mb-4">
             <Input
-              label="Email"
-              id="email"
-              name="email"
-              type="email"
+              label="Username"
+              id="username"
+              name="username"
+              type="text"
               autoComplete="username"
+              autoCapitalize="none"
+              spellCheck={false}
               required
-              value={email}
+              value={username}
               onChange={(e) => {
                 const next = e.target.value
-                setEmail(next)
-                if (problems.email == null) return
+                setUsername(next)
+                if (problems.username == null) return
                 setProblems((prev) => {
                   // Credentials mark (border only) drops as soon as they edit.
-                  if (prev.email === '') {
+                  if (prev.username === '') {
                     const cleared = { ...prev }
-                    delete cleared.email
+                    delete cleared.username
                     return cleared
                   }
                   // Validation error: keep it honest while they type.
-                  const issue = emailProblem(next)
+                  const issue = usernameProblem(next)
                   if (!issue) {
                     const cleared = { ...prev }
-                    delete cleared.email
+                    delete cleared.username
                     return cleared
                   }
-                  return { ...prev, email: issue }
+                  return { ...prev, username: issue }
                 })
               }}
               onBlur={() => {
-                const issue = emailProblem(email)
+                const issue = usernameProblem(username)
                 setProblems((prev) => {
-                  if (issue) return { ...prev, email: issue }
+                  if (issue) return { ...prev, username: issue }
                   // Valid: clear a validation message, leave the credentials border alone.
-                  if (prev.email === '' || prev.email == null) return prev
+                  if (prev.username === '' || prev.username == null) return prev
                   const next = { ...prev }
-                  delete next.email
+                  delete next.username
                   return next
                 })
               }}
-              placeholder="Enter your email"
-              error={problems.email != null}
-              helperText={problems.email || undefined}
+              placeholder="Enter your username"
+              error={problems.username != null}
+              helperText={problems.username || undefined}
             />
           </div>
 

@@ -59,14 +59,15 @@ path, not an exception to this rule.
 
 Contract (typed in `lib/generated/schema.d.ts`):
 
-- `POST /auth/login` `{email, password}` →
+- `POST /auth/login` `{username, password}` →
   `{access_token, refresh_token, token_type, expires_in_min}` — the access token
   lasts 15 minutes, the refresh token 12 hours.
 - `POST /auth/refresh` `{refresh_token}` → a new pair. **Rotated on every use:**
   presenting a spent refresh token is treated as theft and ends every session of
   that user, so a refresh token must never be sent twice.
 - `POST /auth/logout` `{refresh_token}` → 204, whether or not the token was live.
-- `GET /auth/me` (Bearer token) → `{id, email, name, active, roles, team_id, created_at}`
+- `GET /auth/me` (Bearer token) → `{id, username, email, name, active, roles, team_id, created_at}`.
+  `email` may be null and is never shown: people sign in by username.
 - `RoleName = "fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" |
   "retention" | "super_admin"`. A user can hold multiple roles; frontend picks the landing
   route by priority (`super_admin` > `administrator` > `qa_manager` > `closer` >
@@ -596,7 +597,7 @@ state or team. Administrator-only, like the rest of `/admin`.
 - **There is no delete.** Deactivating is `PATCH {active: false}`, and it
   revokes that person's refresh tokens as it commits: they are signed out on
   their next request, not at their next login. The wording on screen says so.
-- **An email address cannot be changed** — `UpdateUserRequest` carries name,
+- **A username cannot be changed.** `UpdateUserRequest` carries name,
   roles, active and `team_id`, and nothing else. The field is shown disabled
   rather than hidden, so nobody goes looking for it.
 - **Team is set by a Super Admin.** They must pick it when adding and can change
@@ -609,16 +610,17 @@ state or team. Administrator-only, like the rest of `/admin`.
   effect on save and that anyone on a call should record its outcome first. The
   API does not block a move mid-call. Team Admins never see the field: the API
   puts their users on their own team and refuses `team_id` from them.
-- **Creating a user asks how they will sign in.** "Set a password now" is the
-  default and sends `password`; "Email an invitation link" leaves the key out
-  and the API issues an invitation instead. That branch is the backend's:
-  it only invites when `password` is absent, so the key must be **omitted**
-  rather than sent empty — `''` is validated like any other password and comes
-  back a 422.
-  The default is the password because an invitation needs a configured mail
-  server, and creation otherwise stores a password nobody holds — so an
-  invitation that never arrives leaves an account that cannot be signed into at
-  all. Once SMTP is real, the default is worth revisiting.
+- **Creating a user sets a username and a password.** The username is checked
+  against the API's rule (3 to 64 letters, numbers, dots, dashes or
+  underscores) before sending. The invitation-link option is gone from the
+  form; the API and the `/invite` page still handle one for an account that
+  has an email.
+- **Email is optional, only for Forgot password, and the Super Admin's.** Only a
+  Super Admin sees the Email field, on Add and Edit user: whoever holds the email
+  can reset the password, and only the Super Admin resets passwords. Team
+  Admins and QA Managers add by username and password alone. Clearing it sends
+  `email: null`; leaving it untouched leaves the key out. No other screen shows
+  an email.
 - **Roles are checkboxes, not a picker**: `roles` is an array in every DTO and
   someone may hold more than one. The list comes from a `Record<Role, string>`
   in `lib/users.ts`, so a role added to the contract fails the build here rather
@@ -627,7 +629,7 @@ state or team. Administrator-only, like the rest of `/admin`.
   `user.cannot_demote_self`; the form disables your own Administrator and Active
   controls and says why, so the refusal is never a surprise.
 - Failures land on the input they name: the API's `fields` array is mapped onto
-  the matching control (a duplicate address shows under Email), and anything
+  the matching control (a duplicate username shows under Username), and anything
   unnamed falls back to the dialog's `<Alert>`.
 - **A Super Admin can reset someone's password** from Edit User's Password
   section, which switches the same dialog to a reset step (Back keeps any unsaved
@@ -787,7 +789,7 @@ take their link base, so both desks share them.
   tiles: Changes, No change, Not found, Invalid status and Skipped. Save asks
   first and saves only the changes, checked afresh.
 - **Mocks** keep the history in memory, with POL-10002 and POL-10003 Pending and
-  POL-10005 Cancelled to start, and `rita.retention@tgs.com` signs in as Retention.
+  POL-10005 Cancelled to start, and `rita.retention` signs in as Retention.
 
 ## Settings
 
@@ -862,8 +864,9 @@ inherit it, and their desk has no Leads item.
 ## Emailed links
 
 `/invite/[token]`, `/reset-password/[token]` and `/forgot-password` are how a
-password ever gets set. The first two are one component —
-`components/auth/SetPasswordScreen.tsx` with a `mode` — and all three call
+password gets set without a Super Admin, and only for an account with an
+email; everyone signs in by username. The first two are one component,
+`components/auth/SetPasswordScreen.tsx` with a `mode`, and all three call
 `lib/invitations.ts`.
 
 - **The token goes in the request body, never the URL.** The API is built that
@@ -978,7 +981,7 @@ gives px-accurate specs. Known specs pulled so far:
   "Label 1" — Inter 400, 14px, 150% line-height, 0% letter-spacing, color
   `#2C2C2C` (not the `ink` token — check before assuming it maps 1:1).
   Sits next to a circular unread-count badge (`status-red` fill, white
-  numeral) and a user identity block (avatar, name, email, sign-out icon)
+  numeral) and a user identity block (avatar, name, username, sign-out icon)
   further down the same panel.
 
 ## Route-segment conventions (App Router)

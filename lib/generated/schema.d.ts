@@ -250,10 +250,13 @@ export interface paths {
         head?: never;
         /**
          * Update a user (administrators and QA Managers)
-         * @description Patch name, roles, active and/or team.
+         * @description Patch name, roles, active, team and/or email.
          *
          *     Changing the team is Super Admin only, follows the same rules as
          *     `PUT /auth/users/{user_id}/team`, and is saved in the same transaction.
+         *
+         *     Changing the email is Super Admin only too, and cancels any reset or
+         *     invitation link still waiting in the old inbox.
          *
          *     Deactivating sets `active=False` and revokes refresh tokens in the same
          *     transaction. Access tokens are not blacklisted: the next authenticated
@@ -2628,9 +2631,9 @@ export interface components {
         CreateUserRequest: {
             /**
              * Email
-             * Format: email
+             * @description Super Admin only: where Forgot password sends a link.
              */
-            email: string;
+            email?: string | null;
             /** Name */
             name: string;
             /** Password */
@@ -2642,6 +2645,8 @@ export interface components {
              * @description Team the account joins: a Team Admin's own team, which they may leave out. A Super Admin must name one, except for a super_admin, qa_manager, qa_agent or retention account, which covers every team and has none.
              */
             team_id?: string | null;
+            /** Username */
+            username: string;
         };
         /** DispositionCaptureRequest */
         DispositionCaptureRequest: {
@@ -3194,11 +3199,8 @@ export interface components {
          *     no more than the email it arrived in already did.
          */
         InvitationResponse: {
-            /**
-             * Email
-             * Format: email
-             */
-            email: string;
+            /** Email */
+            email?: string | null;
             /** Name */
             name: string;
         };
@@ -3714,13 +3716,10 @@ export interface components {
         };
         /** LoginRequest */
         LoginRequest: {
-            /**
-             * Email
-             * Format: email
-             */
-            email: string;
             /** Password */
             password: string;
+            /** Username */
+            username: string;
         };
         /**
          * OwnSaleLead
@@ -4932,6 +4931,11 @@ export interface components {
         UpdateUserRequest: {
             /** Active */
             active?: boolean | null;
+            /**
+             * Email
+             * @description Super Admin only: where Forgot password sends a link. null removes it; leave it out to keep it.
+             */
+            email?: string | null;
             /** Name */
             name?: string | null;
             /** Roles */
@@ -4965,11 +4969,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
-            /**
-             * Email
-             * Format: email
-             */
-            email: string;
+            /** Email */
+            email?: string | null;
             /**
              * Id
              * Format: uuid
@@ -4987,6 +4988,8 @@ export interface components {
              * @enum {string}
              */
             timezone: "America/New_York" | "Asia/Karachi";
+            /** Username */
+            username: string;
         };
         /** ZoneFunnelCounts */
         ZoneFunnelCounts: {
@@ -5469,7 +5472,7 @@ export interface operations {
                 role?: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "retention" | "super_admin") | null;
                 /** @description Members of this team only (Super Admins never match) */
                 team_id?: string | null;
-                /** @description Substring of email or name */
+                /** @description Substring of username or name */
                 search?: string | null;
             };
             header?: never;
