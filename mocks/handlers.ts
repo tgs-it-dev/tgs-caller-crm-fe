@@ -57,7 +57,9 @@ import type {
 
 type MockUser = {
   id: string
-  email: string
+  username: string
+  /** Older accounts only; new ones have none and sign in by username. */
+  email: string | null
   password: string | null
   name: string
   roles: Role[]
@@ -175,27 +177,27 @@ function campaignNameTaken(name: string) {
 // The admin console reads and writes this same list, so a user added there can
 // sign in, and one deactivated there stops being able to.
 const MOCK_USERS: MockUser[] = [
-  { id: '1', email: 'fronter@tgs.com', password: 'password1', name: 'Fiona Fronter', roles: ['fronter'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_EAST },
+  { id: '1', username: 'fronter', email: 'fronter@tgs.com', password: 'password1', name: 'Fiona Fronter', roles: ['fronter'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_EAST },
   // Second fronter — proves /me/stats/today is scoped per logged-in user (FE-08 AC).
-  { id: '4', email: 'fronter2@tgs.com', password: 'password1', name: 'Frank Fronter', roles: ['fronter'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_WEST },
-  { id: '2', email: 'closer@tgs.com', password: 'password1', name: 'Carl Closer', roles: ['closer'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_WEST },
-  { id: '3', email: 'admin@tgs.com', password: 'password1', name: 'Ana Admin', roles: ['administrator'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_EAST },
+  { id: '4', username: 'fronter2', email: 'fronter2@tgs.com', password: 'password1', name: 'Frank Fronter', roles: ['fronter'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_WEST },
+  { id: '2', username: 'closer', email: 'closer@tgs.com', password: 'password1', name: 'Carl Closer', roles: ['closer'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_WEST },
+  { id: '3', username: 'admin', email: 'admin@tgs.com', password: 'password1', name: 'Ana Admin', roles: ['administrator'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_EAST },
   // Deactivated, so the list has something to show in that state from the start.
-  { id: '5', email: 'former@tgs.com', password: 'password1', name: 'Nadia Former', roles: ['closer'], active: false, created_at: SEEDED_AT, team_id: MOCK_TEAM_EAST },
+  { id: '5', username: 'former', email: 'former@tgs.com', password: 'password1', name: 'Nadia Former', roles: ['closer'], active: false, created_at: SEEDED_AT, team_id: MOCK_TEAM_EAST },
   // Multi-role, so the sidebar's desk switcher is reachable locally: every other
   // account here holds exactly one role, which is the case that hides it.
-  { id: '6', email: 'everything@tgs.com', password: 'password1', name: 'Mo Everything', roles: ['administrator', 'closer', 'fronter'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_EAST },
+  { id: '6', username: 'everything', email: 'everything@tgs.com', password: 'password1', name: 'Mo Everything', roles: ['administrator', 'closer', 'fronter'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_EAST },
   // Two desks and no admin — the switcher without a Team Admin entry.
-  { id: '7', email: 'both@tgs.com', password: 'password1', name: 'Bea Both', roles: ['fronter', 'closer'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_WEST },
+  { id: '7', username: 'both', email: 'both@tgs.com', password: 'password1', name: 'Bea Both', roles: ['fronter', 'closer'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_WEST },
   // Company-wide admin — no team pin; inherits every Team Admin surface.
-  { id: '8', email: 'super@tgs.com', password: 'password1', name: 'Sam Super', roles: ['super_admin'], active: true, created_at: SEEDED_AT, team_id: null },
+  { id: '8', username: 'super', email: 'super@tgs.com', password: 'password1', name: 'Sam Super', roles: ['super_admin'], active: true, created_at: SEEDED_AT, team_id: null },
   // QA desk demos, matching the backend seed: QA covers every team, so none has
   // one. Leo was a QA Lead until that role was merged into QA Agent.
-  { id: '9', email: 'quinn.qa@tgs.com', password: 'password1', name: 'Quinn QA', roles: ['qa_manager'], active: true, created_at: SEEDED_AT, team_id: null },
-  { id: '10', email: 'aria.agent@tgs.com', password: 'password1', name: 'Aria Agent', roles: ['qa_agent'], active: true, created_at: SEEDED_AT, team_id: null },
-  { id: '11', email: 'leo.lead@tgs.com', password: 'password1', name: 'Leo Lead', roles: ['qa_agent'], active: true, created_at: SEEDED_AT, team_id: null },
+  { id: '9', username: 'quinn.qa', email: 'quinn.qa@tgs.com', password: 'password1', name: 'Quinn QA', roles: ['qa_manager'], active: true, created_at: SEEDED_AT, team_id: null },
+  { id: '10', username: 'aria.agent', email: 'aria.agent@tgs.com', password: 'password1', name: 'Aria Agent', roles: ['qa_agent'], active: true, created_at: SEEDED_AT, team_id: null },
+  { id: '11', username: 'leo.lead', email: 'leo.lead@tgs.com', password: 'password1', name: 'Leo Lead', roles: ['qa_agent'], active: true, created_at: SEEDED_AT, team_id: null },
   // Retention covers every team too.
-  { id: '12', email: 'rita.retention@tgs.com', password: 'password1', name: 'Rita Retention', roles: ['retention'], active: true, created_at: SEEDED_AT, team_id: null },
+  { id: '12', username: 'rita.retention', email: 'rita.retention@tgs.com', password: 'password1', name: 'Rita Retention', roles: ['retention'], active: true, created_at: SEEDED_AT, team_id: null },
 ]
 
 const KNOWN_ROLES: Role[] = [
@@ -265,6 +267,13 @@ function openLink(token: string, purpose: 'invite' | 'reset') {
   return { link }
 }
 
+/** The username as the API stores and matches it. */
+function normalizeUsername(value: unknown): string {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+}
+
 /** The address as the API stores and matches it, everywhere it handles one. */
 function normalizeEmail(value: unknown): string {
   return String(value ?? '')
@@ -296,20 +305,31 @@ function passwordRefusal(value: string, field: string) {
 let userSeq = MOCK_USERS.length
 
 /** What the API would refuse about a new user, or null. */
-function describeUser(body: { email?: string; name?: string; password?: string; roles?: Role[] }) {
+function describeUser(body: {
+  username?: string
+  email?: string | null
+  name?: string
+  password?: string
+  roles?: Role[]
+}) {
   const problem = (field: string, message: string) => ({
     status: 422,
     body: authErrorBody(message, 'validation_error', [{ field, in: 'body' as const, message }]),
   })
 
-  if (!body.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)) {
+  if (!body.username || !/^[A-Za-z0-9._-]{3,64}$/.test(body.username.trim())) {
+    return problem('username', 'String should match pattern')
+  }
+  if (body.email != null && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)) {
     return problem('email', 'value is not a valid email address')
   }
   if (!body.name || !body.name.trim()) return problem('name', 'String should have at least 1 character')
-  // Optional now: without one the new user is emailed a link instead.
+  // Optional only with an email: the new user is then emailed a link instead.
   if (body.password !== undefined) {
     const refused = passwordRefusal(body.password, 'password')
     if (refused) return refused
+  } else if (body.email == null) {
+    return problem('password', 'a password is required for an account with no email')
   }
   if (!body.roles || body.roles.length === 0) {
     return problem('roles', 'List should have at least 1 item')
@@ -330,6 +350,7 @@ function describeUser(body: { email?: string; name?: string; password?: string; 
 function userBody(user: MockUser) {
   return {
     id: user.id,
+    username: user.username,
     email: user.email,
     name: user.name,
     active: user.active,
@@ -3107,12 +3128,12 @@ export const handlers = [
   }),
 
   rest.post('/auth/login', async (req, res, ctx) => {
-    const { email, password } = await req.json()
-    // One message for a wrong password, an unknown address and a deactivated
+    const { username, password } = await req.json()
+    // One message for a wrong password, an unknown username and a deactivated
     // account alike — anything more specific enumerates accounts.
     const user = MOCK_USERS.find(
       (u) =>
-        u.email === normalizeEmail(email) &&
+        u.username === normalizeUsername(username) &&
         u.password !== null &&
         u.password === password &&
         u.active
@@ -3121,7 +3142,7 @@ export const handlers = [
     if (!user) {
       return res(
         ctx.status(401),
-        ctx.json(authErrorBody('Incorrect email or password', 'auth.invalid_credentials'))
+        ctx.json(authErrorBody('Incorrect username or password', 'auth.invalid_credentials'))
       )
     }
 
@@ -3199,7 +3220,7 @@ export const handlers = [
       )
     }
     const body = (await req.json()) as { page?: string }
-    console.info(`[mock screenshot] ${user.email} pressed Print Screen on ${body.page}`)
+    console.info(`[mock screenshot] ${user.username} pressed Print Screen on ${body.page}`)
     return res(ctx.status(204))
   }),
 
@@ -3513,7 +3534,7 @@ export const handlers = [
       if (teamId && user.team_id !== teamId) return false
       if (active !== null && user.active !== (active === 'true')) return false
       if (role && !user.roles.includes(role as Role)) return false
-      if (search && !`${user.name} ${user.email}`.toLowerCase().includes(search)) return false
+      if (search && !`${user.name} ${user.username}`.toLowerCase().includes(search)) return false
       return true
     })
 
@@ -3536,7 +3557,8 @@ export const handlers = [
     if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
 
     const body = (await req.json()) as {
-      email?: string
+      username?: string
+      email?: string | null
       name?: string
       password?: string
       roles?: Role[]
@@ -3548,6 +3570,14 @@ export const handlers = [
 
     const actor = MOCK_TOKENS.get((authorization || '').replace(/^Bearer\s+/i, ''))!
     const roles = body.roles as Role[]
+
+    // Whoever holds the email can reset the password, so it is the Super Admin's.
+    if (body.email != null && !actor.roles.includes('super_admin')) {
+      return res(
+        ctx.status(403),
+        ctx.json(authErrorBody('only a Super Admin can give a user an email', 'auth.forbidden'))
+      )
+    }
 
     const knownTeamIds = new Set(MOCK_TEAMS.map((team) => team.id))
     const requestedTeam =
@@ -3590,13 +3620,19 @@ export const handlers = [
       return res(ctx.status(404), ctx.json(authErrorBody('team not found', 'team.not_found')))
     }
 
-    const email = normalizeEmail(body.email)
-    if (MOCK_USERS.some((user) => user.email === email)) {
+    const username = normalizeUsername(body.username)
+    const email = body.email == null ? null : normalizeEmail(body.email)
+    const taken = MOCK_USERS.some((user) => user.username === username)
+      ? { field: 'username', value: username }
+      : email !== null && MOCK_USERS.some((user) => user.email === email)
+        ? { field: 'email', value: email }
+        : null
+    if (taken) {
       return res(
         ctx.status(409),
         ctx.json(
-          authErrorBody(`user already exists: ${email}`, 'user.already_exists', [
-            { field: 'email', in: 'body', message: 'already in use' },
+          authErrorBody(`user already exists: ${taken.value}`, 'user.already_exists', [
+            { field: taken.field, in: 'body', message: 'already in use' },
           ])
         )
       )
@@ -3604,6 +3640,7 @@ export const handlers = [
 
     const created: MockUser = {
       id: String(++userSeq),
+      username,
       email,
       // null until they follow their invitation and choose one.
       password: body.password ? String(body.password) : null,
@@ -3670,6 +3707,7 @@ export const handlers = [
       roles?: Role[]
       active?: boolean
       team_id?: string | null
+      email?: string | null
     }
 
     if (body.roles) {
@@ -3750,6 +3788,35 @@ export const handlers = [
       }
     }
 
+    // Whoever holds the email can reset the password, so it is the Super Admin's.
+    let email = user.email
+    if ('email' in body) {
+      if (!actor.roles.includes('super_admin')) {
+        return res(
+          ctx.status(403),
+          ctx.json(authErrorBody("only a Super Admin can change a user's email", 'auth.forbidden'))
+        )
+      }
+      email = body.email == null ? null : normalizeEmail(body.email)
+      if (email !== null && MOCK_USERS.some((other) => other.id !== user.id && other.email === email)) {
+        return res(
+          ctx.status(409),
+          ctx.json(
+            authErrorBody(`user already exists: ${email}`, 'user.already_exists', [
+              { field: 'email', in: 'body', message: 'already in use' },
+            ])
+          )
+        )
+      }
+    }
+
+    if (email !== user.email) {
+      // A link still waiting in the old inbox must not open the account.
+      for (const link of MOCK_LINKS) {
+        if (link.userId === user.id && link.state === 'live') link.state = 'superseded'
+      }
+      user.email = email
+    }
     if (body.name !== undefined) user.name = body.name
     if (body.roles !== undefined) user.roles = body.roles
     if (body.active !== undefined) user.active = body.active

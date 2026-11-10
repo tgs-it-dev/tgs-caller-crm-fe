@@ -770,7 +770,7 @@ function SidebarInner() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold text-ink">{user.name}</p>
                   {/* <p className="truncate text-xs text-slate">{formatRolesLabel(user.roles)}</p> */}
-                  <p className="truncate text-xs text-slate">{user.email}</p>
+                  <p className="truncate text-xs text-slate">{user.username}</p>
                 </div>
               ) : (
                 <UserIdentitySkeleton lines={3} />

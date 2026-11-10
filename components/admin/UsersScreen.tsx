@@ -138,7 +138,7 @@ function teamBandIndexById(users: User[]): Map<string, number> {
 function matchesSearch(user: User, query: string): boolean {
   const q = query.trim().toLowerCase()
   if (!q) return true
-  return user.name.toLowerCase().includes(q) || user.email.toLowerCase().includes(q)
+  return user.name.toLowerCase().includes(q) || user.username.toLowerCase().includes(q)
 }
 
 function matchesFilters(
@@ -309,9 +309,9 @@ export function UsersScreen() {
   const columns: DataColumn<User>[] = [
     { id: 'name', header: 'Name', render: (user) => user.name },
     {
-      id: 'email',
-      header: 'Email',
-      render: (user) => <span className="break-all">{user.email}</span>,
+      id: 'username',
+      header: 'Username',
+      render: (user) => <span className="break-all">{user.username}</span>,
     },
     {
       id: 'roles',
@@ -484,10 +484,10 @@ export function UsersScreen() {
                   <div className="min-w-0 flex-1">
                     <Input
                       // size="small"
-                      aria-label="Search by name or email"
+                      aria-label="Search by name or username"
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
-                      placeholder="Search by name or email"
+                      placeholder="Search by name or username"
                       autoComplete="off"
                       startAdornment={
                         <Search className="h-4 w-4 text-slate" strokeWidth={2} aria-hidden />
