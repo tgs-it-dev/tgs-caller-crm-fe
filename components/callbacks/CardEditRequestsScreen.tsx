@@ -14,13 +14,13 @@ import { PageShell } from '@/components/ui/PageShell'
 import { Segmented } from '@/components/ui/Segmented'
 import { AuthError, isSuperAdmin } from '@/lib/auth'
 import {
-  CALLBACK_STATUS_LABEL,
-  CALLBACK_STATUS_TONE,
-  decideCallbackRequest,
-  listCallbackRequests,
-  type CallbackRequestItem,
-  type CallbackRequestList,
-  type CallbackRequestStatus,
+  CARD_EDIT_STATUS_LABEL,
+  CARD_EDIT_STATUS_TONE,
+  decideCardEditRequest,
+  listCardEditRequests,
+  type CardEditRequestItem,
+  type CardEditRequestList,
+  type CardEditStatus,
 } from '@/lib/callbacks'
 import { formatDateTime } from '@/lib/format'
 import { waitForMocking } from '@/lib/mockReady'
@@ -28,12 +28,13 @@ import { withSession } from '@/lib/session'
 
 const PAGE_SIZE = 20
 
-type Filter = CallbackRequestStatus | 'all'
+type Filter = CardEditStatus | 'all'
 
 const FILTERS: readonly { value: Filter; label: string }[] = [
   { value: 'pending', label: 'Waiting' },
   { value: 'approved', label: 'Approved' },
   { value: 'rejected', label: 'Rejected' },
+  { value: 'used', label: 'Used' },
   { value: 'all', label: 'All' },
 ]
 
@@ -41,22 +42,24 @@ const TITLES: Record<Filter, string> = {
   pending: 'Waiting for approval',
   approved: 'Approved',
   rejected: 'Rejected',
+  used: 'Used',
   all: 'All requests',
 }
 
 const EMPTY: Record<Filter, string> = {
-  pending: 'No callbacks are waiting for approval.',
-  approved: 'No approved callbacks yet.',
-  rejected: 'No rejected callbacks.',
-  all: 'No callback requests yet.',
+  pending: 'No card edits are waiting for approval.',
+  approved: 'No approved card edits waiting to be used.',
+  rejected: 'No rejected card edits.',
+  used: 'No approved card edits have been used yet.',
+  all: 'No card edit requests yet.',
 }
 
 type Load =
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; page: CallbackRequestList }
+  | { status: 'ready'; page: CardEditRequestList }
 
-type Deciding = { item: CallbackRequestItem; answer: 'approved' | 'rejected' }
+type Deciding = { item: CardEditRequestItem; answer: 'approved' | 'rejected' }
 
 function messageFor(err: unknown, fallback: string): string {
   if (err instanceof AuthError && err.status === 401) {
@@ -65,7 +68,7 @@ function messageFor(err: unknown, fallback: string): string {
   return err instanceof AuthError ? err.message : fallback
 }
 
-function Decision({ item }: { item: CallbackRequestItem }) {
+function Decision({ item }: { item: CardEditRequestItem }) {
   if (!item.decided_at) return <span className="text-slate">-</span>
   return (
     <span className="whitespace-nowrap">
@@ -81,7 +84,7 @@ function DecisionDialog({
 }: {
   deciding: Deciding
   onClose: () => void
-  onDecided: (item: CallbackRequestItem) => void
+  onDecided: (item: CardEditRequestItem) => void
 }) {
   const [problem, setProblem] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -94,7 +97,7 @@ function DecisionDialog({
     setProblem(null)
     try {
       await waitForMocking()
-      onDecided(await withSession((token) => decideCallbackRequest(item.id, answer, token)))
+      onDecided(await withSession((token) => decideCardEditRequest(item.id, answer, token)))
     } catch (err) {
       setProblem(messageFor(err, 'Could not save. Try again.'))
       setSaving(false)
@@ -104,7 +107,7 @@ function DecisionDialog({
   return (
     <Dialog
       open
-      title={rejecting ? 'Reject the callback' : 'Approve the callback'}
+      title={rejecting ? 'Reject the card edit' : 'Approve the card edit'}
       onClose={onClose}
       busy={saving}
       maxWidth="sm"
@@ -126,8 +129,8 @@ function DecisionDialog({
     >
       <p className="text-sm leading-[150%] text-body-text">
         {rejecting
-          ? `${item.lead_name}'s call stays closed to ${closer}, who sees it as rejected.`
-          : `${closer} can work ${item.lead_name}'s call again, until they record its next outcome.`}
+          ? `${item.lead_name}'s card stays as it is. ${closer} sees the edit as rejected and can ask again.`
+          : `${closer} can change ${item.lead_name}'s card once. It locks again after they save.`}
       </p>
       {problem && (
         <p role="alert" className="mt-2 text-sm leading-[150%] text-status-red">
@@ -139,10 +142,10 @@ function DecisionDialog({
 }
 
 /**
- * Callback requests: a Super Admin decides, and a Team Admin sees their teams'. A
- * closer follows theirs on the Queue's Callbacks.
+ * Card edit requests: a closer asking to change the saved card on a callback. A Super
+ * Admin decides, and a Team Admin sees their teams'. A closer follows theirs on the call.
  */
-export function CallbackRequestsScreen() {
+export function CardEditRequestsScreen() {
   const { user } = useCurrentUser()
   const canDecide = Boolean(user && isSuperAdmin(user.roles))
   const [filter, setFilter] = useState<Filter>('pending')
@@ -157,7 +160,7 @@ export function CallbackRequestsScreen() {
     const status = filter === 'all' ? null : filter
     waitForMocking()
       .then(() =>
-        withSession((token) => listCallbackRequests({ status, limit: PAGE_SIZE, offset }, token))
+        withSession((token) => listCardEditRequests({ status, limit: PAGE_SIZE, offset }, token))
       )
       .then((page) => {
         if (!cancelled) setLoad({ status: 'ready', page })
@@ -180,7 +183,7 @@ export function CallbackRequestsScreen() {
     setLoad({ status: 'loading' })
   }
 
-  const columns: DataColumn<CallbackRequestItem>[] = [
+  const columns: DataColumn<CardEditRequestItem>[] = [
     {
       id: 'customer',
       header: 'Customer',
@@ -193,15 +196,25 @@ export function CallbackRequestsScreen() {
       header: 'Requested',
       render: (item) => <span className="whitespace-nowrap">{formatDateTime(item.requested_at)}</span>,
     },
+    {
+      id: 'reason',
+      header: 'Reason',
+      render: (item) =>
+        item.reason ? (
+          <span className="block max-w-[280px] whitespace-normal">{item.reason}</span>
+        ) : (
+          <span className="text-slate">-</span>
+        ),
+    },
     // One filter shows one status, so the column earns its place only under All.
     ...(filter === 'all'
       ? [
           {
             id: 'status',
             header: 'Status',
-            render: (item: CallbackRequestItem) => (
-              <Badge tone={CALLBACK_STATUS_TONE[item.status]}>
-                {CALLBACK_STATUS_LABEL[item.status]}
+            render: (item: CardEditRequestItem) => (
+              <Badge tone={CARD_EDIT_STATUS_TONE[item.status]}>
+                {CARD_EDIT_STATUS_LABEL[item.status]}
               </Badge>
             ),
           },
@@ -213,7 +226,7 @@ export function CallbackRequestsScreen() {
           {
             id: 'decided',
             header: 'Decided',
-            render: (item: CallbackRequestItem) => <Decision item={item} />,
+            render: (item: CardEditRequestItem) => <Decision item={item} />,
           },
         ]),
     // A Super Admin opens the lead's full view from any row, to look before deciding.
@@ -223,11 +236,11 @@ export function CallbackRequestsScreen() {
             id: 'actions',
             header: '',
             align: 'right' as const,
-            render: (item: CallbackRequestItem) => (
+            render: (item: CardEditRequestItem) => (
               <div className="flex justify-end gap-2 whitespace-nowrap">
                 <MuiButton
                   component={Link}
-                  href={`/admin/reports/lead/?id=${encodeURIComponent(item.lead_id)}&from=callbacks`}
+                  href={`/admin/reports/lead/?id=${encodeURIComponent(item.lead_id)}&from=card-edits`}
                   size="small"
                   variant="outlined"
                 >
@@ -263,11 +276,11 @@ export function CallbackRequestsScreen() {
 
   const page = load.status === 'ready' ? load.page : null
   const intro = canDecide
-    ? 'Approving lets the closer work the call again, until they record its next outcome.'
-    : "Your team's closers' callbacks. A Super Admin approves or rejects them."
+    ? 'Approving lets the closer change the saved card on a callback once.'
+    : "Your team's closers' requests to change a card. A Super Admin approves or rejects them."
 
   return (
-    <PageShell title="Callback requests">
+    <PageShell title="Card edit requests">
       <div className="flex min-h-0 flex-1 flex-col gap-4">
         {notice && (
           <MuiAlert severity="success" onClose={() => setNotice(null)}>
@@ -277,7 +290,7 @@ export function CallbackRequestsScreen() {
         {load.status === 'error' && <Alert>{load.message}</Alert>}
         <DataTable
           title={TITLES[filter]}
-          ariaLabel="Callback requests"
+          ariaLabel="Card edit requests"
           toolbar={
             <div className="flex flex-col items-start gap-3 lg:flex-row lg:items-center lg:justify-between">
               <Segmented label="Show requests" options={FILTERS} value={filter} onChange={choose} />
@@ -311,8 +324,8 @@ export function CallbackRequestsScreen() {
             setDeciding(null)
             setNotice(
               item.status === 'approved'
-                ? `Approved ${item.lead_name}'s callback. ${item.closer_name ?? 'The closer'} can open it from their Callbacks.`
-                : `Rejected ${item.lead_name}'s callback. The call stays closed.`
+                ? `Approved. ${item.closer_name ?? 'The closer'} can change ${item.lead_name}'s card once.`
+                : `Rejected. ${item.lead_name}'s card stays as it is.`
             )
             setReload((n) => n + 1)
           }}

@@ -129,7 +129,7 @@ Frontend pieces:
   own `isActive(pathname)`. A new page goes under its role's segment and into
   that role's list.
 - **A Super Admin's list is `SUPER_ADMIN_NAV`**: Users, Teams, Campaigns,
-  Reports, Policy lookup, Team stats, Agent stats, Retention, Callback requests, QA and
+  Reports, Policy lookup, Team stats, Agent stats, Retention, Card edit requests, QA and
   QA stats. A Team Admin's has Agent stats too. Reports is there because its drill-down is how they
   reach a lead's full view. Exceptions stays out: without the dialer it is empty.
 - **QA desks.** A QA Manager works from `/admin` with QA, QA stats and Users. A
@@ -248,6 +248,10 @@ does. The code, the API and the database keep `cart`.
 - **Account, routing and CVV show only while focused**, and read `•••• 1234`
   (or `•••`) once the closer leaves the field. They live in component state
   alone, never storage or logs.
+- **The account number spaces itself in fours** as it is typed
+  (`formatAccountNumberInput`: digits only, at most 19), for any account, card or
+  not. The caret stays where the closer is typing (`caretAfterDigits`), and once
+  they leave the field it reads `•••• •••• •••• 4242`. The API gets the digits.
 - **The full numbers never come back.** `GET /interactions/{id}/cart` gives at
   most the last four digits. A saved cart shows read-only, masked, with an
   **Edit card** button. In the form, a saved number shows as its placeholder
@@ -263,7 +267,7 @@ does. The code, the API and the database keep `cart`.
   Disposition turns off with a short note. `cartSaved` is `null` until the cart
   has loaded, so a sold call doesn't flash the note and a failed load leaves the
   decision to the server. Other outcomes need no cart. The policy number stays
-  optional, but the cart locks once the outcome is recorded, so a sale saved
+  optional, but the cart locks once a final outcome is recorded, so a sale saved
   without one can't be marked Paid; its hint says so. A number belongs to one
   sale: one already on another cart, in any case, comes back as a 422 on
   `policy_number` and shows under the field.
@@ -273,8 +277,8 @@ does. The code, the API and the database keep `cart`.
 The closer's Queue page lists **Callbacks** under the transfer queue
 (`components/queue/QueueScreen.tsx`, `GET /queue/callbacks`): the calls this
 closer accepted whose latest closer outcome is Callback Scheduled, oldest first.
-Each shows its request's status, and Open works only once a Super Admin approved
-it (or it has no request); a waiting or rejected one stays listed, blocked.
+Every row opens. The Card edit column shows where a request to change its saved
+card stands (Waiting for approval, Approved, Rejected), or a dash.
 
 - **Open goes back to the same call.** The workspace loads its cart and saved
   outcome, and saving another outcome records the next closer version on that
@@ -284,27 +288,34 @@ it (or it has no request); a waiting or rejected one stays listed, blocked.
 - **It loads on its own and refreshes every 30 seconds**, so a queue error never
   hides it, and the reverse.
 
-## The closed call and callback requests
+## The closed call and card edit requests
 
-A closer's outcome closes the call to them. `GET /interactions/{id}/dispositions`
-carries `locked` and `callback_status`, and `closedCall()` in `lib/closer.ts`
-turns them into a badge and one line for the workspace.
+A closer's final outcome closes the call to them. `GET /interactions/{id}/dispositions`
+carries `locked`, and `closedCall()` in `lib/closer.ts` turns it into a badge and one
+line for the workspace.
 
 - **A final outcome** locks the cart, the outcome and the fronter's details. The
-  disposition card swaps its form for the saved outcome with a Closed, Waiting for
-  approval or Rejected badge, and the cart shows read-only (`CartPaymentCard readOnly`).
-  The API answers a write with 409 `interaction.locked`.
-- **Callback Scheduled** from anyone but a Super Admin sends a request. Until a
-  Super Admin approves it, the call stays locked and blocked on Callbacks;
-  approved, it opens until the next outcome. Rejected, it stays locked and shows
-  as Rejected. A callback with no request, set before requests existed or by a
-  Super Admin, counts as approved.
-- **The list** is `components/callbacks/CallbackRequestsScreen.tsx` at
-  `/admin/callbacks`: a Super Admin approves or rejects with one confirm, no
-  note, and Open on any row goes to the lead's full view (`?from=callbacks`, which
-  its back link and the menu follow, as `?from=policies` does); a Team Admin sees
-  their team's, read-only. A closer has no page of their own: Callbacks shows them
-  where each request stands.
+  disposition card swaps its form for the saved outcome with a Closed badge, and the
+  cart shows read-only (`CartPaymentCard readOnly`). The API answers a write with
+  409 `interaction.locked`.
+- **Callback Scheduled is not final.** The closer opens the callback straight from
+  Callbacks and changes its outcome and details freely.
+- **Changing the saved card on a callback needs a Super Admin.** The cart carries
+  `card_edit`. `needs_approval`, `waiting` and `rejected` lock the account number,
+  routing number and expiry: the card section shows them masked, with **Request to
+  edit card** (a dialog with an optional reason, `POST
+  /interactions/{id}/card-edit-requests`) or **Request again**. The policy number and
+  amounts stay editable (**Edit payment**). `approved` opens the whole card for one
+  save, which locks it again. While waiting, the panel checks every 30 seconds and
+  when the window gets focus. A callback with no saved card takes a first one
+  freely. The panel reloads after each outcome (`reloadKey`), since a callback is
+  what locks it.
+- **The list** is `components/callbacks/CardEditRequestsScreen.tsx` at
+  `/admin/card-edits`: a Super Admin approves or rejects with one confirm, and Open
+  on any row goes to the lead's full view (`?from=card-edits`, which its back link
+  and the menu follow, as `?from=policies` does); a Team Admin sees their team's,
+  read-only. A closer has no page of their own: the call and Callbacks show them
+  where their request stands.
 - **The fronter's details.** While the call is open, the Lead Details card
   (`QualificationSnapshot`) has Edit (`FronterDetailsDialog`,
   `PUT /interactions/{id}/details`).
@@ -329,7 +340,7 @@ The screens write it "Own Sale", the client's name for it.
   `own_sale` on `GET /interactions/{id}` says it is an Own Sale call, and anything
   else shows "No active transfer". The header reads Own Sale, everything that
   waits on an accepted transfer opens, and Transfer Dropped is left out of the
-  outcomes. The Task 6 lock and callback approval apply as on any call.
+  outcomes. The Task 6 lock and card edit approval apply as on any call.
 - **The Queue** lists an open Own Sale call as an `own_sale` row whose `id` is the
   call, and an Own Sale callback has a null `transfer_id`; both open by the call.
 - **The lead's full view** shows an Own sale event ("Started by <closer>, no

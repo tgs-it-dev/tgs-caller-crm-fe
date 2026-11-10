@@ -15,7 +15,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { PageShell } from '@/components/ui/PageShell'
 import { AuthError } from '@/lib/auth'
-import { CALLBACK_STATUS_LABEL, CALLBACK_STATUS_TONE } from '@/lib/callbacks'
+import { CARD_EDIT_STATUS_LABEL, CARD_EDIT_STATUS_TONE } from '@/lib/callbacks'
 import { closerWorkspaceHref } from '@/lib/closer'
 import { formatDateTime, formatPhone } from '@/lib/format'
 import { waitForMocking } from '@/lib/mockReady'
@@ -65,13 +65,13 @@ const CALLBACK_COLUMNS: DataColumn<CloserCallbackEntry>[] = [
     ),
   },
   {
-    id: 'status',
-    header: 'Status',
-    // No request (set before requests existed) counts as approved, and shows none.
+    id: 'card_edit',
+    header: 'Card edit',
+    // Where a request to change the saved card stands; none shows a dash.
     render: (entry) =>
-      entry.callback_status ? (
-        <Badge tone={CALLBACK_STATUS_TONE[entry.callback_status]}>
-          {CALLBACK_STATUS_LABEL[entry.callback_status]}
+      entry.card_edit_status ? (
+        <Badge tone={CARD_EDIT_STATUS_TONE[entry.card_edit_status]}>
+          {CARD_EDIT_STATUS_LABEL[entry.card_edit_status]}
         </Badge>
       ) : (
         <span className="text-slate">-</span>
@@ -80,25 +80,18 @@ const CALLBACK_COLUMNS: DataColumn<CloserCallbackEntry>[] = [
   {
     id: 'actions',
     header: 'Actions',
-    // Opens only once a Super Admin approved it.
     render: (entry) => (
       <div className="whitespace-nowrap">
-        {entry.callback_status === 'pending' || entry.callback_status === 'rejected' ? (
-          <MuiButton size="small" variant="outlined" disabled>
-            Open
-          </MuiButton>
-        ) : (
-          <MuiButton
-            component={Link}
-            href={closerWorkspaceHref(entry.interaction_id, entry.transfer_id)}
-            size="small"
-            variant="outlined"
-            color="primary"
-            aria-label={`Open ${entry.lead_name}`}
-          >
-            Open
-          </MuiButton>
-        )}
+        <MuiButton
+          component={Link}
+          href={closerWorkspaceHref(entry.interaction_id, entry.transfer_id)}
+          size="small"
+          variant="outlined"
+          color="primary"
+          aria-label={`Open ${entry.lead_name}`}
+        >
+          Open
+        </MuiButton>
       </div>
     ),
   },

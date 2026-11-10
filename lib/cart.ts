@@ -87,9 +87,29 @@ export function visibleTail(digits: string) {
   return digits.slice(digits.length - keep)
 }
 
-/** "•••• 1234". */
-export function maskTail(digits: string) {
-  return `•••• ${visibleTail(digits)}`
+function groupInFours(text: string) {
+  return text.replace(/(.{4})(?=.)/g, '$1 ')
+}
+
+/** "•••• 1234", or with `grouped`, a dot per hidden digit in fours: "•••• •••• •••• 1234". */
+export function maskTail(digits: string, { grouped = false }: { grouped?: boolean } = {}) {
+  const tail = visibleTail(digits)
+  return grouped ? groupInFours('•'.repeat(digits.length - tail.length) + tail) : `•••• ${tail}`
+}
+
+/** The account number as it is typed: digits only, at most 19, in fours ("4242 4242 4242 4242"). */
+export function formatAccountNumberInput(typed: string) {
+  return groupInFours(typed.replace(/\D/g, '').slice(0, 19))
+}
+
+/** Where the caret goes in formatted text: just past the same count of digits as before. */
+export function caretAfterDigits(formatted: string, digitsBefore: number) {
+  if (digitsBefore <= 0) return 0
+  let seen = 0
+  for (let at = 0; at < formatted.length; at++) {
+    if (/\d/.test(formatted[at]) && ++seen === digitsBefore) return at + 1
+  }
+  return formatted.length
 }
 
 /**

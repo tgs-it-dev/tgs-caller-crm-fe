@@ -1,13 +1,13 @@
 'use client'
 
 import { RequireRole } from '@/components/auth/RequireRole'
-import { CallbackRequestsScreen } from '@/components/callbacks/CallbackRequestsScreen'
+import { CardEditRequestsScreen } from '@/components/callbacks/CardEditRequestsScreen'
 
-export default function AdminCallbacksPage() {
+export default function AdminCardEditsPage() {
   // Team Admins and Super Admins; only a Super Admin decides.
   return (
     <RequireRole role="administrator">
-      <CallbackRequestsScreen />
+      <CardEditRequestsScreen />
     </RequireRole>
   )
 }
