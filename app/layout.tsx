@@ -1,8 +1,15 @@
-import { Inter } from 'next/font/google'
+import localFont from 'next/font/local'
 import '../styles/globals.css'
 import AppProviders from './providers/AppProviders'
 
-const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
+// Inter's Latin variable font, kept in the repo so a build or dev server never has
+// to reach Google Fonts, which can time out and stop the page loading.
+const inter = localFont({
+  src: './fonts/InterLatin.woff2',
+  weight: '100 900',
+  display: 'swap',
+  variable: '--font-inter',
+})
 
 export const metadata = {
   title: 'TGS Caller CRM — Auto Warranty Campaign',
