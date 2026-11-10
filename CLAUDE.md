@@ -59,14 +59,15 @@ path, not an exception to this rule.
 
 Contract (typed in `lib/generated/schema.d.ts`):
 
-- `POST /auth/login` `{email, password}` →
+- `POST /auth/login` `{username, password}` →
   `{access_token, refresh_token, token_type, expires_in_min}` — the access token
   lasts 15 minutes, the refresh token 12 hours.
 - `POST /auth/refresh` `{refresh_token}` → a new pair. **Rotated on every use:**
   presenting a spent refresh token is treated as theft and ends every session of
   that user, so a refresh token must never be sent twice.
 - `POST /auth/logout` `{refresh_token}` → 204, whether or not the token was live.
-- `GET /auth/me` (Bearer token) → `{id, email, name, active, roles, team_id, created_at}`
+- `GET /auth/me` (Bearer token) → `{id, username, email, name, active, roles, team_id, created_at}`.
+  `email` may be null and is never shown: people sign in by username.
 - `RoleName = "fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" |
   "retention" | "super_admin"`. A user can hold multiple roles; frontend picks the landing
   route by priority (`super_admin` > `administrator` > `qa_manager` > `closer` >
@@ -128,7 +129,7 @@ Frontend pieces:
   own `isActive(pathname)`. A new page goes under its role's segment and into
   that role's list.
 - **A Super Admin's list is `SUPER_ADMIN_NAV`**: Users, Teams, Campaigns,
-  Reports, Policy lookup, Team stats, Agent stats, Retention, Callback requests, QA and
+  Reports, Policy lookup, Team stats, Agent stats, Retention, Card edit requests, QA and
   QA stats. A Team Admin's has Agent stats too. Reports is there because its drill-down is how they
   reach a lead's full view. Exceptions stays out: without the dialer it is empty.
 - **QA desks.** A QA Manager works from `/admin` with QA, QA stats and Users. A
@@ -247,6 +248,10 @@ does. The code, the API and the database keep `cart`.
 - **Account, routing and CVV show only while focused**, and read `•••• 1234`
   (or `•••`) once the closer leaves the field. They live in component state
   alone, never storage or logs.
+- **The account number spaces itself in fours** as it is typed
+  (`formatAccountNumberInput`: digits only, at most 19), for any account, card or
+  not. The caret stays where the closer is typing (`caretAfterDigits`), and once
+  they leave the field it reads `•••• •••• •••• 4242`. The API gets the digits.
 - **The full numbers never come back.** `GET /interactions/{id}/cart` gives at
   most the last four digits. A saved cart shows read-only, masked, with an
   **Edit card** button. In the form, a saved number shows as its placeholder
@@ -262,7 +267,7 @@ does. The code, the API and the database keep `cart`.
   Disposition turns off with a short note. `cartSaved` is `null` until the cart
   has loaded, so a sold call doesn't flash the note and a failed load leaves the
   decision to the server. Other outcomes need no cart. The policy number stays
-  optional, but the cart locks once the outcome is recorded, so a sale saved
+  optional, but the cart locks once a final outcome is recorded, so a sale saved
   without one can't be marked Paid; its hint says so. A number belongs to one
   sale: one already on another cart, in any case, comes back as a 422 on
   `policy_number` and shows under the field.
@@ -272,8 +277,8 @@ does. The code, the API and the database keep `cart`.
 The closer's Queue page lists **Callbacks** under the transfer queue
 (`components/queue/QueueScreen.tsx`, `GET /queue/callbacks`): the calls this
 closer accepted whose latest closer outcome is Callback Scheduled, oldest first.
-Each shows its request's status, and Open works only once a Super Admin approved
-it (or it has no request); a waiting or rejected one stays listed, blocked.
+Every row opens. The Card edit column shows where a request to change its saved
+card stands (Waiting for approval, Approved, Rejected), or a dash.
 
 - **Open goes back to the same call.** The workspace loads its cart and saved
   outcome, and saving another outcome records the next closer version on that
@@ -283,27 +288,34 @@ it (or it has no request); a waiting or rejected one stays listed, blocked.
 - **It loads on its own and refreshes every 30 seconds**, so a queue error never
   hides it, and the reverse.
 
-## The closed call and callback requests
+## The closed call and card edit requests
 
-A closer's outcome closes the call to them. `GET /interactions/{id}/dispositions`
-carries `locked` and `callback_status`, and `closedCall()` in `lib/closer.ts`
-turns them into a badge and one line for the workspace.
+A closer's final outcome closes the call to them. `GET /interactions/{id}/dispositions`
+carries `locked`, and `closedCall()` in `lib/closer.ts` turns it into a badge and one
+line for the workspace.
 
 - **A final outcome** locks the cart, the outcome and the fronter's details. The
-  disposition card swaps its form for the saved outcome with a Closed, Waiting for
-  approval or Rejected badge, and the cart shows read-only (`CartPaymentCard readOnly`).
-  The API answers a write with 409 `interaction.locked`.
-- **Callback Scheduled** from anyone but a Super Admin sends a request. Until a
-  Super Admin approves it, the call stays locked and blocked on Callbacks;
-  approved, it opens until the next outcome. Rejected, it stays locked and shows
-  as Rejected. A callback with no request, set before requests existed or by a
-  Super Admin, counts as approved.
-- **The list** is `components/callbacks/CallbackRequestsScreen.tsx` at
-  `/admin/callbacks`: a Super Admin approves or rejects with one confirm, no
-  note, and Open on any row goes to the lead's full view (`?from=callbacks`, which
-  its back link and the menu follow, as `?from=policies` does); a Team Admin sees
-  their team's, read-only. A closer has no page of their own: Callbacks shows them
-  where each request stands.
+  disposition card swaps its form for the saved outcome with a Closed badge, and the
+  cart shows read-only (`CartPaymentCard readOnly`). The API answers a write with
+  409 `interaction.locked`.
+- **Callback Scheduled is not final.** The closer opens the callback straight from
+  Callbacks and changes its outcome and details freely.
+- **Changing the saved card on a callback needs a Super Admin.** The cart carries
+  `card_edit`. `needs_approval`, `waiting` and `rejected` lock the account number,
+  routing number and expiry: the card section shows them masked, with **Request to
+  edit card** (a dialog with an optional reason, `POST
+  /interactions/{id}/card-edit-requests`) or **Request again**. The policy number and
+  amounts stay editable (**Edit payment**). `approved` opens the whole card for one
+  save, which locks it again. While waiting, the panel checks every 30 seconds and
+  when the window gets focus. A callback with no saved card takes a first one
+  freely. The panel reloads after each outcome (`reloadKey`), since a callback is
+  what locks it.
+- **The list** is `components/callbacks/CardEditRequestsScreen.tsx` at
+  `/admin/card-edits`: a Super Admin approves or rejects with one confirm, and Open
+  on any row goes to the lead's full view (`?from=card-edits`, which its back link
+  and the menu follow, as `?from=policies` does); a Team Admin sees their team's,
+  read-only. A closer has no page of their own: the call and Callbacks show them
+  where their request stands.
 - **The fronter's details.** While the call is open, the Lead Details card
   (`QualificationSnapshot`) has Edit (`FronterDetailsDialog`,
   `PUT /interactions/{id}/details`).
@@ -328,7 +340,7 @@ The screens write it "Own Sale", the client's name for it.
   `own_sale` on `GET /interactions/{id}` says it is an Own Sale call, and anything
   else shows "No active transfer". The header reads Own Sale, everything that
   waits on an accepted transfer opens, and Transfer Dropped is left out of the
-  outcomes. The Task 6 lock and callback approval apply as on any call.
+  outcomes. The Task 6 lock and card edit approval apply as on any call.
 - **The Queue** lists an open Own Sale call as an `own_sale` row whose `id` is the
   call, and an Own Sale callback has a null `transfer_id`; both open by the call.
 - **The lead's full view** shows an Own sale event ("Started by <closer>, no
@@ -596,7 +608,7 @@ state or team. Administrator-only, like the rest of `/admin`.
 - **There is no delete.** Deactivating is `PATCH {active: false}`, and it
   revokes that person's refresh tokens as it commits: they are signed out on
   their next request, not at their next login. The wording on screen says so.
-- **An email address cannot be changed** — `UpdateUserRequest` carries name,
+- **A username cannot be changed.** `UpdateUserRequest` carries name,
   roles, active and `team_id`, and nothing else. The field is shown disabled
   rather than hidden, so nobody goes looking for it.
 - **Team is set by a Super Admin.** They must pick it when adding and can change
@@ -609,16 +621,17 @@ state or team. Administrator-only, like the rest of `/admin`.
   effect on save and that anyone on a call should record its outcome first. The
   API does not block a move mid-call. Team Admins never see the field: the API
   puts their users on their own team and refuses `team_id` from them.
-- **Creating a user asks how they will sign in.** "Set a password now" is the
-  default and sends `password`; "Email an invitation link" leaves the key out
-  and the API issues an invitation instead. That branch is the backend's:
-  it only invites when `password` is absent, so the key must be **omitted**
-  rather than sent empty — `''` is validated like any other password and comes
-  back a 422.
-  The default is the password because an invitation needs a configured mail
-  server, and creation otherwise stores a password nobody holds — so an
-  invitation that never arrives leaves an account that cannot be signed into at
-  all. Once SMTP is real, the default is worth revisiting.
+- **Creating a user sets a username and a password.** The username is checked
+  against the API's rule (3 to 64 letters, numbers, dots, dashes or
+  underscores) before sending. The invitation-link option is gone from the
+  form; the API and the `/invite` page still handle one for an account that
+  has an email.
+- **Email is optional, only for Forgot password, and the Super Admin's.** Only a
+  Super Admin sees the Email field, on Add and Edit user: whoever holds the email
+  can reset the password, and only the Super Admin resets passwords. Team
+  Admins and QA Managers add by username and password alone. Clearing it sends
+  `email: null`; leaving it untouched leaves the key out. No other screen shows
+  an email.
 - **Roles are checkboxes, not a picker**: `roles` is an array in every DTO and
   someone may hold more than one. The list comes from a `Record<Role, string>`
   in `lib/users.ts`, so a role added to the contract fails the build here rather
@@ -627,7 +640,7 @@ state or team. Administrator-only, like the rest of `/admin`.
   `user.cannot_demote_self`; the form disables your own Administrator and Active
   controls and says why, so the refusal is never a surprise.
 - Failures land on the input they name: the API's `fields` array is mapped onto
-  the matching control (a duplicate address shows under Email), and anything
+  the matching control (a duplicate username shows under Username), and anything
   unnamed falls back to the dialog's `<Alert>`.
 - **A Super Admin can reset someone's password** from Edit User's Password
   section, which switches the same dialog to a reset step (Back keeps any unsaved
@@ -787,7 +800,7 @@ take their link base, so both desks share them.
   tiles: Changes, No change, Not found, Invalid status and Skipped. Save asks
   first and saves only the changes, checked afresh.
 - **Mocks** keep the history in memory, with POL-10002 and POL-10003 Pending and
-  POL-10005 Cancelled to start, and `rita.retention@tgs.com` signs in as Retention.
+  POL-10005 Cancelled to start, and `rita.retention` signs in as Retention.
 
 ## Settings
 
@@ -862,8 +875,9 @@ inherit it, and their desk has no Leads item.
 ## Emailed links
 
 `/invite/[token]`, `/reset-password/[token]` and `/forgot-password` are how a
-password ever gets set. The first two are one component —
-`components/auth/SetPasswordScreen.tsx` with a `mode` — and all three call
+password gets set without a Super Admin, and only for an account with an
+email; everyone signs in by username. The first two are one component,
+`components/auth/SetPasswordScreen.tsx` with a `mode`, and all three call
 `lib/invitations.ts`.
 
 - **The token goes in the request body, never the URL.** The API is built that
@@ -978,7 +992,7 @@ gives px-accurate specs. Known specs pulled so far:
   "Label 1" — Inter 400, 14px, 150% line-height, 0% letter-spacing, color
   `#2C2C2C` (not the `ink` token — check before assuming it maps 1:1).
   Sits next to a circular unread-count badge (`status-red` fill, white
-  numeral) and a user identity block (avatar, name, email, sign-out icon)
+  numeral) and a user identity block (avatar, name, username, sign-out icon)
   further down the same panel.
 
 ## Route-segment conventions (App Router)

@@ -14,6 +14,7 @@ import {
   ChevronDown,
   ClipboardCheck,
   Contact,
+  CreditCard,
   FileSearch,
   Headset,
   LifeBuoy,
@@ -21,7 +22,6 @@ import {
   LogOut,
   Menu,
   Phone,
-  PhoneCall,
   PhoneIncoming,
   Settings,
   Shield,
@@ -74,8 +74,8 @@ function UploadIcon() {
   return <Upload {...NAV_ICON} />
 }
 
-function CallbackIcon() {
-  return <PhoneCall {...NAV_ICON} />
+function CardEditIcon() {
+  return <CreditCard {...NAV_ICON} />
 }
 
 function BellIcon() {
@@ -214,7 +214,7 @@ const DESK_ICON: Record<Role, ComponentType> = {
   super_admin: AdminDeskIcon,
 }
 
-/** Team Admin desk: Dashboard, Reports, Agent stats, Policy lookup, Callback requests, Users. */
+/** Team Admin desk: Dashboard, Reports, Agent stats, Policy lookup, Card edit requests, Users. */
 const TEAM_ADMIN_NAV: NavItem[] = [
   { href: '/admin', label: 'Dashboard', icon: DashboardIcon, isActive: (p) => p === '/admin' },
   {
@@ -236,10 +236,10 @@ const TEAM_ADMIN_NAV: NavItem[] = [
     isActive: (p) => p.startsWith('/admin/policies'),
   },
   {
-    href: '/admin/callbacks',
-    label: 'Callback requests',
-    icon: CallbackIcon,
-    isActive: (p) => p.startsWith('/admin/callbacks'),
+    href: '/admin/card-edits',
+    label: 'Card edit requests',
+    icon: CardEditIcon,
+    isActive: (p) => p.startsWith('/admin/card-edits'),
   },
   // {
   //   href: '/admin/exceptions',
@@ -282,7 +282,7 @@ const ADMIN_QA_NAV_ITEMS: NavItem[] = [
 
 /**
  * Super Admin modules: Users, Teams, Campaigns, Reports, Team stats, Agent stats,
- * Retention, Callback requests, QA and QA stats.
+ * Retention, Card edit requests, QA and QA stats.
  * Reports is how they reach a lead's full view, through its drill-down.
  */
 const SUPER_ADMIN_NAV: NavItem[] = [
@@ -335,10 +335,10 @@ const SUPER_ADMIN_NAV: NavItem[] = [
     isActive: (p) => p.startsWith('/admin/retention'),
   },
   {
-    href: '/admin/callbacks',
-    label: 'Callback requests',
-    icon: CallbackIcon,
-    isActive: (p) => p.startsWith('/admin/callbacks'),
+    href: '/admin/card-edits',
+    label: 'Card edit requests',
+    icon: CardEditIcon,
+    isActive: (p) => p.startsWith('/admin/card-edits'),
   },
   ...ADMIN_QA_NAV_ITEMS,
 ]
@@ -403,11 +403,11 @@ function normalizePath(pathname: string): string {
 
 /**
  * The path the menu lights up for. A lead's full view lives under Reports, but
- * opened from Policy lookup or Callback requests (`?from=`) it belongs to that page.
+ * opened from Policy lookup or Card edit requests (`?from=`) it belongs to that page.
  */
 const OPENED_FROM: Record<string, string> = {
   policies: '/admin/policies',
-  callbacks: '/admin/callbacks',
+  'card-edits': '/admin/card-edits',
   agents: '/admin/agent-stats',
 }
 
@@ -770,7 +770,7 @@ function SidebarInner() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold text-ink">{user.name}</p>
                   {/* <p className="truncate text-xs text-slate">{formatRolesLabel(user.roles)}</p> */}
-                  <p className="truncate text-xs text-slate">{user.email}</p>
+                  <p className="truncate text-xs text-slate">{user.username}</p>
                 </div>
               ) : (
                 <UserIdentitySkeleton lines={3} />

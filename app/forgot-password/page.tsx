@@ -72,7 +72,8 @@ export default function ForgotPasswordPage() {
                 Forgotten your password?
               </h1>
               <p className="mt-2 text-sm text-slate">
-                Tell us the address you sign in with and we will send a link.
+                Enter the email on your account and we will send a link. If your account
+                has no email, ask a Super Admin to reset your password.
               </p>
             </div>
 

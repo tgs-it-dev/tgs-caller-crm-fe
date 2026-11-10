@@ -2,9 +2,6 @@
 
 import { useId, useState, type FormEvent } from 'react'
 import MuiAlert from '@mui/material/Alert'
-import FormControlLabel from '@mui/material/FormControlLabel'
-import Radio from '@mui/material/Radio'
-import RadioGroup from '@mui/material/RadioGroup'
 import { Eye, EyeOff } from 'lucide-react'
 import { ResetPasswordFields, useResetPassword } from '@/components/admin/ResetPassword'
 import { Alert } from '@/components/ui/Alert'
@@ -12,7 +9,6 @@ import { Button } from '@/components/ui/Button'
 import { Checkbox } from '@/components/ui/Checkbox'
 import { Dialog } from '@/components/ui/Dialog'
 import { Input } from '@/components/ui/Input'
-import { RADIO_CONTROL_SX, RADIO_ROW_SX } from '@/components/ui/radio'
 import { Select } from '@/components/ui/Select'
 import { AuthError, isQaManager, isSuperAdmin, isTeamAdmin, type Role } from '@/lib/auth'
 import { newPasswordProblem } from '@/lib/passwords'
@@ -30,20 +26,16 @@ import {
 
 /** Copy for the codes whose own wording is written for an API, not a person. */
 const FIELD_COPY: Record<string, string> = {
-  'user.already_exists': 'That email address is already in use.',
+  'user.already_exists': 'That username is already taken.',
+  'user.already_exists:email': 'Another account already uses that email.',
   'user.unknown_roles': 'That is not a role this console can assign.',
   'user.team_required': 'Choose a team.',
   'team.super_admin_forbidden': 'Super Admin accounts are not assigned to a team.',
 }
 
-/**
- * How the new account gets a way in.
- *
- * `password` first because it is the one that works without a mail server
- * configured — an invitation nobody receives leaves an account that cannot be
- * signed into at all, since creation otherwise stores a password nobody holds.
- */
-type SignInMethod = 'password' | 'invite'
+/** The API's rule. It lowercases what it stores, so either case is fine here. */
+const USERNAME_PATTERN = /^[A-Za-z0-9._-]{3,64}$/
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 function bannerFor(err: AuthError): string {
   if (err.code === 'user.cannot_demote_self') {
@@ -112,6 +104,7 @@ export function UserFormDialog({
   const qaManagerOnly = isQaManager(actorRoles) && !isSuperAdmin(actorRoles) && !isTeamAdmin(actorRoles)
   const startingTeam = user?.team_id ?? ''
   const [name, setName] = useState(user?.name ?? '')
+  const [username, setUsername] = useState(user?.username ?? '')
   const [email, setEmail] = useState(user?.email ?? '')
   // Keep the full set so an edit cannot strip roles the actor is not allowed
   // to grant (those checkboxes are simply not offered). QA Manager create
@@ -126,10 +119,12 @@ export function UserFormDialog({
   // Picking or changing someone's team is the Super Admin's.
   const showTeamField = !companyWide && canPickTeam
   const mustPickTeam = !user && showTeamField
+  // Whoever holds the email can reset the password, so only the Super Admin,
+  // who resets passwords, gives or changes one. Everyone else adds by username.
+  const showEmailField = canPickTeam
   const strands =
     Boolean(user?.active && user.roles.includes('closer')) &&
     (!active || !roles.includes('closer') || (showTeamField && Boolean(teamId) && teamId !== startingTeam))
-  const [signIn, setSignIn] = useState<SignInMethod>('password')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [problems, setProblems] = useState<Record<string, string>>({})
@@ -165,13 +160,16 @@ export function UserFormDialog({
     const found: Record<string, string> = {}
     if (!name.trim()) found.name = 'Enter a name.'
     if (roles.length === 0) found.roles = 'Choose at least one role.'
-    if (!user && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (!user && !USERNAME_PATTERN.test(username.trim())) {
+      found.username = 'Use 3 to 64 letters, numbers, dots, dashes or underscores.'
+    }
+    if (showEmailField && email.trim() && !EMAIL_PATTERN.test(email.trim())) {
       found.email = 'Enter a valid email address.'
     }
     // Super Admin must name the team on create; Team Admin may omit it.
     if (mustPickTeam && !teamId) found.team_id = 'Choose a team.'
     // Keyed `password` so its own 422 lands on this same input.
-    if (!user && signIn === 'password') {
+    if (!user) {
       const problem = newPasswordProblem(password)
       if (problem) found.password = problem
     }
@@ -188,7 +186,10 @@ export function UserFormDialog({
     if (named.length > 0) {
       setProblems(
         Object.fromEntries(
-          named.map((field) => [field.field as string, FIELD_COPY[err.code] ?? field.message])
+          named.map((field) => [
+            field.field as string,
+            FIELD_COPY[`${err.code}:${field.field}`] ?? FIELD_COPY[err.code] ?? field.message,
+          ])
         )
       )
       return
@@ -212,6 +213,9 @@ export function UserFormDialog({
         if (!sameRoles(roles, user.roles)) patch.roles = roles
         if (active !== user.active) patch.active = active
         if (showTeamField && teamId && teamId !== startingTeam) patch.team_id = teamId
+        if (showEmailField && email.trim() !== (user.email ?? '')) {
+          patch.email = email.trim() || null
+        }
         if (strands && !strandWarning) {
           const waiting = await waitingFor(user)
           if (waiting > 0) {
@@ -227,18 +231,18 @@ export function UserFormDialog({
           await withSession((token) => updateUser(user.id, patch, token))
         }
       } else {
-        // The key is left out entirely for an invitation, never sent empty: the
-        // API validates `password` whenever it is present at all, so `''` would
-        // be a 422 rather than "no password given". Same for team_id: a Team Admin
-        // omits it so the API pins their own team; a Super Admin sends one, except
-        // for a company-wide account (no team).
+        // A Team Admin omits team_id so the API pins their own team; a Super Admin
+        // sends one, except for a company-wide account (no team). The password is
+        // always set here: people sign in by username, and the email is only for
+        // Forgot password.
         await withSession((token) =>
           createUser(
             {
-              email,
+              username: username.trim(),
+              ...(email.trim() ? { email: email.trim() } : {}),
               name,
               roles,
-              ...(signIn === 'password' ? { password } : {}),
+              password,
               ...(mustPickTeam ? { team_id: teamId } : {}),
             },
             token
@@ -338,17 +342,39 @@ export function UserFormDialog({
           />
 
           <Input
-            label="Email"
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            // The API has no way to change an address once it is set.
+            label="Username"
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            autoCapitalize="none"
+            spellCheck={false}
+            // The API has no way to change a username once it is set.
             disabled={Boolean(user)}
-            error={Boolean(problems.email)}
+            error={Boolean(problems.username)}
             helperText={
-              problems.email ?? (user ? 'An email address cannot be changed.' : undefined)
+              problems.username ??
+              (user
+                ? 'A username cannot be changed.'
+                : 'They sign in with this. It cannot be changed later.')
             }
           />
+
+          {showEmailField && (
+            <Input
+              label="Email (optional)"
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              autoCapitalize="none"
+              spellCheck={false}
+              error={Boolean(problems.email)}
+              helperText={
+                problems.email ??
+                (user
+                  ? 'Forgot password sends a link here. Clear it to remove it.'
+                  : 'Lets them reset a forgotten password themselves.')
+              }
+            />
+          )}
 
           {showTeamField && (
             <div>
@@ -406,66 +432,34 @@ export function UserFormDialog({
           )}
 
           {!user && (
-            <fieldset>
-              <legend className="mb-3 text-sm font-medium text-black">
-                How will they sign in?
-              </legend>
-              <RadioGroup
-                value={signIn}
-                onChange={(event) => setSignIn(event.target.value as SignInMethod)}
-                className="flex flex-col items-start gap-2"
-              >
-                <FormControlLabel
-                  value="password"
-                  sx={RADIO_ROW_SX}
-                  control={<Radio size="small" disableRipple sx={RADIO_CONTROL_SX} />}
-                  label="Set a password now"
-                />
-                <FormControlLabel
-                  value="invite"
-                  sx={RADIO_ROW_SX}
-                  control={<Radio size="small" disableRipple sx={RADIO_CONTROL_SX} />}
-                  label="Email an invitation link"
-                />
-              </RadioGroup>
-
-              {signIn === 'password' ? (
-                <div className="mt-4 space-y-2">
-                  <Input
-                    label="Password"
-                    type={showPassword ? 'text' : 'password'}
-                    autoComplete="new-password"
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    error={Boolean(problems.password)}
-                    helperText={problems.password ?? 'At least 8 characters.'}
-                    endAdornment={
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword((shown) => !shown)}
-                        className="text-slate transition-colors hover:text-ink"
-                        aria-label={showPassword ? 'Hide password' : 'Show password'}
-                      >
-                        {showPassword ? (
-                          <EyeOff className="h-5 w-5" strokeWidth={2} aria-hidden />
-                        ) : (
-                          <Eye className="h-5 w-5" strokeWidth={2} aria-hidden />
-                        )}
-                      </button>
-                    }
-                  />
-                  <p className="text-xs leading-[150%] text-slate">
-                    Tell them this password yourself. They can change it later in Settings.
-                  </p>
-                </div>
-              ) : (
-                <p className="mt-3 text-xs leading-[150%] text-slate">
-                  They will be emailed a link and choose their own password, which nobody else
-                  ever sees. This needs email delivery configured. Until it is, no link is sent
-                  and they will not be able to sign in.
-                </p>
-              )}
-            </fieldset>
+            <div className="space-y-2">
+              <Input
+                label="Password"
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="new-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                error={Boolean(problems.password)}
+                helperText={problems.password ?? 'At least 8 characters.'}
+                endAdornment={
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((shown) => !shown)}
+                    className="text-slate transition-colors hover:text-ink"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-5 w-5" strokeWidth={2} aria-hidden />
+                    ) : (
+                      <Eye className="h-5 w-5" strokeWidth={2} aria-hidden />
+                    )}
+                  </button>
+                }
+              />
+              <p className="text-xs leading-[150%] text-slate">
+                Tell them this password yourself. They can change it later in Settings.
+              </p>
+            </div>
           )}
 
           <fieldset>
