@@ -76,7 +76,7 @@ function TransferStatusBadge({
   )
 }
 
-const OPEN: CallStanding = { locked: false, callback_status: null }
+const OPEN: CallStanding = { locked: false }
 
 type WorkspaceState = {
   snapshot: CloserQualificationSnapshot | null
@@ -303,6 +303,8 @@ function CloserActiveCallWorkspace({
   // Null until the cart has loaded, so a failed load leaves the call to the server.
   const [cartSaved, setCartSaved] = useState<boolean | null>(null)
   const [editingDetails, setEditingDetails] = useState(false)
+  // A callback locks the saved card, so the card reloads after each outcome.
+  const [outcomeSaves, setOutcomeSaves] = useState(0)
 
   const {
     snapshot,
@@ -396,8 +398,9 @@ function CloserActiveCallWorkspace({
       dispatch({
         type: 'save_success',
         savedLabel: nextLabel,
-        standing: { locked: list.locked, callback_status: list.callback_status },
+        standing: { locked: list.locked },
       })
+      setOutcomeSaves((n) => n + 1)
       onDispositionSaved()
     } catch (err) {
       dispatch({
@@ -474,6 +477,7 @@ function CloserActiveCallWorkspace({
             interactionId={interactionId}
             enabled={!isLoading && open}
             readOnly={closed !== null}
+            reloadKey={outcomeSaves}
             onCartLoaded={setCartSaved}
           />
           <CloserDispositionCard

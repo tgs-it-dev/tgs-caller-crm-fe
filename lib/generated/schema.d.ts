@@ -337,47 +337,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/callback-requests": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Callback requests: every one for a Super Admin, a Team Admin's teams'
-         * @description A Super Admin sees every request, a Team Admin those on their teams' leads.
-         *     Waiting ones come oldest first. A closer follows theirs on their callback list.
-         */
-        get: operations["list_requests_callback_requests_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/callback-requests/{request_id}/decision": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Approve or reject a waiting callback request (Super Admin only)
-         * @description Approving lets the call's closer work it again; rejecting keeps it closed.
-         */
-        post: operations["decide_callback_requests__request_id__decision_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/campaigns": {
         parameters: {
             query?: never;
@@ -431,6 +390,48 @@ export interface paths {
          */
         put: operations["assign_campaign_teams_campaigns__campaign_id__teams_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/card-edit-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Card edit requests: every one for a Super Admin, a Team Admin's teams'
+         * @description A Super Admin sees every request, a Team Admin those on their teams' leads.
+         *     Waiting ones come oldest first. A closer follows theirs on the call itself.
+         */
+        get: operations["list_requests_card_edit_requests_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/card-edit-requests/{request_id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve or reject a waiting card edit request (Super Admin only)
+         * @description Approving lets the call's closer save a changed card once; rejecting keeps it
+         *     locked until they ask again.
+         */
+        post: operations["decide_card_edit_requests__request_id__decision_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -645,6 +646,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/interactions/{interaction_id}/card-edit-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask a Super Admin to change the saved card on a callback (its closer)
+         * @description For the closer who accepted the call or started it as an Own Sale. A request
+         *     already waiting or approved comes back as it is, with 200. 422 while the card
+         *     can be changed without approval, and 409 once the call has its final outcome.
+         */
+        post: operations["ask_card_edit_interactions__interaction_id__card_edit_requests_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/interactions/{interaction_id}/cart": {
         parameters: {
             query?: never;
@@ -668,6 +691,10 @@ export interface paths {
          *     keeps the number already saved, so a change to the amounts need not retype
          *     them. A CVV is checked, then discarded. A policy number already on another
          *     call's cart is refused, in any case. Once the call is closed to its closer, 409.
+         *
+         *     On a callback, changing the saved card (account number, routing number or
+         *     expiry) needs a Super Admin's approval, which covers one save; 409 without it.
+         *     The policy number and the amounts change freely.
          */
         put: operations["save_cart_interactions__interaction_id__cart_put"];
         post?: never;
@@ -746,9 +773,9 @@ export interface paths {
          * @description Record how this leg ended.
          *
          *     A second disposition for the same stage becomes the next version, and the
-         *     earlier one stays on record. A closer's outcome closes the call to them: they
-         *     record another only on a callback a Super Admin approved, and get 409 otherwise.
-         *     A Callback Scheduled from anyone but a Super Admin asks one for that approval.
+         *     earlier one stays on record. A closer's final outcome closes the call to them,
+         *     and another gets 409. Callback Scheduled is not final: they work the callback on
+         *     the same call.
          */
         post: operations["create_disposition_interactions__interaction_id__dispositions_post"];
         delete?: never;
@@ -2302,63 +2329,6 @@ export interface components {
             /** Items */
             items: components["schemas"]["CallLegItem"][];
         };
-        /** CallbackDecisionRequest */
-        CallbackDecisionRequest: {
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "approved" | "rejected";
-        };
-        /** CallbackRequestItem */
-        CallbackRequestItem: {
-            /** Closer Name */
-            closer_name: string | null;
-            /** Decided At */
-            decided_at: string | null;
-            /** Decided By Name */
-            decided_by_name: string | null;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /**
-             * Interaction Id
-             * Format: uuid
-             */
-            interaction_id: string;
-            /**
-             * Lead Id
-             * Format: uuid
-             */
-            lead_id: string;
-            /** Lead Name */
-            lead_name: string;
-            /**
-             * Requested At
-             * Format: date-time
-             */
-            requested_at: string;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "pending" | "approved" | "rejected";
-            /** Team Name */
-            team_name: string;
-        };
-        /** CallbackRequestListResponse */
-        CallbackRequestListResponse: {
-            /** Items */
-            items: components["schemas"]["CallbackRequestItem"][];
-            /** Limit */
-            limit: number;
-            /** Offset */
-            offset: number;
-            /** Total */
-            total: number;
-        };
         /** CampaignCreateRequest */
         CampaignCreateRequest: {
             /**
@@ -2430,6 +2400,73 @@ export interface components {
              */
             team_ids?: string[] | null;
         };
+        /** CardEditAskRequest */
+        CardEditAskRequest: {
+            /**
+             * Reason
+             * @description Why, for the Super Admin
+             */
+            reason?: string | null;
+        };
+        /** CardEditDecisionRequest */
+        CardEditDecisionRequest: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "approved" | "rejected";
+        };
+        /** CardEditRequestItem */
+        CardEditRequestItem: {
+            /** Closer Name */
+            closer_name: string | null;
+            /** Decided At */
+            decided_at: string | null;
+            /** Decided By Name */
+            decided_by_name: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Interaction Id
+             * Format: uuid
+             */
+            interaction_id: string;
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
+            /** Lead Name */
+            lead_name: string;
+            /** Reason */
+            reason: string | null;
+            /**
+             * Requested At
+             * Format: date-time
+             */
+            requested_at: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "approved" | "rejected" | "used";
+            /** Team Name */
+            team_name: string;
+        };
+        /** CardEditRequestListResponse */
+        CardEditRequestListResponse: {
+            /** Items */
+            items: components["schemas"]["CardEditRequestItem"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
         /**
          * CartNumbersResponse
          * @description A cart's full account and routing numbers, for a Super Admin who asked to see them.
@@ -2447,6 +2484,13 @@ export interface components {
         CartResponse: {
             /** Account Last4 */
             account_last4: string;
+            /**
+             * Card Edit
+             * @description What the closer may do with the account number, routing number and expiry. open: change them. On a callback: needs_approval, waiting (asked), approved (one save), rejected (ask again). closed: the call has its final outcome
+             * @default open
+             * @enum {string}
+             */
+            card_edit: "open" | "needs_approval" | "waiting" | "approved" | "rejected" | "closed";
             /** Down Payment */
             down_payment: string;
             /** Expiry */
@@ -2524,8 +2568,8 @@ export interface components {
          * @description A call a closer set as a callback, to be worked again on the same call.
          */
         CloserCallbackItem: {
-            /** Callback Status */
-            callback_status: ("pending" | "approved" | "rejected") | null;
+            /** Card Edit Status */
+            card_edit_status: ("pending" | "approved" | "rejected") | null;
             /** Closer Name */
             closer_name: string;
             /**
@@ -3003,16 +3047,11 @@ export interface components {
         };
         /** InteractionDispositionListResponse */
         InteractionDispositionListResponse: {
-            /**
-             * Callback Status
-             * @description The request behind the latest closer outcome when it is Callback Scheduled; null when there is none, which counts as approved.
-             */
-            callback_status: ("pending" | "approved" | "rejected") | null;
             /** Items */
             items: components["schemas"]["InteractionDispositionResponse"][];
             /**
              * Locked
-             * @description Whether the call is closed to its closer: a final closer outcome, or a callback a Super Admin has not approved.
+             * @description Whether the call is closed to its closer: a closer outcome other than Callback Scheduled.
              */
             locked: boolean;
         };
@@ -5760,92 +5799,6 @@ export interface operations {
             };
         };
     };
-    list_requests_callback_requests_get: {
-        parameters: {
-            query?: {
-                status?: ("pending" | "approved" | "rejected") | null;
-                limit?: number;
-                offset?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CallbackRequestListResponse"];
-                };
-            };
-            /** @description Client Error */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Server Error */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    decide_callback_requests__request_id__decision_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                request_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CallbackDecisionRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CallbackRequestItem"];
-                };
-            };
-            /** @description Client Error */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Server Error */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
     list_campaigns_campaigns_get: {
         parameters: {
             query?: never;
@@ -6032,6 +5985,92 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CampaignResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_requests_card_edit_requests_get: {
+        parameters: {
+            query?: {
+                status?: ("pending" | "approved" | "rejected" | "used") | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardEditRequestListResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    decide_card_edit_requests__request_id__decision_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CardEditDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardEditRequestItem"];
                 };
             };
             /** @description Client Error */
@@ -6405,6 +6444,50 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CallLegListResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    ask_card_edit_interactions__interaction_id__card_edit_requests_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CardEditAskRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardEditRequestItem"];
                 };
             };
             /** @description Client Error */

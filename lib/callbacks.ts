@@ -3,21 +3,23 @@ import { apiUrl } from '@/lib/apiUrl'
 import { authError } from '@/lib/auth'
 import type { QualificationResponse } from '@/lib/qualification'
 
-export type CallbackRequestStatus = components['schemas']['CallbackRequestItem']['status']
-export type CallbackRequestItem = components['schemas']['CallbackRequestItem']
-export type CallbackRequestList = components['schemas']['CallbackRequestListResponse']
+export type CardEditStatus = components['schemas']['CardEditRequestItem']['status']
+export type CardEditRequestItem = components['schemas']['CardEditRequestItem']
+export type CardEditRequestList = components['schemas']['CardEditRequestListResponse']
 export type FronterDetails = components['schemas']['LeadUpdateRequest']
 
-export const CALLBACK_STATUS_LABEL: Record<CallbackRequestStatus, string> = {
+export const CARD_EDIT_STATUS_LABEL: Record<CardEditStatus, string> = {
   pending: 'Waiting for approval',
   approved: 'Approved',
   rejected: 'Rejected',
+  used: 'Used',
 }
 
-export const CALLBACK_STATUS_TONE: Record<CallbackRequestStatus, 'amber' | 'done' | 'red'> = {
+export const CARD_EDIT_STATUS_TONE: Record<CardEditStatus, 'amber' | 'done' | 'red' | 'neutral'> = {
   pending: 'amber',
   approved: 'done',
   rejected: 'red',
+  used: 'neutral',
 }
 
 async function json<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
@@ -33,30 +35,39 @@ async function json<T>(path: string, token: string, init: RequestInit = {}): Pro
   return res.json() as Promise<T>
 }
 
-/** One page of the callback requests this user may see; no status means all. */
-export function listCallbackRequests(
-  {
-    status,
-    limit,
-    offset,
-  }: { status: CallbackRequestStatus | null; limit: number; offset: number },
+/** One page of the card edit requests this user may see; no status means all. */
+export function listCardEditRequests(
+  { status, limit, offset }: { status: CardEditStatus | null; limit: number; offset: number },
   token: string
-): Promise<CallbackRequestList> {
+): Promise<CardEditRequestList> {
   const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
   if (status) params.set('status', status)
-  return json<CallbackRequestList>(`/callback-requests?${params}`, token)
+  return json<CardEditRequestList>(`/card-edit-requests?${params}`, token)
 }
 
 /** A Super Admin's answer. */
-export function decideCallbackRequest(
+export function decideCardEditRequest(
   requestId: string,
   status: 'approved' | 'rejected',
   token: string
-): Promise<CallbackRequestItem> {
-  return json<CallbackRequestItem>(
-    `/callback-requests/${encodeURIComponent(requestId)}/decision`,
+): Promise<CardEditRequestItem> {
+  return json<CardEditRequestItem>(
+    `/card-edit-requests/${encodeURIComponent(requestId)}/decision`,
     token,
     { method: 'POST', body: JSON.stringify({ status }) }
+  )
+}
+
+/** The closer asking to change the saved card on a callback. One already waiting comes back as it is. */
+export function requestCardEdit(
+  interactionId: string,
+  reason: string | null,
+  token: string
+): Promise<CardEditRequestItem> {
+  return json<CardEditRequestItem>(
+    `/interactions/${encodeURIComponent(interactionId)}/card-edit-requests`,
+    token,
+    { method: 'POST', body: JSON.stringify({ reason }) }
   )
 }
 

@@ -54,8 +54,8 @@ export type TodaysDispositionRow = {
   disposition_label: string | null
 }
 
-/** Whether the call is closed to its closer, and the callback request behind it. */
-export type CallStanding = Pick<InteractionDispositionList, 'locked' | 'callback_status'>
+/** Whether the call is closed to its closer: a final outcome. */
+export type CallStanding = Pick<InteractionDispositionList, 'locked'>
 
 export type CloserWorkspaceData = {
   /** Null on a call the closer started as an Own Sale. */
@@ -79,20 +79,6 @@ export type ClosedCall = {
 /** Null while the call is open to its closer. */
 export function closedCall(standing: CallStanding): ClosedCall | null {
   if (!standing.locked) return null
-  if (standing.callback_status === 'pending') {
-    return {
-      badge: 'Waiting for approval',
-      tone: 'amber',
-      message: 'It opens from your Callbacks once a Super Admin approves it.',
-    }
-  }
-  if (standing.callback_status === 'rejected') {
-    return {
-      badge: 'Rejected',
-      tone: 'red',
-      message: 'A Super Admin rejected it, so the call stays closed.',
-    }
-  }
   return {
     badge: 'Closed',
     tone: 'neutral',
@@ -307,7 +293,7 @@ async function loadCall(interactionId: string, token: string) {
     qualification,
     options,
     captured: list.items,
-    standing: { locked: list.locked, callback_status: list.callback_status },
+    standing: { locked: list.locked },
   }
 }
 
