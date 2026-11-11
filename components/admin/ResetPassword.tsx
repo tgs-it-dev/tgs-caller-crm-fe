@@ -80,7 +80,7 @@ export function ResetPasswordFields({
         value={reset.password}
         onChange={(event) => reset.setPassword(event.target.value)}
         error={Boolean(reset.problem)}
-        helperText={reset.problem ?? 'At least 8 characters.'}
+        helperText={reset.problem ?? "At least 8 characters. They'll choose their own password when they first sign in."}
         autoFocus
         endAdornment={
           <button

@@ -177,7 +177,7 @@ export function checkCart(
       found.expiry = 'This card has expired.'
   }
 
-  if (form.policy_number.trim().length > 64) found.policy_number = 'Use 64 characters or fewer.'
+  if (policyNumberOf(form.policy_number).length > 64) found.policy_number = 'Use 64 characters or fewer.'
 
   const total = toAmount(form.total_payment)
   const down = toAmount(form.down_payment)
@@ -196,6 +196,11 @@ export function checkCart(
   return found
 }
 
+/** A policy number as the API keeps it: no spaces anywhere, so "AW 100231" is AW100231. */
+export function policyNumberOf(text: string): string {
+  return text.replace(/[\s\u200b\u200c\u200d\u2060\u00ad]+/g, '')
+}
+
 /**
  * The request for a form that passed `checkCart`. A blank account or routing
  * number is left out, which keeps the saved one.
@@ -209,7 +214,7 @@ export function toSaveRequest(form: CartForm): CartSaveRequest {
     ...(routing ? { routing_number: routing } : {}),
     expiry: optional(form.expiry.trim()),
     cvv: optional(digitsOf(form.cvv)),
-    policy_number: optional(form.policy_number.trim()),
+    policy_number: optional(policyNumberOf(form.policy_number)),
     total_payment: toAmount(form.total_payment) ?? '',
     down_payment: toAmount(form.down_payment) ?? '',
     monthly_payment: toAmount(form.monthly_payment) ?? '',
