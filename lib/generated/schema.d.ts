@@ -438,6 +438,158 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/data-imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every upload, newest first */
+        get: operations["list_uploads_data_imports_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/data-imports/agent-work": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Write the leads, calls, transfers and sales a checked agent work file holds
+         * @description The file is checked again first; any problem saves nothing. Each row's records
+         *     sit at midday of its date, as the app would have written them then.
+         */
+        post: operations["upload_agent_work_data_imports_agent_work_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/data-imports/agent-work/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Check an agent work file: each agent's numbers, and what to fix. Saves nothing */
+        post: operations["check_agent_work_data_imports_agent_work_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/data-imports/templates/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * An upload template, built from the live outcome list and staff
+         * @description ID columns are formatted as Text, with dropdowns and a How to fill sheet.
+         */
+        get: operations["download_template_data_imports_templates__kind__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/data-imports/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create the teams and users a checked file names, with passwords shown once
+         * @description The file is checked again first; any problem row saves nothing.
+         *
+         *     Each new account gets a random password, in this answer only, and must
+         *     choose its own at first sign-in. People already there are skipped.
+         */
+        post: operations["upload_users_data_imports_users_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/data-imports/users/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Check a users file: what it would create, and what to fix. Saves nothing */
+        post: operations["check_users_data_imports_users_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/data-imports/{upload_id}/passwords": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * New passwords for a users upload's people who haven't chosen their own
+         * @description For a lost sign-in list: the old passwords stop working for these people.
+         */
+        post: operations["new_passwords_data_imports__upload_id__passwords_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/data-imports/{upload_id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Take an agent work upload back out, unless anyone has worked on it since */
+        post: operations["undo_upload_data_imports__upload_id__undo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dispositions": {
         parameters: {
             query?: never;
@@ -2189,6 +2341,74 @@ export interface components {
             /** Weekly */
             weekly: number | null;
         };
+        /** AgentWorkCheck */
+        AgentWorkCheck: {
+            /**
+             * Already Uploaded
+             * @description Set when every row was already uploaded: which upload, and when
+             */
+            already_uploaded?: string | null;
+            /** Dates */
+            dates: components["schemas"]["AgentWorkDate"][];
+            /** File Name */
+            file_name: string;
+            /** Notes */
+            notes: components["schemas"]["UploadNote"][];
+            /** Problem Count */
+            problem_count: number;
+            /**
+             * Problems
+             * @description Up to 500; problem_count has them all
+             */
+            problems: components["schemas"]["UploadProblem"][];
+            /** Sheet */
+            sheet: string | null;
+            /** Teams */
+            teams: components["schemas"]["AgentWorkTeam"][];
+            totals: components["schemas"]["AgentWorkTotals"];
+        };
+        /** AgentWorkDate */
+        AgentWorkDate: {
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /** Rows */
+            rows: number;
+        };
+        /** AgentWorkTeam */
+        AgentWorkTeam: {
+            /** Closers */
+            closers: components["schemas"]["CloserNumbers"][];
+            /** Fronters */
+            fronters: components["schemas"]["FronterNumbers"][];
+            /** Team */
+            team: string;
+        };
+        /** AgentWorkTotals */
+        AgentWorkTotals: {
+            /** Calls */
+            calls: number;
+            /** Existing Leads */
+            existing_leads: number;
+            /** Lead Only */
+            lead_only: number;
+            /** New Leads */
+            new_leads: number;
+            /** Own Sales */
+            own_sales: number;
+            /** Rows */
+            rows: number;
+            /** Sales */
+            sales: number;
+            /** Transfers */
+            transfers: number;
+        };
+        /** AgentWorkUploadResponse */
+        AgentWorkUploadResponse: {
+            upload: components["schemas"]["DataImportItem"];
+        };
         /**
          * AssignCampaignTeamsRequest
          * @description Body for PUT /campaigns/{id}/teams — replaces the campaign's full team set.
@@ -2260,8 +2480,31 @@ export interface components {
              */
             team_id?: string | null;
         };
+        /** Body_check_agent_work_data_imports_agent_work_check_post */
+        Body_check_agent_work_data_imports_agent_work_check_post: {
+            /**
+             * Date Order
+             * @description How typed slash dates are written: 03/11/2026 as March 11 (mdy) or 3 November (dmy).
+             * @default mdy
+             * @enum {string}
+             */
+            date_order: "mdy" | "dmy";
+            /**
+             * File
+             * @description A CSV or Excel (.xlsx) file.
+             */
+            file: string;
+        };
         /** Body_check_upload_retention_uploads_check_post */
         Body_check_upload_retention_uploads_check_post: {
+            /**
+             * File
+             * @description A CSV or Excel (.xlsx) file.
+             */
+            file: string;
+        };
+        /** Body_check_users_data_imports_users_check_post */
+        Body_check_users_data_imports_users_check_post: {
             /**
              * File
              * @description A CSV or Excel (.xlsx) file.
@@ -2291,6 +2534,29 @@ export interface components {
         };
         /** Body_save_upload_retention_uploads_post */
         Body_save_upload_retention_uploads_post: {
+            /**
+             * File
+             * @description A CSV or Excel (.xlsx) file.
+             */
+            file: string;
+        };
+        /** Body_upload_agent_work_data_imports_agent_work_post */
+        Body_upload_agent_work_data_imports_agent_work_post: {
+            /**
+             * Date Order
+             * @description How typed slash dates are written: 03/11/2026 as March 11 (mdy) or 3 November (dmy).
+             * @default mdy
+             * @enum {string}
+             */
+            date_order: "mdy" | "dmy";
+            /**
+             * File
+             * @description A CSV or Excel (.xlsx) file.
+             */
+            file: string;
+        };
+        /** Body_upload_users_data_imports_users_post */
+        Body_upload_users_data_imports_users_post: {
             /**
              * File
              * @description A CSV or Excel (.xlsx) file.
@@ -2623,6 +2889,29 @@ export interface components {
             /** Target */
             target: number | null;
         };
+        /** CloserNumbers */
+        CloserNumbers: {
+            /** Name */
+            name: string;
+            /**
+             * Outcomes
+             * @description Each call's final closer outcome, by label
+             */
+            outcomes: {
+                [key: string]: number;
+            };
+            /** Own Sales */
+            own_sales: number;
+            /**
+             * Sold
+             * @description Own Sales included, as Agent stats counts them
+             */
+            sold: number;
+            /** Transfers Taken */
+            transfers_taken: number;
+            /** Username */
+            username: string;
+        };
         /** CloserQueueItem */
         CloserQueueItem: {
             /** Fronter User Id */
@@ -2691,6 +2980,41 @@ export interface components {
             team_id?: string | null;
             /** Username */
             username: string;
+        };
+        /** DataImportItem */
+        DataImportItem: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Created By Name */
+            created_by_name: string;
+            /** File Name */
+            file_name: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "users" | "agent_work";
+            /** Summary */
+            summary: {
+                [key: string]: unknown;
+            };
+            /** Undone At */
+            undone_at: string | null;
+            /** Undone By Name */
+            undone_by_name: string | null;
+        };
+        /** DataImportListResponse */
+        DataImportListResponse: {
+            /** Items */
+            items: components["schemas"]["DataImportItem"][];
         };
         /** DispositionCaptureRequest */
         DispositionCaptureRequest: {
@@ -2862,6 +3186,22 @@ export interface components {
             target: number | null;
             /** Transfers */
             transfers: number;
+        };
+        /**
+         * FronterNumbers
+         * @description As Agent stats will show them once uploaded.
+         */
+        FronterNumbers: {
+            /** Callbacks */
+            callbacks: number;
+            /** Name */
+            name: string;
+            /** Qualifications */
+            qualifications: number;
+            /** Transfers */
+            transfers: number;
+            /** Username */
+            username: string;
         };
         /** FunnelCounts */
         FunnelCounts: {
@@ -3761,6 +4101,15 @@ export interface components {
             username: string;
         };
         /**
+         * NewPasswordsResponse
+         * @description Fresh passwords for an upload's people who have not chosen their own yet.
+         */
+        NewPasswordsResponse: {
+            files: components["schemas"]["SignInFiles"];
+            /** Users */
+            users: components["schemas"]["SignInDetails"][];
+        };
+        /**
          * OwnSaleLead
          * @description The team's lead for the number, as the Own Sale form fills from it.
          *
@@ -4647,6 +4996,43 @@ export interface components {
             /** Password */
             password: string;
         };
+        /**
+         * SignInDetails
+         * @description One account's sign-in, returned once and never stored as written.
+         */
+        SignInDetails: {
+            /** Name */
+            name: string;
+            /** Password */
+            password: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "fronter" | "closer" | "administrator";
+            /** Team */
+            team: string;
+            /** Username */
+            username: string;
+        };
+        /**
+         * SignInFiles
+         * @description The sign-in list as Excel files, styled like the templates, base64-encoded.
+         */
+        SignInFiles: {
+            /**
+             * All Teams
+             * @description Every account in one .xlsx
+             */
+            all_teams: string;
+            /**
+             * Teams
+             * @description One .xlsx per team, by team name
+             */
+            teams: {
+                [key: string]: string;
+            };
+        };
         /** TeamCreateRequest */
         TeamCreateRequest: {
             /**
@@ -4985,6 +5371,31 @@ export interface components {
              */
             team_id?: string | null;
         };
+        /**
+         * UploadNote
+         * @description Something the upload will do with an odd value; it does not stop the import.
+         */
+        UploadNote: {
+            /** Message */
+            message: string;
+            /** Row */
+            row?: number | null;
+        };
+        /**
+         * UploadProblem
+         * @description Something in the file that stops the import until it is fixed.
+         */
+        UploadProblem: {
+            /** Column */
+            column?: string | null;
+            /** Message */
+            message: string;
+            /**
+             * Row
+             * @description The file's own row number; null for the whole file
+             */
+            row: number | null;
+        };
         /** UserListResponse */
         UserListResponse: {
             /** Items */
@@ -5015,6 +5426,12 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Must Change Password
+             * @description Their password was chosen by someone else (Add user, a reset, an upload). Until they change it, every route but /auth/me and /auth/password/change answers 403 auth.password_change_required.
+             * @default false
+             */
+            must_change_password: boolean;
             /** Name */
             name: string;
             /** Roles */
@@ -5029,6 +5446,75 @@ export interface components {
             timezone: "America/New_York" | "Asia/Karachi";
             /** Username */
             username: string;
+        };
+        /** UserUploadCheck */
+        UserUploadCheck: {
+            /** File Name */
+            file_name: string;
+            /** Notes */
+            notes: components["schemas"]["UploadNote"][];
+            /** Problems */
+            problems: components["schemas"]["UploadProblem"][];
+            /** Rows */
+            rows: components["schemas"]["UserUploadRow"][];
+            /** Sheet */
+            sheet: string | null;
+            summary: components["schemas"]["UserUploadSummary"];
+            /** Teams */
+            teams: components["schemas"]["UserUploadTeam"][];
+        };
+        /** UserUploadResponse */
+        UserUploadResponse: {
+            files: components["schemas"]["SignInFiles"];
+            upload: components["schemas"]["DataImportItem"];
+            /** Users */
+            users: components["schemas"]["SignInDetails"][];
+        };
+        /** UserUploadRow */
+        UserUploadRow: {
+            /** Name */
+            name: string;
+            /** Role */
+            role: ("fronter" | "closer" | "administrator") | null;
+            /** Row */
+            row: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "new" | "exists" | "problem";
+            /** Team */
+            team: string;
+            /** Username */
+            username: string | null;
+            /**
+             * Username Made
+             * @description True when the username was made from the name
+             */
+            username_made: boolean;
+        };
+        /** UserUploadSummary */
+        UserUploadSummary: {
+            /** Existing */
+            existing: number;
+            /** New Teams */
+            new_teams: number;
+            /** New Users */
+            new_users: number;
+            /** Problems */
+            problems: number;
+            /** Rows */
+            rows: number;
+        };
+        /** UserUploadTeam */
+        UserUploadTeam: {
+            /** Name */
+            name: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "new" | "existing";
         };
         /** ZoneFunnelCounts */
         ZoneFunnelCounts: {
@@ -6071,6 +6557,332 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CardEditRequestItem"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_uploads_data_imports_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataImportListResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    upload_agent_work_data_imports_agent_work_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_agent_work_data_imports_agent_work_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentWorkUploadResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    check_agent_work_data_imports_agent_work_check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_check_agent_work_data_imports_agent_work_check_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentWorkCheck"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    download_template_data_imports_templates__kind__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: "users" | "agent-work";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The .xlsx file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": unknown;
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    upload_users_data_imports_users_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_users_data_imports_users_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserUploadResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    check_users_data_imports_users_check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_check_users_data_imports_users_check_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserUploadCheck"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    new_passwords_data_imports__upload_id__passwords_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NewPasswordsResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    undo_upload_data_imports__upload_id__undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataImportItem"];
                 };
             };
             /** @description Client Error */

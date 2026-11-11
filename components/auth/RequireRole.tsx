@@ -2,6 +2,7 @@
 
 import { ReactNode, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { ChangePasswordFirst } from '@/components/auth/ChangePasswordFirst'
 import { useCurrentUser } from '@/components/auth/CurrentUserProvider'
 import { Alert } from '@/components/ui/Alert'
 import { Button } from '@/components/ui/Button'
@@ -74,6 +75,9 @@ function AuthGate({
   onRetry: () => void
   children: ReactNode
 }) {
+  const { user } = useCurrentUser()
+  // A password somebody else chose: nothing loads until its owner picks their own.
+  if (status === 'authorized' && user?.must_change_password) return <ChangePasswordFirst />
   if (status === 'authorized') return <>{children}</>
   if (status === 'error') {
     return (
