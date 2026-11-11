@@ -8,32 +8,12 @@ import { isSuperAdmin } from '@/lib/auth'
 /** Reached without a session, so password managers must keep working there. */
 const OPEN_PAGES = ['/login', '/invite', '/reset-password', '/forgot-password']
 
-const GUARDED = ['copy', 'cut', 'paste', 'contextmenu', 'dragstart', 'drop', 'beforeinput'] as const
-
-/** Text that arrives from somewhere other than the keyboard. */
-const BROUGHT_IN = new Set([
-  'insertFromPaste',
-  'insertFromPasteAsQuotation',
-  'insertFromDrop',
-  'insertFromYank',
-])
-
-function isPasswordField(target: EventTarget | null) {
-  return target instanceof HTMLInputElement && target.type === 'password'
-}
+/** Paste isn't here: text may come in, it just can't go out. */
+const GUARDED = ['copy', 'cut', 'contextmenu', 'dragstart', 'drop'] as const
 
 function allowed(event: Event) {
-  switch (event.type) {
-    case 'paste':
-      return isPasswordField(event.target)
-    case 'beforeinput':
-      return !BROUGHT_IN.has((event as InputEvent).inputType) || isPasswordField(event.target)
-    case 'drop':
-      // A file still drops onto an upload; text never lands anywhere.
-      return Boolean((event as DragEvent).dataTransfer?.types.includes('Files'))
-    default:
-      return false
-  }
+  // A file still drops onto an upload; dragged text never lands anywhere.
+  return event.type === 'drop' && Boolean((event as DragEvent).dataTransfer?.types.includes('Files'))
 }
 
 function guard(event: Event) {
@@ -51,10 +31,11 @@ export function useGuarded() {
 }
 
 /**
- * Everyone but a Super Admin types every form by hand: copy, cut, paste,
- * right-click, text selection and dragging all do nothing, and nothing on screen
- * says so. Paste into a password field still works, and so does dropping a file
- * onto an upload. `styles/globals.css` turns selection off under the attribute.
+ * Everyone but a Super Admin can paste into a field, with Ctrl+V, but never copy
+ * out: copy, cut, right-click, text selection and dragging all do nothing, and
+ * nothing on screen says so. Right-click stays off because its menu offers Copy
+ * and search. Dropping a file onto an upload still works. `styles/globals.css`
+ * turns selection off under the attribute.
  */
 export function CopyGuard() {
   const on = useGuarded()

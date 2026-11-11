@@ -947,12 +947,12 @@ email; everyone signs in by username. The first two are one component,
 
 `components/auth/CopyGuard.tsx`, mounted once in `AppProviders`.
 
-- **Everyone but a Super Admin types every form by hand.** Once signed in, copy,
-  cut, paste, right-click, text selection and dragging do nothing, and nothing on
-  screen says so.
-- **Two things still work:** paste into a password field, for password managers,
-  and dropping a file onto an upload. The sign-in, invite, reset and
-  forgot-password pages are left alone.
+- **Everyone but a Super Admin can paste in but never copy out.** Once signed
+  in, paste into any field works with Ctrl+V. Copy, cut, right-click, text
+  selection and dragging do nothing, and nothing on screen says so. Right-click
+  stays off because its menu offers Copy and search.
+- **Dropping a file onto an upload still works;** dragged text doesn't. The
+  sign-in, invite, reset and forgot-password pages are left alone.
 
 ## Screenshots
 
@@ -964,7 +964,12 @@ email; everyone signs in by username. The first two are one component,
   Win + Print Screen, Win + Shift + S and the Snipping Tool.
 - **A plain Print Screen can't be beaten:** Windows takes the image before the
   page hears the key. Its release calls `POST /auth/me/screenshots` with the page,
-  and the agent sees "Screenshot recorded". No screen shows the log yet.
+  and the agent sees "Screenshot recorded".
+- **The Super Admin reads the log** on Screenshots (`/admin/screenshots`,
+  `components/admin/ScreenshotsScreen.tsx`, `GET /auth/screenshots`): who, their
+  team and role, when, and the page. A workspace page links to the call through
+  "View call details", built from the call id alone, never from the reported path.
+  Only the press is known: the image never reaches the CRM.
 - **The blur is an overlay** (`.screen-guard-overlay` in `styles/globals.css`),
   shown by `data-screen-blur` on `<html>`, which the listeners set directly so it
   lands on the next frame. A filter on the page would move fixed elements.
