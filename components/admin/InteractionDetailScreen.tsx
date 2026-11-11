@@ -43,6 +43,7 @@ const EVENTS_LIMIT = 10
  */
 const ORIGINS: Record<string, { href: string; label: string }> = {
   exceptions: { href: '/admin/exceptions', label: 'Back to Exceptions' },
+  screenshots: { href: '/admin/screenshots', label: 'Back to Screenshots' },
 }
 
 /** For a bookmarked or pasted link, which names no origin. */

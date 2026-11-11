@@ -117,7 +117,8 @@ export interface paths {
         put?: never;
         /**
          * Record that you pressed Print Screen
-         * @description Who pressed it, when and on which page. Nothing reads it back over HTTP yet.
+         * @description Who pressed it, when and on which page. A Super Admin reads it back at
+         *     GET /auth/screenshots.
          */
         post: operations["report_screenshot_auth_me_screenshots_post"];
         delete?: never;
@@ -210,6 +211,28 @@ export interface paths {
         put?: never;
         /** Exchange a refresh token */
         post: operations["refresh_auth_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/screenshots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every Print Screen press in a range of days (Super Admin only)
+         * @description Newest first, with who pressed it, their team now and the page they were on.
+         *     Both dates are inclusive days. Only the press is known: the image never reaches
+         *     the CRM.
+         */
+        get: operations["list_screenshots_auth_screenshots_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4961,6 +4984,64 @@ export interface components {
             total_payment: string;
         };
         /**
+         * ScreenshotItem
+         * @description One Print Screen press, with who pressed it.
+         */
+        ScreenshotItem: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Page
+             * @description The path they reported, as sent. Not checked against a route.
+             */
+            page: string;
+            /** Roles */
+            roles: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "retention" | "super_admin")[];
+            /**
+             * Taken At
+             * Format: date-time
+             */
+            taken_at: string;
+            /**
+             * Team Id
+             * @description Their team now; null for a company-wide role.
+             */
+            team_id: string | null;
+            /** Team Name */
+            team_name: string | null;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Username */
+            username: string;
+        };
+        /** ScreenshotListResponse */
+        ScreenshotListResponse: {
+            /** Items */
+            items: components["schemas"]["ScreenshotItem"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /**
+             * Timezone
+             * @description The zone start and end were read in.
+             */
+            timezone: string;
+            /**
+             * Total
+             * @description Matching the filters, ignoring limit/offset
+             */
+            total: number;
+        };
+        /**
          * ScreenshotReport
          * @description Print Screen was pressed while the CRM was open.
          */
@@ -5964,6 +6045,55 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TokenResponse"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server Error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_screenshots_auth_screenshots_get: {
+        parameters: {
+            query: {
+                start: string;
+                end: string;
+                /** @description IANA name deciding which day the dates mean, e.g. America/New_York. Defaults to the caller's own time zone, so people who share a zone see the same figures for the same dates. */
+                timezone?: string | null;
+                /** @description Only people on this team now. */
+                team_id?: string | null;
+                /** @description Only this person's presses. */
+                user_id?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenshotListResponse"];
                 };
             };
             /** @description Client Error */

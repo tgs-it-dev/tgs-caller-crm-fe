@@ -3589,6 +3589,34 @@ async function mockAgentWorkCheck(file: File | undefined, order: 'mdy' | 'dmy') 
   }
 }
 
+/** Print Screen presses, as GET /auth/screenshots reads them back. POST adds one. */
+type MockScreenshot = { id: string; user_id: string; taken_at: string; page: string }
+
+const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60 * 1000).toISOString()
+
+const MOCK_SCREENSHOTS: MockScreenshot[] = [
+  { id: 'shot-1', user_id: '1', taken_at: minutesAgo(25), page: '/fronter/workspace/?id=int-1001' },
+  { id: 'shot-2', user_id: '2', taken_at: minutesAgo(190), page: '/closer/queue/' },
+  { id: 'shot-3', user_id: '10', taken_at: minutesAgo(60 * 26), page: '/qa/item/?id=int-1001' },
+  { id: 'shot-4', user_id: '1', taken_at: minutesAgo(60 * 50), page: '/fronter/' },
+  { id: 'shot-5', user_id: '4', taken_at: minutesAgo(60 * 75), page: '/fronter/stats/' },
+]
+
+function mockScreenshotItem(shot: MockScreenshot) {
+  const user = MOCK_USERS.find((candidate) => candidate.id === shot.user_id)!
+  return {
+    id: shot.id,
+    taken_at: shot.taken_at,
+    user_id: user.id,
+    name: user.name,
+    username: user.username,
+    roles: user.roles,
+    team_id: user.team_id,
+    team_name: MOCK_TEAMS.find((team) => team.id === user.team_id)?.name ?? null,
+    page: shot.page,
+  }
+}
+
 export const handlers = [
   rest.get('http://localhost:4000/health', (req, res, ctx) => {
     return res(ctx.status(200), ctx.json({ status: 'ok' }))
@@ -3692,7 +3720,43 @@ export const handlers = [
     }
     const body = (await req.json()) as { page?: string }
     console.info(`[mock screenshot] ${user.username} pressed Print Screen on ${body.page}`)
+    MOCK_SCREENSHOTS.push({
+      id: `shot-${MOCK_SCREENSHOTS.length + 1}`,
+      user_id: user.id,
+      taken_at: new Date().toISOString(),
+      page: body.page ?? '/',
+    })
     return res(ctx.status(204))
+  }),
+
+  rest.get('/auth/screenshots', (req, res, ctx) => {
+    const refused = superAdminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const params = req.url.searchParams
+    const zone = BUSINESS_TIMEZONE
+    const start = params.get('start') ?? ''
+    const end = params.get('end') ?? ''
+    const teamId = params.get('team_id')
+    const userId = params.get('user_id')
+    const limit = Number(params.get('limit') ?? 20)
+    const offset = Number(params.get('offset') ?? 0)
+    const matching = MOCK_SCREENSHOTS.filter((shot) => {
+      const day = businessDay(new Date(shot.taken_at), zone)
+      if (day < start || day > end) return false
+      if (userId && shot.user_id !== userId) return false
+      const user = MOCK_USERS.find((candidate) => candidate.id === shot.user_id)
+      return !teamId || user?.team_id === teamId
+    }).sort((a, b) => b.taken_at.localeCompare(a.taken_at))
+    return res(
+      ctx.status(200),
+      ctx.json({
+        items: matching.slice(offset, offset + limit).map(mockScreenshotItem),
+        total: matching.length,
+        limit,
+        offset,
+        timezone: zone,
+      })
+    )
   }),
 
   rest.post('/auth/password/change', async (req, res, ctx) => {

@@ -8,6 +8,7 @@ import MuiMenu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import {
   Bell,
+  Camera,
   ChartColumn,
   ChartLine,
   Check,
@@ -72,6 +73,10 @@ function PolicyIcon() {
 
 function UploadIcon() {
   return <Upload {...NAV_ICON} />
+}
+
+function ScreenshotsIcon() {
+  return <Camera {...NAV_ICON} />
 }
 
 function CardEditIcon() {
@@ -282,7 +287,7 @@ const ADMIN_QA_NAV_ITEMS: NavItem[] = [
 
 /**
  * Super Admin modules: Users, Teams, Campaigns, Reports, Team stats, Agent stats,
- * Retention, Card edit requests, QA and QA stats.
+ * Retention, Card edit requests, Data upload, Screenshots, QA and QA stats.
  * Reports is how they reach a lead's full view, through its drill-down.
  */
 const SUPER_ADMIN_NAV: NavItem[] = [
@@ -345,6 +350,12 @@ const SUPER_ADMIN_NAV: NavItem[] = [
     label: 'Data upload',
     icon: UploadIcon,
     isActive: (p) => p.startsWith('/admin/data-upload'),
+  },
+  {
+    href: '/admin/screenshots',
+    label: 'Screenshots',
+    icon: ScreenshotsIcon,
+    isActive: (p) => p.startsWith('/admin/screenshots'),
   },
   ...ADMIN_QA_NAV_ITEMS,
 ]
