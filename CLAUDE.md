@@ -648,6 +648,8 @@ state or team. Administrator-only, like the rest of `/admin`.
   person. Every session that person has ends, so they are signed out within the
   15-minute access token. Super Admin only, and never your own account
   (`user.cannot_reset_own_password`); your own goes through Settings.
+  A password set on Add user or by a reset must be changed at the person's
+  first sign-in (see Data upload).
 
 ## QA
 
@@ -801,6 +803,47 @@ take their link base, so both desks share them.
   first and saves only the changes, checked afresh.
 - **Mocks** keep the history in memory, with POL-10002 and POL-10003 Pending and
   POL-10005 Cancelled to start, and `rita.retention` signs in as Retention.
+
+## Data upload
+
+`/admin/data-upload` (Super Admin only) brings a client's staff, and the work
+their fronters and closers already did, into the CRM through `lib/dataImports.ts`.
+`DataUploadScreen` has three tabs; the two upload tabs stay mounted, so switching
+never loses a checked file or a sign-in list.
+
+- **Every upload is Check, then Import.** Check (`POST .../check`) saves nothing
+  and returns problems (row, column, how to fix), notes and counts. Import stays
+  off while there is any problem, and the API reads and checks the file again as
+  it saves. Templates come from `GET /data-imports/templates/{users|agent-work}`,
+  built by the API from the live outcome list and staff, never from `public/`.
+- **Users** (`UsersUploadTab`): Team, Name, Role and an optional Username. New
+  users get random passwords, shown only in that response, with `files`: the
+  sign-in list as Excel workbooks styled like the templates, one for all teams
+  and one per team. `SignInList` saves them (`saveSpreadsheet`); nothing is built
+  in the browser. The API stores every cell as text, so a name starting with `=`
+  never runs as a formula.
+- **Agent work** (`AgentWorkUploadTab`): one row per lead worked on one day, sent
+  with `date_order` (`mdy` or `dmy`) for typed slash dates. The check shows the
+  dates found, the totals, and each agent's numbers as Agent stats will count
+  them. A row with a Closer and no Fronter is that closer's Own Sale, unless the
+  same closer has an open Callback Scheduled on the lead, which it then continues.
+  Days are date-only strings: format them with `formatDay`, not `formatDate`.
+- **Past uploads** (`PastUploadsTab`): New passwords on a users upload, for those
+  who haven't chosen their own yet. Undo on an agent work upload; the API refuses
+  it (409 `data_import.in_use`) once anyone has worked on what it added, or a later
+  upload touched it, and the dialog shows that message.
+- **First sign-in.** `must_change_password` is set on anyone whose password was
+  set by someone else: an upload, Add user with a password, a Super Admin's reset.
+  The API answers 403 `auth.password_change_required` on every route that
+  needs a signed-in user except `GET /auth/me`, the password change and
+  screenshots; sign-out still works. `AuthGate` in `RequireRole`
+  shows `ChangePasswordFirst` instead of the page, and the Sidebar renders
+  nothing, until `ChangePasswordForm` (shared with Settings) saves.
+- **Policy numbers lose every space** (`policyNumberOf` in `lib/cart.ts`), as the
+  API stores them, so "AW 100231" and "AW100231" are one policy everywhere.
+- **Mocks** read CSVs as the API does and answer an Excel file with a sample.
+  `new.fronter` signs in flagged. A later agent work upload on the same leads
+  stands in for live work, so Undo can be refused in mock mode.
 
 ## Settings
 

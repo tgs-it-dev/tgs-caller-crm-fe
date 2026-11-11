@@ -340,6 +340,12 @@ const SUPER_ADMIN_NAV: NavItem[] = [
     icon: CardEditIcon,
     isActive: (p) => p.startsWith('/admin/card-edits'),
   },
+  {
+    href: '/admin/data-upload',
+    label: 'Data upload',
+    icon: UploadIcon,
+    isActive: (p) => p.startsWith('/admin/data-upload'),
+  },
   ...ADMIN_QA_NAV_ITEMS,
 ]
 
@@ -791,6 +797,10 @@ function SidebarInner() {
 }
 
 export function Sidebar() {
+  const { user } = useCurrentUser()
+  // Until a password somebody else chose is changed, the page shows only that
+  // form: no menu, and none of the counts it would ask the API for.
+  if (user?.must_change_password) return null
   return (
     <Suspense fallback={null}>
       <SidebarInner />

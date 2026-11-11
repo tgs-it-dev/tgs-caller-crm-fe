@@ -69,6 +69,10 @@ type MockUser = {
   team_id: string | null
   /** The zone their times are drawn in; Eastern until they choose another. */
   timezone?: TimeZoneName
+  /** Someone else chose the password; the first sign-in asks for their own. */
+  must_change_password?: boolean
+  /** The users upload that created them. */
+  data_import_id?: string
 }
 
 const SEEDED_AT = new Date(Date.now() - 1000 * 60 * 60 * 24 * 30).toISOString()
@@ -198,6 +202,8 @@ const MOCK_USERS: MockUser[] = [
   { id: '11', username: 'leo.lead', email: 'leo.lead@tgs.com', password: 'password1', name: 'Leo Lead', roles: ['qa_agent'], active: true, created_at: SEEDED_AT, team_id: null },
   // Retention covers every team too.
   { id: '12', username: 'rita.retention', email: 'rita.retention@tgs.com', password: 'password1', name: 'Rita Retention', roles: ['retention'], active: true, created_at: SEEDED_AT, team_id: null },
+  // Added with a password someone else chose, so signing in asks for a new one first.
+  { id: '13', username: 'new.fronter', email: null, password: 'password1', name: 'Nia New', roles: ['fronter'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_EAST, must_change_password: true },
 ]
 
 const KNOWN_ROLES: Role[] = [
@@ -358,6 +364,7 @@ function userBody(user: MockUser) {
     created_at: user.created_at,
     team_id: user.team_id,
     timezone: user.timezone ?? BUSINESS_TIMEZONE,
+    must_change_password: Boolean(user.must_change_password),
   }
 }
 
@@ -3168,6 +3175,420 @@ async function mockStatusCheck(
   return { check }
 }
 
+// --------------------------------------------------------------- data upload
+
+type MockUpload = {
+  id: string
+  kind: 'users' | 'agent_work'
+  file_name: string
+  summary: Record<string, number>
+  created_at: string
+  created_by_name: string
+  undone_at: string | null
+  undone_by_name: string | null
+}
+
+/** Uploads made in mock mode, newest first. */
+const MOCK_UPLOADS: MockUpload[] = []
+
+const MOCK_PASSWORD_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'
+
+function mockPassword(): string {
+  let password = ''
+  for (let i = 0; i < 12; i++) {
+    password += MOCK_PASSWORD_ALPHABET[Math.floor(Math.random() * MOCK_PASSWORD_ALPHABET.length)]
+  }
+  return password
+}
+
+function mockNameKey(value: string): string {
+  return value.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[\s.\-'_]/g, '')
+}
+
+function mockUsernameBase(name: string): string {
+  const folded = name.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/'/g, '')
+  return (folded.match(/[a-z0-9]+/g) ?? []).join('.').slice(0, 60)
+}
+
+const MOCK_UPLOAD_ROLES: Record<string, 'fronter' | 'closer' | 'administrator'> = {
+  fronter: 'fronter',
+  closer: 'closer',
+  teamadmin: 'administrator',
+  admin: 'administrator',
+}
+
+type MockUserUploadRow = {
+  row: number
+  team: string
+  name: string
+  role: 'fronter' | 'closer' | 'administrator' | null
+  username: string | null
+  username_made: boolean
+  status: 'new' | 'exists' | 'problem'
+}
+
+/** A users file read as the API reads it, for CSVs; an Excel file answers a sample. */
+async function mockUsersCheck(file: File | undefined) {
+  if (!(file instanceof File) || file.size === 0) return { problem: 'That file is empty.' }
+  const head = new Uint8Array(await file.slice(0, 2).arrayBuffer())
+  const lines =
+    head[0] === 0x50 && head[1] === 0x4b
+      ? ['Team,Name,Role', 'Team North,Ada Moss,Team Admin', 'Team North,Bo Lin,Fronter', 'Team North,Cy Tan,Closer']
+      : (await file.text()).replace(/^﻿/, '').split(/\r?\n/).filter((line) => line.trim())
+  const rows = lines.map((line) => line.split(',').map((cell) => cell.trim().replace(/\s+/g, ' ')))
+  const headings = (rows[0] ?? []).map((cell) => cell.toLowerCase().replace('(optional)', '').trim())
+  const col = (names: string[]) => headings.findIndex((h) => names.includes(h))
+  const teamCol = col(['team', 'team name'])
+  const nameCol = col(['name', 'full name', 'employee'])
+  const roleCol = col(['role', 'position'])
+  const userCol = col(['username', 'user name', 'login'])
+  if (teamCol < 0 || nameCol < 0 || roleCol < 0) {
+    return { problem: `No heading row with the columns Team, Name, Role was found. The first row has: ${rows[0]?.join(', ') || 'nothing'}. Download the template to see the headings.` }
+  }
+  const taken = new Set(MOCK_USERS.map((u) => u.username))
+  const problems: { row: number; column: string; message: string }[] = []
+  const out: MockUserUploadRow[] = []
+  const creates: { team: string; name: string; role: 'fronter' | 'closer' | 'administrator'; username: string }[] = []
+  const newTeams = new Set<string>()
+  rows.slice(1).forEach((cells, index) => {
+    const row = index + 2
+    const team = cells[teamCol] ?? ''
+    const name = cells[nameCol] ?? ''
+    const roleText = cells[roleCol] ?? ''
+    const given = userCol >= 0 ? (cells[userCol] ?? '').toLowerCase() : ''
+    const role = MOCK_UPLOAD_ROLES[mockNameKey(roleText)] ?? null
+    const found: string[] = []
+    if (!team) problems.push({ row, column: 'Team', message: 'The team is empty.' })
+    if (!name) problems.push({ row, column: 'Name', message: 'The name is empty.' })
+    if (roleText && !role) problems.push({ row, column: 'Role', message: `"${roleText}" isn't a role here. Use Fronter, Closer or Team Admin.` })
+    if (!team || !name || !role) found.push('x')
+    const existingTeam = MOCK_TEAMS.find((t) => mockNameKey(t.name) === mockNameKey(team))
+    const existing = MOCK_USERS.find(
+      (u) => u.team_id === existingTeam?.id && mockNameKey(u.name) === mockNameKey(name)
+    )
+    let status: MockUserUploadRow['status'] = found.length ? 'problem' : 'new'
+    let username: string | null = given || null
+    let made = false
+    if (status === 'new' && existing && !given) {
+      status = 'exists'
+      username = existing.username
+    } else if (status === 'new' && given && taken.has(given)) {
+      problems.push({ row, column: 'Username', message: `The username ${given} is taken by another account.` })
+      status = 'problem'
+    } else if (status === 'new' && !given) {
+      const base = mockUsernameBase(name)
+      let candidate = base
+      for (let n = 2; taken.has(candidate); n++) candidate = `${base}${n}`
+      username = candidate
+      made = true
+    }
+    if (status === 'new' && username && role) {
+      taken.add(username)
+      creates.push({ team: existingTeam?.name ?? team, name, role, username })
+      if (!existingTeam) newTeams.add(team)
+    }
+    out.push({ row, team, name, role, username, username_made: made, status })
+  })
+  return {
+    creates,
+    check: {
+      file_name: file.name,
+      sheet: head[0] === 0x50 ? 'Users' : null,
+      teams: [...new Set(out.map((r) => r.team).filter(Boolean))].map((name) => ({
+        name,
+        status: newTeams.has(name) ? 'new' : 'existing',
+      })),
+      rows: out,
+      problems,
+      notes: [] as { row: number | null; message: string }[],
+      summary: {
+        rows: out.length,
+        new_teams: newTeams.size,
+        new_users: creates.length,
+        existing: out.filter((r) => r.status === 'exists').length,
+        problems: out.filter((r) => r.status === 'problem').length,
+      },
+    },
+  }
+}
+
+function mockUploadItem(upload: MockUpload) {
+  return { ...upload }
+}
+
+/** Stand-ins for the API's sign-in workbooks: the mock does not build Excel files. */
+function mockSignInFiles(users: { team: string }[]) {
+  const file = (team: string) => btoa(`Mock sign-in list: ${team}`)
+  const teams = [...new Set(users.map((u) => u.team))].sort()
+  return { all_teams: file('all teams'), teams: Object.fromEntries(teams.map((t) => [t, file(t)])) }
+}
+
+const MOCK_WORK_HEADINGS: Record<string, string[]> = {
+  date: ['date'],
+  team: ['team'],
+  phone: ['phone', 'phonenumber', 'phone#', 'mobile', 'cell'],
+  first_name: ['firstname', 'first'],
+  last_name: ['lastname', 'last', 'surname'],
+  vehicle_year: ['vehicleyear', 'year'],
+  vehicle_make: ['vehiclemake', 'make'],
+  vehicle_model: ['vehiclemodel', 'model'],
+  vin: ['vin'],
+  license_plate: ['licenseplate', 'plate'],
+  notes: ['notes', 'comments'],
+  fronter: ['fronter'],
+  fronter_outcome: ['fronteroutcome'],
+  closer: ['closer'],
+  closer_outcome: ['closeroutcome'],
+  policy_number: ['policynumber', 'policy#', 'policyno'],
+  total_payment: ['totalpayment', 'total'],
+  down_payment: ['downpayment', 'down'],
+  monthly_payment: ['monthlypayment', 'monthly'],
+  account_number: ['accountnumber'],
+  routing_number: ['routingnumber'],
+  expiry: ['expiry', 'expiration'],
+}
+
+const MOCK_PAYMENT_FIELDS = ['policy_number', 'total_payment', 'down_payment', 'monthly_payment', 'account_number', 'routing_number', 'expiry']
+const MOCK_FRONTER_SHORT: Record<string, string> = { transfer: 'transferred', xfer: 'transferred', cb: 'callback', callback: 'callback' }
+const MOCK_CLOSER_SHORT: Record<string, string> = { sold: 'sale', callback: 'callbackscheduled', cb: 'callbackscheduled', nq: 'notqualified', dnc: 'donotcall' }
+
+/** Each live agent work upload's row keys and phones, for repeats and undo. */
+const MOCK_UPLOAD_KEYS = new Map<string, Set<string>>()
+const MOCK_UPLOAD_PHONES = new Map<string, Set<string>>()
+
+type MockAgentPick = { user: MockUser } | { message: string }
+type MockFronterTally = { qualifications: number; transfers: number; callbacks: number }
+type MockCloserTally = { sold: number; own_sales: number; transfers_taken: number; outcomes: Record<string, number> }
+
+function mockWorkAgent(text: string, role: 'fronter' | 'closer'): MockAgentPick {
+  const key = mockNameKey(text)
+  const user = MOCK_USERS.find((u) => u.username === text.toLowerCase()) ?? MOCK_USERS.find((u) => mockNameKey(u.name) === key)
+  if (!user) return { message: `Nobody called "${text}" was found. Use their username or their name as on the Agents sheet.` }
+  if (!user.roles.includes(role)) return { message: `${user.name} isn't a ${role}.` }
+  return { user }
+}
+
+function mockWorkOutcome(text: string, stage: 'fronter' | 'closer') {
+  const key = mockNameKey(text)
+  const allowed = MOCK_DISPOSITION_CATALOG.filter((d) => d.stage === stage && !d.retired)
+  const wanted = (stage === 'fronter' ? MOCK_FRONTER_SHORT : MOCK_CLOSER_SHORT)[key] ?? key
+  return (
+    allowed.find((d) => mockNameKey(d.label) === wanted) ?? {
+      message: `"${text}" isn't an outcome here. Use one of: ${allowed.map((d) => d.label).join(', ')}.`,
+    }
+  )
+}
+
+function mockWorkDate(text: string, order: 'mdy' | 'dmy'): string | { message: string } {
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(text)
+  const slash = /^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/.exec(text)
+  let year = 0
+  let month = 0
+  let day = 0
+  if (iso) [year, month, day] = [Number(iso[1]), Number(iso[2]), Number(iso[3])]
+  else if (slash) {
+    const [a, b] = [Number(slash[1]), Number(slash[2])]
+    ;[month, day] = order === 'mdy' ? [a, b] : [b, a]
+    year = slash[3].length === 2 ? 2000 + Number(slash[3]) : Number(slash[3])
+  }
+  const written = order === 'mdy' ? 'MM/DD/YYYY' : 'DD/MM/YYYY'
+  const date = new Date(Date.UTC(year, month - 1, day))
+  if (!year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+    return { message: `"${text}" isn't a date written ${written}. Check the date order above, or write it as YYYY-MM-DD.` }
+  }
+  const value = date.toISOString().slice(0, 10)
+  if (value > new Date().toISOString().slice(0, 10)) return { message: `${value} is in the future.` }
+  if (year < 2000) return { message: `${value} is before 2000.` }
+  return value
+}
+
+type MockWorkCall = {
+  team: string
+  fronter: MockUser | null
+  closer: MockUser | null
+  fronterOutcome: string | null
+  closerOutcome: string | null
+  ownSale: boolean
+}
+
+/** An agent work file read as the API reads it, for CSVs; an Excel file answers a sample. */
+async function mockAgentWorkCheck(file: File | undefined, order: 'mdy' | 'dmy') {
+  if (!(file instanceof File) || file.size === 0) return { problem: 'That file is empty.' }
+  const head = new Uint8Array(await file.slice(0, 2).arrayBuffer())
+  const excel = head[0] === 0x50 && head[1] === 0x4b
+  const lines = excel
+    ? [
+        'Date,Phone,First name,Fronter,Fronter outcome,Closer,Closer outcome,Policy number,Total payment,Down payment,Monthly payment,Account number',
+        '2026-11-02,(323) 555-0190,Rae,Frank Fronter,Transferred,Carl Closer,Sale,AW100900,1200,100,90,4111222233334444',
+        '2026-11-02,323.555.0191,Lou,Frank Fronter,Callback,,,,,,,',
+        '2026-11-03,+1 323 555 0192,Max,,,Carl Closer,Sale,AW100901,900,0,75,4111222233335555',
+      ]
+    : (await file.text()).replace(/^﻿/, '').split(/\r?\n/).filter((line) => line.trim())
+  const rows = lines.map((line) => line.split(',').map((cell) => cell.trim().replace(/\s+/g, ' ')))
+  const headings = (rows[0] ?? []).map((cell) => cell.toLowerCase().replace('(optional)', '').replace(/[\s*:]/g, ''))
+  const col: Record<string, number> = {}
+  const unused: string[] = []
+  headings.forEach((heading, index) => {
+    const field = Object.keys(MOCK_WORK_HEADINGS).find((f) => MOCK_WORK_HEADINGS[f].includes(heading))
+    if (field) col[field] = index
+    else if (heading) unused.push(rows[0][index])
+  })
+  if (col.phone === undefined) {
+    return { problem: `No heading row with a Phone column was found. The first row has: ${rows[0]?.join(', ') || 'nothing'}. Download the template to see the headings.` }
+  }
+  const problems: { row: number; column: string | null; message: string }[] = []
+  const notes: { row: number | null; message: string }[] = []
+  if (excel) notes.push({ row: null, message: 'Read the sheet "Agent work". Skipped the sheets How to fill, Agents and Examples.' })
+  if (unused.length) notes.push({ row: null, message: `Not used: ${unused.join(', ')}` })
+  const keys = new Map<string, number>()
+  const days = new Map<string, number>()
+  const calls: MockWorkCall[] = []
+  const openCallbacks = new Map<string, MockWorkCall>()
+  const phones = new Set<string>()
+  const rowKeys: string[] = []
+  const agentKeys: string[] = []
+  let leadOnly = 0
+  rows.slice(1).forEach((cells, index) => {
+    const row = index + 2
+    const cell = (field: string) => (col[field] === undefined ? '' : (cells[col[field]] ?? ''))
+    const problem = (column: string | null, message: string) => problems.push({ row, column, message })
+    const before = problems.length
+    const digits = cell('phone').replace(/\D/g, '')
+    const phone = digits.length === 10 ? `+1${digits}` : digits.length === 11 && digits[0] === '1' ? `+${digits}` : null
+    if (!cell('phone')) problem('Phone', 'The phone number is empty.')
+    else if (!phone) problem('Phone', `"${cell('phone')}" can't be a phone number.`)
+    const fronter = cell('fronter') ? mockWorkAgent(cell('fronter'), 'fronter') : null
+    const closer = cell('closer') ? mockWorkAgent(cell('closer'), 'closer') : null
+    const fOutcome = cell('fronter_outcome') ? mockWorkOutcome(cell('fronter_outcome'), 'fronter') : null
+    const cOutcome = cell('closer_outcome') ? mockWorkOutcome(cell('closer_outcome'), 'closer') : null
+    if (fronter && 'message' in fronter) problem('Fronter', fronter.message)
+    if (closer && 'message' in closer) problem('Closer', closer.message)
+    if (fOutcome && 'message' in fOutcome) problem('Fronter outcome', fOutcome.message)
+    if (cOutcome && 'message' in cOutcome) problem('Closer outcome', cOutcome.message)
+    if (!!fronter !== !!fOutcome) problem(fronter ? 'Fronter outcome' : 'Fronter', 'Give the fronter and their outcome together, or leave both empty.')
+    if (!!closer !== !!cOutcome) problem(closer ? 'Closer outcome' : 'Closer', 'Give the closer and their outcome together, or leave both empty.')
+    const fLabel = fOutcome && 'label' in fOutcome ? fOutcome.label : null
+    const cLabel = cOutcome && 'label' in cOutcome ? cOutcome.label : null
+    if (fLabel === 'Transferred' && !closer) problem('Closer', 'A Transferred row needs the closer who took it, and their outcome.')
+    if (fLabel === 'Callback' && closer) problem('Closer', "A fronter's Callback isn't handed to a closer. Leave Closer empty.")
+    const payment = MOCK_PAYMENT_FIELDS.some((f) => cell(f))
+    if (payment && cLabel !== 'Sale' && cLabel !== 'Callback Scheduled') {
+      problem('Policy number', 'Payment and card details go only on a Sale or a Callback Scheduled. Leave them empty.')
+    }
+    const account = cell('account_number')
+    if (/e\+/i.test(account) || account.replace(/[\s.-]/g, '').length > 19) {
+      problem('Account number', 'Excel damaged this number (it keeps only 15 digits). Format the column as Text and type it again.')
+    } else if (account && !/^\d{4,19}$/.test(account.replace(/[\s.-]/g, ''))) {
+      problem('Account number', 'The account number must be 4 to 19 digits.')
+    }
+    if (cLabel === 'Sale' && (!cell('total_payment') || !account)) {
+      problem('Account number', 'A Sale needs the total, down and monthly payments, and the account number.')
+    }
+    const agent = fronter ?? closer
+    let day: string | null = null
+    if (cell('date')) {
+      const read = mockWorkDate(cell('date'), order)
+      if (typeof read === 'string') day = read
+      else problem('Date', read.message)
+    } else if (agent) problem('Date', 'The date is empty. It is needed when the row names an agent.')
+    const key = [phone, day, cell('fronter'), cell('fronter_outcome'), cell('closer'), cell('closer_outcome')].join('|').toLowerCase()
+    if (keys.has(key)) problem(null, `This row is the same as row ${keys.get(key)}. Remove one.`)
+    else keys.set(key, row)
+    const earlierId = agent ? [...MOCK_UPLOAD_KEYS.entries()].find(([, set]) => set.has(key))?.[0] : undefined
+    const earlierRow = MOCK_UPLOADS.find((u) => u.id === earlierId)
+    if (agent) agentKeys.push(key)
+    if (earlierRow) problem('Phone', `This row was already uploaded on ${earlierRow.created_at.slice(0, 10)} (${earlierRow.file_name}).`)
+    if (problems.length > before || !phone) return
+    if (cLabel === 'Sale' && !cell('policy_number')) {
+      notes.push({ row, message: "This sale has no policy number, so the Paid upload can't match it." })
+    }
+    phones.add(phone)
+    if (day) days.set(day, (days.get(day) ?? 0) + 1)
+    if (!agent) {
+      leadOnly++
+      return
+    }
+    rowKeys.push(key)
+    const f = fronter && 'user' in fronter ? fronter.user : null
+    const c = closer && 'user' in closer ? closer.user : null
+    const team = MOCK_TEAMS.find((t) => t.id === (f ?? c)?.team_id)?.name ?? ''
+    const followed = !f && c ? openCallbacks.get(`${phone}|${c.id}`) : undefined
+    if (followed) {
+      followed.closerOutcome = cLabel
+      if (cLabel !== 'Callback Scheduled') openCallbacks.delete(`${phone}|${c!.id}`)
+      return
+    }
+    const call: MockWorkCall = { team, fronter: f, closer: c, fronterOutcome: fLabel, closerOutcome: cLabel, ownSale: !f }
+    calls.push(call)
+    if (c && cLabel === 'Callback Scheduled') openCallbacks.set(`${phone}|${c.id}`, call)
+  })
+  const uploaded = [...MOCK_UPLOAD_KEYS.entries()].find(
+    ([, set]) => agentKeys.length > 0 && agentKeys.every((key) => set.has(key))
+  )
+  const earlier = uploaded ? MOCK_UPLOADS.find((u) => u.id === uploaded[0]) : undefined
+  const teams = new Map<string, { team: string; fronters: Map<string, MockFronterTally>; closers: Map<string, MockCloserTally> }>()
+  const teamOf = (name: string) => {
+    if (!teams.has(name)) teams.set(name, { team: name, fronters: new Map(), closers: new Map() })
+    return teams.get(name)!
+  }
+  for (const call of calls) {
+    const t = teamOf(call.team)
+    if (call.fronter) {
+      const n = t.fronters.get(call.fronter.id) ?? { qualifications: 0, transfers: 0, callbacks: 0 }
+      if (call.fronterOutcome === 'Transferred') {
+        n.qualifications++
+        n.transfers++
+      }
+      if (call.fronterOutcome === 'Callback') n.callbacks++
+      t.fronters.set(call.fronter.id, n)
+    }
+    if (call.closer) {
+      const n: MockCloserTally = t.closers.get(call.closer.id) ?? { sold: 0, own_sales: 0, transfers_taken: 0, outcomes: {} }
+      if (!call.ownSale) n.transfers_taken++
+      if (call.closerOutcome === 'Sale') {
+        n.sold++
+        if (call.ownSale) n.own_sales++
+      }
+      if (call.closerOutcome) n.outcomes[call.closerOutcome] = (n.outcomes[call.closerOutcome] ?? 0) + 1
+      t.closers.set(call.closer.id, n)
+    }
+  }
+  const person = (id: string) => MOCK_USERS.find((u) => u.id === id)!
+  const existingPhones = new Set(Object.values(MOCK_LEADS).map((lead) => lead.phone_no))
+  return {
+    keys: rowKeys,
+    phones,
+    check: {
+      file_name: file.name,
+      sheet: excel ? 'Agent work' : null,
+      dates: [...days.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([day, count]) => ({ day, rows: count })),
+      totals: {
+        rows: rows.length - 1,
+        new_leads: [...phones].filter((p) => !existingPhones.has(p)).length,
+        existing_leads: [...phones].filter((p) => existingPhones.has(p)).length,
+        lead_only: leadOnly,
+        calls: calls.length,
+        transfers: calls.filter((c) => c.fronterOutcome === 'Transferred').length,
+        sales: calls.filter((c) => c.closerOutcome === 'Sale').length,
+        own_sales: calls.filter((c) => c.ownSale).length,
+      },
+      teams: [...teams.values()]
+        .sort((a, b) => a.team.localeCompare(b.team))
+        .map((t) => ({
+          team: t.team,
+          fronters: [...t.fronters.entries()].map(([id, n]) => ({ name: person(id).name, username: person(id).username, qualifications: n.qualifications, transfers: n.transfers, callbacks: n.callbacks })),
+          closers: [...t.closers.entries()].map(([id, n]) => ({ name: person(id).name, username: person(id).username, sold: n.sold, own_sales: n.own_sales, transfers_taken: n.transfers_taken, outcomes: n.outcomes })),
+        })),
+      problems: problems.slice(0, 500),
+      problem_count: problems.length,
+      notes,
+      already_uploaded: earlier
+        ? `This file was already uploaded on ${earlier.created_at.slice(0, 10)} (${earlier.file_name}). Undo that one first.`
+        : null,
+    },
+  }
+}
+
 export const handlers = [
   rest.get('http://localhost:4000/health', (req, res, ctx) => {
     return res(ctx.status(200), ctx.json({ status: 'ok' }))
@@ -3304,6 +3725,7 @@ export const handlers = [
       )
     }
     user.password = body.new_password
+    user.must_change_password = false
     endMockSessions(user)
     return res(ctx.status(200), ctx.json(issueMockTokens(user)))
   }),
@@ -3699,6 +4121,8 @@ export const handlers = [
       active: true,
       created_at: new Date().toISOString(),
       team_id: teamId,
+      // Whoever added them chose it, so they choose their own at first sign-in.
+      must_change_password: Boolean(body.password),
     }
     MOCK_USERS.push(created)
     if (!body.password) issueMockLink(created.id, 'invite')
@@ -3737,6 +4161,7 @@ export const handlers = [
       )
     }
     user.password = body.password
+    user.must_change_password = true
     endMockSessions(user)
     return res(ctx.status(204))
   }),
@@ -5818,5 +6243,176 @@ export const handlers = [
       ctx.status(200),
       ctx.json({ items: all.slice(offset, offset + limit), total: all.length, limit, offset })
     )
+  }),
+
+  rest.get('/data-imports', (req, res, ctx) => {
+    const refused = superAdminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    return res(ctx.status(200), ctx.json({ items: MOCK_UPLOADS.map(mockUploadItem) }))
+  }),
+
+  rest.get('/data-imports/templates/:kind', (req, res, ctx) => {
+    const refused = superAdminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    // The mock does not build a workbook; the real template comes from the API.
+    return res(
+      ctx.status(200),
+      ctx.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
+      ctx.body(`Mock ${String(req.params.kind)} template`)
+    )
+  }),
+
+  rest.post('/data-imports/users/check', async (req, res, ctx) => {
+    const refused = superAdminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    // Deprecated, but req.body is MSW 1.x's only multipart reader.
+    const read = await mockUsersCheck((req.body as { file?: File }).file)
+    if ('problem' in read) return res(ctx.status(422), ctx.json(policyFileProblem(read.problem as string)))
+    return res(ctx.status(200), ctx.json(read.check))
+  }),
+
+  rest.post('/data-imports/users', async (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = superAdminRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const file = (req.body as { file?: File }).file
+    const read = await mockUsersCheck(file)
+    if ('problem' in read) return res(ctx.status(422), ctx.json(policyFileProblem(read.problem as string)))
+    if (read.check.problems.length > 0) {
+      return res(ctx.status(422), ctx.json(policyFileProblem('Fix the rows with problems first, then upload again.')))
+    }
+    if (read.creates.length === 0) {
+      return res(ctx.status(422), ctx.json(policyFileProblem('Everyone in this file is already there.')))
+    }
+    const now = new Date().toISOString()
+    const upload: MockUpload = {
+      id: crypto.randomUUID(),
+      kind: 'users',
+      file_name: file?.name ?? 'upload',
+      summary: { users: read.creates.length, teams: read.check.summary.new_teams, existing: read.check.summary.existing },
+      created_at: now,
+      created_by_name: mockActor(authorization)!.name,
+      undone_at: null,
+      undone_by_name: null,
+    }
+    const users = read.creates.map((create) => {
+      let team = MOCK_TEAMS.find((t) => t.name === create.team)
+      if (!team) {
+        team = { id: crypto.randomUUID(), name: create.team, active: true, created_at: now, updated_at: now }
+        MOCK_TEAMS.push(team)
+      }
+      const password = mockPassword()
+      MOCK_USERS.push({
+        id: String(++userSeq),
+        username: create.username,
+        email: null,
+        password,
+        name: create.name,
+        roles: [create.role],
+        active: true,
+        created_at: now,
+        team_id: team.id,
+        must_change_password: true,
+        data_import_id: upload.id,
+      })
+      return { team: team.name, name: create.name, role: create.role, username: create.username, password }
+    })
+    MOCK_UPLOADS.unshift(upload)
+    return res(
+      ctx.status(201),
+      ctx.json({ upload: mockUploadItem(upload), users, files: mockSignInFiles(users) })
+    )
+  }),
+
+  rest.post('/data-imports/:uploadId/passwords', (req, res, ctx) => {
+    const refused = superAdminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const upload = MOCK_UPLOADS.find((u) => u.id === req.params.uploadId && u.kind === 'users')
+    if (!upload) return res(ctx.status(404), ctx.json(authErrorBody('users upload not found', 'not_found')))
+    const users = MOCK_USERS.filter((u) => u.data_import_id === upload.id && u.must_change_password && u.active).map(
+      (user) => {
+        user.password = mockPassword()
+        endMockSessions(user)
+        const team = MOCK_TEAMS.find((t) => t.id === user.team_id)
+        return {
+          team: team?.name ?? '',
+          name: user.name,
+          role: user.roles[0] as 'fronter' | 'closer' | 'administrator',
+          username: user.username,
+          password: user.password,
+        }
+      }
+    )
+    return res(ctx.status(200), ctx.json({ users, files: mockSignInFiles(users) }))
+  }),
+
+  rest.post('/data-imports/agent-work/check', async (req, res, ctx) => {
+    const refused = superAdminRefusal(req.headers.get('authorization'))
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const body = req.body as { file?: File; date_order?: string }
+    const read = await mockAgentWorkCheck(body.file, body.date_order === 'dmy' ? 'dmy' : 'mdy')
+    if ('problem' in read) return res(ctx.status(422), ctx.json(policyFileProblem(read.problem as string)))
+    return res(ctx.status(200), ctx.json(read.check))
+  }),
+
+  rest.post('/data-imports/agent-work', async (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = superAdminRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const body = req.body as { file?: File; date_order?: string }
+    const read = await mockAgentWorkCheck(body.file, body.date_order === 'dmy' ? 'dmy' : 'mdy')
+    if ('problem' in read) return res(ctx.status(422), ctx.json(policyFileProblem(read.problem as string)))
+    if (read.check.problem_count > 0 || read.check.already_uploaded) {
+      return res(ctx.status(422), ctx.json(policyFileProblem('Fix the rows with problems first, then upload again.')))
+    }
+    const totals = read.check.totals
+    const upload: MockUpload = {
+      id: crypto.randomUUID(),
+      kind: 'agent_work',
+      file_name: body.file?.name ?? 'upload',
+      summary: { rows: totals.rows, leads: totals.new_leads, calls: totals.calls, transfers: totals.transfers, sales: totals.sales },
+      created_at: new Date().toISOString(),
+      created_by_name: mockActor(authorization)!.name,
+      undone_at: null,
+      undone_by_name: null,
+    }
+    MOCK_UPLOADS.unshift(upload)
+    MOCK_UPLOAD_KEYS.set(upload.id, new Set(read.keys))
+    MOCK_UPLOAD_PHONES.set(upload.id, read.phones)
+    return res(ctx.status(201), ctx.json({ upload: mockUploadItem(upload) }))
+  }),
+
+  rest.post('/data-imports/:uploadId/undo', (req, res, ctx) => {
+    const authorization = req.headers.get('authorization')
+    const refused = superAdminRefusal(authorization)
+    if (refused) return res(ctx.status(refused.status), ctx.json(refused.body))
+    const upload = MOCK_UPLOADS.find((u) => u.id === req.params.uploadId)
+    if (!upload || upload.kind !== 'agent_work' || upload.undone_at) {
+      return res(ctx.status(404), ctx.json(authErrorBody('agent work upload not found', 'not_found')))
+    }
+    // The mock knows no live work; a later upload on the same leads stands in for it.
+    const phones = MOCK_UPLOAD_PHONES.get(upload.id) ?? new Set<string>()
+    const later = MOCK_UPLOADS.some(
+      (u) =>
+        u.kind === 'agent_work' &&
+        !u.undone_at &&
+        u.created_at > upload.created_at &&
+        [...(MOCK_UPLOAD_PHONES.get(u.id) ?? [])].some((p) => phones.has(p))
+    )
+    if (later) {
+      return res(
+        ctx.status(409),
+        ctx.json(
+          authErrorBody(
+            "A later upload continued this upload's callbacks or added calls to its leads. Undo that upload first.",
+            'data_import.in_use'
+          )
+        )
+      )
+    }
+    upload.undone_at = new Date().toISOString()
+    upload.undone_by_name = mockActor(authorization)!.name
+    MOCK_UPLOAD_KEYS.delete(upload.id)
+    return res(ctx.status(200), ctx.json(mockUploadItem(upload)))
   }),
 ]

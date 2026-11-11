@@ -440,7 +440,7 @@ export function UserFormDialog({
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 error={Boolean(problems.password)}
-                helperText={problems.password ?? 'At least 8 characters.'}
+                helperText={problems.password ?? "At least 8 characters. They'll choose their own password when they first sign in."}
                 endAdornment={
                   <button
                     type="button"
