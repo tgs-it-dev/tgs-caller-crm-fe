@@ -1013,7 +1013,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List leads */
+        /**
+         * List leads
+         * @description A page of the team's leads. A fronter gets the leads they added or recorded an
+         *     outcome on, and a closer the leads with a call that is theirs, on any team.
+         */
         get: operations["list_leads_leads_get"];
         put?: never;
         /**
@@ -1132,10 +1136,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The team's leads, by phone, name and disposition
+         * Leads by phone, name and disposition: a fronter's own, or the team's
          * @description Newest first: by the latest fronter disposition, or when the lead was added.
          *     Unless filtered by a disposition it was given, a lead leaves the list once a closer
          *     accepts it or it is sold. Summary fields only.
+         *
+         *     A fronter gets only the leads they added or recorded an outcome on, and with
+         *     ``disposition`` only the ones they gave it themselves, so one fronter's callbacks
+         *     never show to another. A Team Admin gets the team's.
          */
         get: operations["search_leads_search_get"];
         put?: never;
@@ -1153,7 +1161,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Fetch one lead */
+        /**
+         * Fetch one lead
+         * @description A lead ``GET /leads`` would list for this user; 404 for any other.
+         */
         get: operations["get_lead_leads__lead_id__get"];
         put?: never;
         post?: never;
@@ -1162,7 +1173,8 @@ export interface paths {
         head?: never;
         /**
          * Update fronter form fields on a lead
-         * @description Overwrite personal, vehicle, and VIN / license-plate fields.
+         * @description Overwrite personal, vehicle, and VIN / license-plate fields, on a lead the
+         *     fronter worked, or any on the team for a Team Admin.
          */
         patch: operations["patch_lead_leads__lead_id__patch"];
         trace?: never;
@@ -1179,7 +1191,8 @@ export interface paths {
         /**
          * The call to record a disposition or transfer for this lead on
          * @description The lead's latest call while nothing is recorded on it or it waits on a
-         *     callback; otherwise a new one. The same rule ``POST /leads`` follows.
+         *     callback; otherwise a new one. The same rule ``POST /leads`` follows. A fronter
+         *     may only name a lead they worked.
          */
         post: operations["open_lead_call_leads__lead_id__calls_post"];
         delete?: never;
@@ -2112,7 +2125,7 @@ export interface paths {
         };
         /**
          * List the closers a transfer can name
-         * @description Returns active closers on the caller's team, whether each is on a call, and how many offers are waiting for them. Send a row's ``user_id`` as ``closer_user_id`` on ``POST /transfers``.
+         * @description Returns active closers on every team, each with their team, whether each is on a call, and how many offers are waiting for them. A transfer may name a closer on any team. Send a row's ``user_id`` as ``closer_user_id`` on ``POST /transfers``.
          */
         get: operations["list_closers_transfers_closers_get"];
         put?: never;
@@ -2467,6 +2480,13 @@ export interface components {
              */
             status: "available" | "on_call";
             /**
+             * Team Id
+             * @description The closer's team. Any team's closer can be named.
+             */
+            team_id: string | null;
+            /** Team Name */
+            team_name?: string | null;
+            /**
              * User Id
              * Format: uuid
              */
@@ -2481,7 +2501,7 @@ export interface components {
         AvailableClosersResponse: {
             /**
              * Items
-             * @description Active closers only. Empty when the team has none, and a transfer then has nobody to name. Send a row's user_id as closer_user_id on POST /transfers.
+             * @description Active closers on every team, or the one named. Send a row's user_id as closer_user_id on POST /transfers.
              */
             items: components["schemas"]["AvailableCloserItem"][];
         };
@@ -10086,7 +10106,7 @@ export interface operations {
     list_closers_transfers_closers_get: {
         parameters: {
             query?: {
-                /** @description A Super Admin names one team's closers, or leaves it out for every team; anyone else may only name their own team. */
+                /** @description One team's closers; left out, every team's. */
                 team_id?: string | null;
             };
             header?: never;
