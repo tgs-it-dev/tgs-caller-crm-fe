@@ -1162,21 +1162,33 @@ function mockCallsOf(leadId: string): { id: string; at: string }[] {
 }
 
 /** A call's fronter dispositions, oldest first; a seeded callback counts as one. */
-function mockFronterDispositionsOn(callId: string): { id: string; label: string; at: string }[] {
+function mockFronterDispositionsOn(
+  callId: string
+): { id: string; label: string; at: string; actor: string }[] {
   const recorded = (MOCK_INTERACTION_DISPOSITIONS.get(callId) ?? []).filter(
     (row) => row.stage === 'fronter'
   )
   if (recorded.length > 0) {
-    return [...recorded]
-      .sort((a, b) => a.version - b.version)
-      .map((row) => ({ id: row.disposition_id, label: row.label, at: row.created_at }))
+    return [...recorded].sort((a, b) => a.version - b.version).map((row) => ({
+      id: row.disposition_id,
+      label: row.label,
+      at: row.created_at,
+      actor: row.actor_user_id,
+    }))
   }
   const seeded = MOCK_FRONTER_CALLBACKS.find((row) => row.id === callId)
   const callback = MOCK_DISPOSITION_CATALOG.find(
     (row) => row.stage === 'fronter' && row.label === 'Callback'
   )
   return seeded && callback
-    ? [{ id: callback.id, label: seeded.disposition_label, at: seeded.dispositioned_at }]
+    ? [
+        {
+          id: callback.id,
+          label: seeded.disposition_label,
+          at: seeded.dispositioned_at,
+          actor: seeded.actor_user_id,
+        },
+      ]
     : []
 }
 
@@ -1192,9 +1204,22 @@ function mockLatestDisposition(leadId: string) {
 }
 
 /** Whether a fronter ever gave this mock lead the disposition, on any of its calls. */
-function mockEverGiven(leadId: string, dispositionId: string): boolean {
+/** Given this outcome on any call, by anyone, or by `by` alone when named. */
+function mockEverGiven(leadId: string, dispositionId: string, by?: string): boolean {
   return mockCallsOf(leadId).some((call) =>
-    mockFronterDispositionsOn(call.id).some((row) => row.id === dispositionId)
+    mockFronterDispositionsOn(call.id).some(
+      (row) => row.id === dispositionId && (by === undefined || row.actor === by)
+    )
+  )
+}
+
+/** Added by this fronter, or given a fronter outcome by them, as the API reads it. */
+function mockWorkedBy(lead: LeadResponse, fronterId: string): boolean {
+  return (
+    lead.fronter_id === fronterId ||
+    mockCallsOf(lead.id).some((call) =>
+      mockFronterDispositionsOn(call.id).some((row) => row.actor === fronterId)
+    )
   )
 }
 
@@ -1231,7 +1256,12 @@ function mockLeadWorker(authorization: string | null) {
       },
     }
   }
-  return { teamId: actor.roles.includes('super_admin') ? null : (actor.team_id ?? 'no-team') }
+  const teamWide = actor.roles.some((role) => role === 'administrator' || role === 'super_admin')
+  return {
+    teamId: actor.roles.includes('super_admin') ? null : (actor.team_id ?? 'no-team'),
+    // A fronter reads only the leads they worked; an admin, the team's.
+    fronterId: teamWide ? undefined : actor.id,
+  }
 }
 
 const MOCK_STAGE_ORDER: FunnelStage[] = ['leads', 'qualified', 'transferred', 'sold', 'paid']
@@ -5366,7 +5396,9 @@ export const handlers = [
     const digits = q.replace(/\D/g, '')
 
     const given = disposition !== null && disposition !== 'none'
+    const mine = worker.fronterId
     const rows = mockWorkableLeads(worker.teamId ?? null)
+      .filter((lead) => !mine || mockWorkedBy(lead, mine))
       .filter((lead) => given || !mockWithACloser(lead.id))
       .map((lead) => ({
         lead,
@@ -5382,7 +5414,9 @@ export const handlers = [
       })
       .filter(({ lead, latest }) => {
         if (!disposition) return true
-        return disposition === 'none' ? latest === null : mockEverGiven(lead.id, disposition)
+        return disposition === 'none'
+          ? latest === null
+          : mockEverGiven(lead.id, disposition, mine)
       })
       .sort((a, b) =>
         (b.latest?.at ?? b.lead.created_at).localeCompare(a.latest?.at ?? a.lead.created_at)

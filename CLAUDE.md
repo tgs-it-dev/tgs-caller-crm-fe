@@ -176,10 +176,14 @@ The administrator dashboard (`/admin`) is fed by `lib/liveStatus.ts`:
 leads by hand: New lead, and one Leads table, read from `GET /leads/search`
 through `searchLeads()` in `lib/leads.ts`.
 
-- **The list is every lead the team ever saved as Callback, and nothing else.** A
+- **The list is every lead this fronter saved as Callback, and nothing else.** A
   lead stays on it once it is transferred, accepted or sold, with Edit still
   there, as the client asked; its latest outcome shows in the table. Newest
   first. There is no outcome filter, and search stays inside the list.
+- **Another fronter's leads never show,** in the list or the search, even by the
+  whole number; the API answers another fronter's lead as not found. A number two
+  fronters both called is one lead, so it is on both their lists. Team Admins and
+  Super Admins read the team's.
 - **A fronter records Callback or Transferred, and must pick one.** Transferred
   must name a closer, on a call or not. The offer waits in that closer's queue
   with no time limit until they accept it, and it cannot be rejected. The closers
@@ -443,9 +447,9 @@ page.
   out stay on record and in the API, but `shownInHistory()` in `lib/leads.ts` keeps
   them off the table. This page also never names a lead's calls: they are how the
   app groups saves, not something a reader needs.
-- **Not here, because nothing records it:** a callback's time or owner (callbacks
-  go to the whole team), and dialer data such as call legs and raw events, which
-  stay on the interaction detail screen. Reports no longer links there.
+- **Not here, because nothing records it:** a callback's time, and dialer data
+  such as call legs and raw events, which stay on the interaction detail screen.
+  Reports no longer links there.
 
 ## Team stats
 
