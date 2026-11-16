@@ -188,6 +188,12 @@ through `searchLeads()` in `lib/leads.ts`.
   must name a closer, on a call or not. The offer waits in that closer's queue
   with no time limit until they accept it, and it cannot be rejected. The closers
   table shows how many offers each closer already has waiting.
+- **Any team's closer can be named** (`ClosersTable`). The table opens on the
+  fronter's own team, with a Team switch (another team, or All teams, which adds
+  a Team column) and a name search. The picked closer stays shown whatever the
+  filters, so a save never names someone off screen. The call then opens for that
+  closer whatever its team, and its sale counts for the closer's team (see Team
+  stats).
 - **No Search button.** The box searches 300ms after typing stops, from the
   first character, and matches part of the name, and part of the phone too when
   it is a number: one digit already searches phones, one letter names. A search
@@ -318,7 +324,7 @@ line for the workspace.
   `/admin/card-edits`: a Super Admin approves or rejects with one confirm, and Open
   on any row goes to the lead's full view (`?from=card-edits`, which its back link
   and the menu follow, as `?from=policies` does); a Team Admin sees their team's,
-  read-only. A closer has no page of their own: the call and Callbacks show them
+  read-only. A call is its closer's team's, which may not be the lead's. A closer has no page of their own: the call and Callbacks show them
   where their request stands.
 - **The fronter's details.** While the call is open, the Lead Details card
   (`QualificationSnapshot`) has Edit (`FronterDetailsDialog`,
@@ -464,6 +470,12 @@ role="super_admin"`, and the API's 403.
   its calls, Sold if the latest closer outcome on any of its calls is a sale. A
   range's figures keep moving as its leads are worked. An "All teams" row sits
   under the teams.
+- **Two sides, two teams.** The lead figures, and the Reports funnel, go by the
+  team that added the lead, whoever sold it. Sales, Paid and Conversion, and the
+  sales list, go by the team of the closer who made the sale, saved when they
+  took the call, so a later team move doesn't shift it. A fronter's lead sold by
+  another team's closer is Sold on the fronter's team and a sale on the closer's.
+  The note under the table says so.
 - **Conversion is Paid over Sales,** both by date, not by the leads added: the
   sales paid during the dates (a paid month counts on its 1st) over the sales
   made in them. A cell shows the rate, a bar to compare teams by eye, then
@@ -522,7 +534,8 @@ in `components/stats/`.
   all in the URL so Back from a lead returns to the same view. All agents is a
   table with their figures and target; picking one (View or the Agent filter)
   shows their tiles, `AgentLeadsTable` and `AgentSalesTable`. A Team Admin sees
-  only their team and no amounts; a Super Admin also gets Total, Down and
+  only their team's agents, and all of their work, even on another team's lead,
+  and no amounts; a Super Admin also gets Total, Down and
   Monthly on the sales.
 - **A lead opens as Reports opens one**: the full view for a Super Admin, with
   `?from=agents` so the menu and back link say Agent stats, and
@@ -663,7 +676,8 @@ sold call is a QA item, through `lib/qa.ts` (`/qa/items`, `/qa/summary`,
 
 - **Who sees what:**
   - a Super Admin and a QA Manager see every team at `/admin/qa`: count tiles for
-    all teams together, a Teams table with each team's counts (its name filters
+    all teams together, a Teams table with each team's counts, by the closer's
+    team (its name filters
     the queue), then the queue;
   - the count tiles are the Users screen's `StatCard`, in the order the work goes
     (Unassigned, Open, Disputed, Resolve Dispute, Closed). Each one filters the
@@ -734,8 +748,8 @@ nothing. A Super Admin then marks the matches Paid for a month.
 - **The API reads the file:** the first column, a header row and blank rows
   passed over, case and surrounding spaces ignored, up to 5,000 numbers and 1 MB.
   A file it cannot read comes back as a 422 naming `file`, and its message shows
-  under the upload. A Team Admin only finds their own team's sales; another
-  team's reads as not found.
+  under the upload. A Team Admin only finds their own team's sales, by the
+  closer's team; another team's reads as not found.
 - **The upload** is one drop zone (`PolicyFileDrop`, shared with Retention's
   upload): drag a file in, or Choose file, then Look up.
 - **Results** have a header naming the file, then three `StatCard` tiles,

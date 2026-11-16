@@ -1868,16 +1868,28 @@ let transferSeq = 0
 const MOCK_TRANSFERS = new Map<string, TransferResponse>()
 
 /** Shared by GET /transfers/closers and the POST /transfers closer check. */
+// Every team's closers, as the API lists them: a fronter can hand a call to any.
 const MOCK_AVAILABLE_CLOSERS: Omit<AvailableCloserItem, 'waiting'>[] = [
-  {
-    user_id: '5a1f0c3e-0001-4000-8000-000000000001',
-    name: 'Carl Closer',
-    status: 'available',
-  },
   {
     user_id: '5a1f0c3e-0003-4000-8000-000000000003',
     name: 'Eli Brooks',
+    team_id: MOCK_TEAM_EAST,
+    team_name: 'East Coast',
     status: 'on_call',
+  },
+  {
+    user_id: '5a1f0c3e-0004-4000-8000-000000000004',
+    name: 'Dana Diaz',
+    team_id: MOCK_TEAM_EAST,
+    team_name: 'East Coast',
+    status: 'available',
+  },
+  {
+    user_id: '5a1f0c3e-0001-4000-8000-000000000001',
+    name: 'Carl Closer',
+    team_id: MOCK_TEAM_WEST,
+    team_name: 'West Coast',
+    status: 'available',
   },
 ]
 
