@@ -112,8 +112,9 @@ function emptyMessage(searching: boolean) {
 }
 
 /**
- * Fronter home: the team's callbacks, the only leads a fronter works. Searching
- * applies as it is typed; there is no button.
+ * Fronter home: the fronter's own callbacks, the only leads they work. Another
+ * fronter's never show, in the list or the search. Searching applies as it is
+ * typed; there is no button.
  */
 export function FronterDeskScreen() {
   const [createOpen, setCreateOpen] = useState(false)
@@ -212,7 +213,7 @@ export function FronterDeskScreen() {
 
         <DataTable
           title="Callbacks"
-          ariaLabel="The team's callbacks"
+          ariaLabel="Your callbacks"
           toolbar={
             <div className="flex flex-wrap items-end gap-3">
               <div className="w-full max-w-[320px]">

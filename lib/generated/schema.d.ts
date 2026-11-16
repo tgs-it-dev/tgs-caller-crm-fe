@@ -1013,7 +1013,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List leads */
+        /**
+         * List leads
+         * @description A page of the team's leads. A fronter gets the leads they added or recorded an
+         *     outcome on, and a closer the leads with a call that is theirs.
+         */
         get: operations["list_leads_leads_get"];
         put?: never;
         /**
@@ -1132,10 +1136,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The team's leads, by phone, name and disposition
+         * Leads by phone, name and disposition: a fronter's own, or the team's
          * @description Newest first: by the latest fronter disposition, or when the lead was added.
          *     Unless filtered by a disposition it was given, a lead leaves the list once a closer
          *     accepts it or it is sold. Summary fields only.
+         *
+         *     A fronter gets only the leads they added or recorded an outcome on, and with
+         *     ``disposition`` only the ones they gave it themselves, so one fronter's callbacks
+         *     never show to another. A Team Admin gets the team's.
          */
         get: operations["search_leads_search_get"];
         put?: never;
@@ -1153,7 +1161,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Fetch one lead */
+        /**
+         * Fetch one lead
+         * @description A lead ``GET /leads`` would list for this user; 404 for any other.
+         */
         get: operations["get_lead_leads__lead_id__get"];
         put?: never;
         post?: never;
@@ -1162,7 +1173,8 @@ export interface paths {
         head?: never;
         /**
          * Update fronter form fields on a lead
-         * @description Overwrite personal, vehicle, and VIN / license-plate fields.
+         * @description Overwrite personal, vehicle, and VIN / license-plate fields, on a lead the
+         *     fronter worked, or any on the team for a Team Admin.
          */
         patch: operations["patch_lead_leads__lead_id__patch"];
         trace?: never;
@@ -1179,7 +1191,8 @@ export interface paths {
         /**
          * The call to record a disposition or transfer for this lead on
          * @description The lead's latest call while nothing is recorded on it or it waits on a
-         *     callback; otherwise a new one. The same rule ``POST /leads`` follows.
+         *     callback; otherwise a new one. The same rule ``POST /leads`` follows. A fronter
+         *     may only name a lead they worked.
          */
         post: operations["open_lead_call_leads__lead_id__calls_post"];
         delete?: never;
