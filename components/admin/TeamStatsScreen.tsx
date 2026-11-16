@@ -242,7 +242,9 @@ export function TeamStatsScreen() {
                   Conversion is the sales paid during these dates over the sales made in them,
                   so old sales paid now can take it past 100%. Paid comes from the monthly upload
                   and counts on the 1st of its month, so this month fills in once its file is
-                  uploaded. Sales below are listed by the day they were made.
+                  uploaded. Sales below are listed by the day they were made. The lead figures
+                  count the leads each team added, whoever sold them; sales, paid and
+                  conversion count the sales each team&apos;s closers made.
                 </p>
               }
               rows={rows}

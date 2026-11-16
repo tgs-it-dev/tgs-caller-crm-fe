@@ -1016,7 +1016,7 @@ export interface paths {
         /**
          * List leads
          * @description A page of the team's leads. A fronter gets the leads they added or recorded an
-         *     outcome on, and a closer the leads with a call that is theirs.
+         *     outcome on, and a closer the leads with a call that is theirs, on any team.
          */
         get: operations["list_leads_leads_get"];
         put?: never;
@@ -2125,7 +2125,7 @@ export interface paths {
         };
         /**
          * List the closers a transfer can name
-         * @description Returns active closers on the caller's team, whether each is on a call, and how many offers are waiting for them. Send a row's ``user_id`` as ``closer_user_id`` on ``POST /transfers``.
+         * @description Returns active closers on every team, each with their team, whether each is on a call, and how many offers are waiting for them. A transfer may name a closer on any team. Send a row's ``user_id`` as ``closer_user_id`` on ``POST /transfers``.
          */
         get: operations["list_closers_transfers_closers_get"];
         put?: never;
@@ -2480,6 +2480,13 @@ export interface components {
              */
             status: "available" | "on_call";
             /**
+             * Team Id
+             * @description The closer's team. Any team's closer can be named.
+             */
+            team_id: string | null;
+            /** Team Name */
+            team_name?: string | null;
+            /**
              * User Id
              * Format: uuid
              */
@@ -2494,7 +2501,7 @@ export interface components {
         AvailableClosersResponse: {
             /**
              * Items
-             * @description Active closers only. Empty when the team has none, and a transfer then has nobody to name. Send a row's user_id as closer_user_id on POST /transfers.
+             * @description Active closers on every team, or the one named. Send a row's user_id as closer_user_id on POST /transfers.
              */
             items: components["schemas"]["AvailableCloserItem"][];
         };
@@ -10099,7 +10106,7 @@ export interface operations {
     list_closers_transfers_closers_get: {
         parameters: {
             query?: {
-                /** @description A Super Admin names one team's closers, or leaves it out for every team; anyone else may only name their own team. */
+                /** @description One team's closers; left out, every team's. */
                 team_id?: string | null;
             };
             header?: never;
