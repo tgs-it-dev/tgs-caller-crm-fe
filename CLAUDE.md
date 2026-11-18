@@ -136,6 +136,9 @@ Frontend pieces:
   QA Agent works from `/qa` with QA and QA stats (`qaDeskRole()`).
 - **Retention desk.** Retention works from `/retention` with Pending and Upload
   (`retentionDeskRole()`). A Super Admin gets the same screens at `/admin/retention`.
+  A closer, fronter or Team Admin who also holds Retention reaches it from the
+  identity menu. Each desk keeps its own reach: every team's policies on
+  Retention, their own team on the other desk.
 - **Somebody may hold more than one role**, and the nav only ever shows the desk
   they are on, so the sidebar identity doubles as a desk menu — `heldDesks()` in
   `lib/auth.ts` lists every desk held, the current one ticked. A single-role
@@ -630,14 +633,21 @@ state or team. Administrator-only, like the rest of `/admin`.
   rather than hidden, so nobody goes looking for it.
 - **Team is set by a Super Admin.** They must pick it when adding and can change
   it when editing; the edit sends `team_id` in the same PATCH as the rest, and
-  only when it changed. Super Admin, QA Manager, QA Agent and Retention accounts
-  have no team: ticking any of those roles makes it the only one and hides the
-  field, and `qa_manager`, `qa_agent` and `retention` are fixed once the account
-  exists. Only a Super Admin adds a Retention account. A QA Manager
+  only when it changed. Super Admin, QA Manager and QA Agent accounts have no
+  team: ticking any of those roles makes it the only one and hides the field, and
+  `qa_manager` and `qa_agent` are fixed once the account exists. A QA Manager
   only adds QA Agents, so never picks a team. Picking a different team shows a note that the move takes
   effect on save and that anyone on a call should record its outcome first. The
   API does not block a move mid-call. Team Admins never see the field: the API
   puts their users on their own team and refuses `team_id` from them.
+- **Retention can sit with Fronter, Closer or Team Admin,** and the account keeps
+  that role's team; on its own it has no team and the field hides. Only a Super
+  Admin gives or removes it, on a new account or an existing one. Adding a team
+  role to a Retention-only account asks for a team; leaving an account with only
+  Retention takes it off its team, and the form says so before the save. A Team
+  Admin still manages their fronters and closers who hold it (a note says they
+  work Retention), but can't change Retention or leave them with Retention only.
+  `needsTeam()` in `UserFormDialog` mirrors the API's rule.
 - **Creating a user sets a username and a password.** The username is checked
   against the API's rule (3 to 64 letters, numbers, dots, dashes or
   underscores) before sending. The invitation-link option is gone from the
@@ -821,6 +831,8 @@ take their link base, so both desks share them.
   first and saves only the changes, checked afresh.
 - **Mocks** keep the history in memory, with POL-10002 and POL-10003 Pending and
   POL-10005 Cancelled to start, and `rita.retention` signs in as Retention.
+  `closer.retention` is an East closer who also holds Retention, and `everything`
+  holds it with Team Admin, Closer and Fronter.
 
 ## Data upload
 

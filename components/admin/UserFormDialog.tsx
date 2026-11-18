@@ -60,9 +60,22 @@ const sameRoles = (a: Role[], b: Role[]) =>
   a.length === b.length && a.every((role) => b.includes(role))
 
 /** These cover every team, so an account holding one has no team and no other role. */
-const COMPANY_WIDE: readonly Role[] = ['super_admin', 'qa_manager', 'qa_agent', 'retention']
+const COMPANY_WIDE: readonly Role[] = ['super_admin', 'qa_manager', 'qa_agent']
 /** Whether an account has a team turns on these, so they are set only when it is made. */
-const FIXED_AT_CREATION: readonly Role[] = ['qa_manager', 'qa_agent', 'retention']
+const FIXED_AT_CREATION: readonly Role[] = ['qa_manager', 'qa_agent']
+/** The roles that work one team's leads, so whoever holds one is on that team. */
+const TEAM_ROLES: readonly Role[] = ['fronter', 'closer', 'administrator']
+
+const holdsTeamRole = (roles: readonly Role[]) => roles.some((role) => TEAM_ROLES.includes(role))
+
+/**
+ * Whether an account holding these roles is on a team, as the API decides it.
+ * Retention works every team's policies, so it decides nothing: on its own the
+ * account has no team, and with a team role it is on that role's team.
+ */
+function needsTeam(roles: readonly Role[]): boolean {
+  return holdsTeamRole(roles) && !roles.some((role) => COMPANY_WIDE.includes(role))
+}
 
 /** Offers waiting on this closer, or 0 when that cannot be read, so a save is never blocked. */
 async function waitingFor(user: User): Promise<number> {
@@ -90,8 +103,9 @@ export function UserFormDialog({
   isSelf: boolean
   /**
    * The teams to pick from. A Super Admin picks one when creating and may change
-   * it when editing, except for a super_admin, qa_manager or qa_agent account,
-   * which has none. A QA Manager only ever creates QA Agents, so never picks one.
+   * it when editing, except for a super_admin, qa_manager or qa_agent account, or
+   * Retention on its own, which has none. A QA Manager only ever creates QA
+   * Agents, so never picks one.
    * A Team Admin leaves `team_id` out and the API pins the account to their own team.
    */
   teams: Pick<Team, 'id' | 'name'>[]
@@ -116,9 +130,17 @@ export function UserFormDialog({
   const [teamId, setTeamId] = useState(startingTeam)
   const creatingSuperAdmin = !user && roles.includes('super_admin')
   const companyWide = roles.some((role) => COMPANY_WIDE.includes(role))
+  // Retention on its own covers every team; with a team role it takes that role's team.
+  const retentionOnly = roles.includes('retention') && !holdsTeamRole(roles)
   // Picking or changing someone's team is the Super Admin's.
-  const showTeamField = !companyWide && canPickTeam
-  const mustPickTeam = !user && showTeamField
+  const showTeamField = !companyWide && !retentionOnly && canPickTeam
+  // On create, and on an edit giving a team role to an account that had no team.
+  const mustPickTeam = showTeamField && (!user || !needsTeam(user.roles))
+  // Saving Retention on its own takes the account off the team it is on.
+  const leavingTeam =
+    canPickTeam && retentionOnly && startingTeam
+      ? (teams.find((team) => team.id === startingTeam)?.name ?? 'their team')
+      : null
   // Whoever holds the email can reset the password, so only the Super Admin,
   // who resets passwords, gives or changes one. Everyone else adds by username.
   const showEmailField = canPickTeam
@@ -168,6 +190,10 @@ export function UserFormDialog({
     }
     // Super Admin must name the team on create; Team Admin may omit it.
     if (mustPickTeam && !teamId) found.team_id = 'Choose a team.'
+    // Retention on its own has no team, so only a Super Admin leaves an account with just that.
+    if (retentionOnly && !isSuperAdmin(actorRoles)) {
+      found.roles = 'Keep Fronter or Closer. Only a Super Admin can make an account Retention only.'
+    }
     // Keyed `password` so its own 422 lands on this same input.
     if (!user) {
       const problem = newPasswordProblem(password)
@@ -271,8 +297,11 @@ export function UserFormDialog({
     })
   }
 
+  // A move, so only for someone already on a team.
   const movingTo =
-    user && teamId !== startingTeam ? teams.find((team) => team.id === teamId) : undefined
+    user && startingTeam && teamId !== startingTeam
+      ? teams.find((team) => team.id === teamId)
+      : undefined
   const resetting = view === 'reset' && canResetPassword ? user : null
 
   return (
@@ -382,7 +411,7 @@ export function UserFormDialog({
                 label="Team"
                 value={teamId}
                 onChange={(event) => setTeamId(event.target.value)}
-                required={!user}
+                required={mustPickTeam}
               >
                 {/* Someone already on a team can be moved, not taken off it. */}
                 {!startingTeam && <option value="">Select a team</option>}
@@ -425,9 +454,14 @@ export function UserFormDialog({
               A QA Agent reviews sales from every team, so is not assigned to one.
             </p>
           )}
-          {!user && roles.includes('retention') && (
+          {canPickTeam && !user && retentionOnly && (
             <p className="text-xs leading-[150%] text-slate">
-              Retention works policies from every team, so is not assigned to one.
+              Retention on its own works policies from every team, so is not assigned to one.
+            </p>
+          )}
+          {leavingTeam && (
+            <p className="text-xs leading-[150%] text-slate">
+              Retention on its own has no team, so saving takes them off {leavingTeam}.
             </p>
           )}
 
@@ -497,9 +531,11 @@ export function UserFormDialog({
                 A QA Agent&apos;s role is set when the account is created.
               </p>
             )}
-            {user?.roles.includes('retention') && (
+            {/* Not offered here, but kept in the roles, so a save never drops it. */}
+            {!isSuperAdmin(actorRoles) && roles.includes('retention') && (
               <p className="mt-2 text-xs leading-[150%] text-slate">
-                A Retention account&apos;s role is set when the account is created.
+                {isSelf ? 'You also work' : 'They also work'} Retention, which only a Super Admin
+                can change.
               </p>
             )}
             {isSelf && isTeamAdmin(actorRoles) && !isSuperAdmin(actorRoles) && (
