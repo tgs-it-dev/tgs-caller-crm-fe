@@ -349,8 +349,8 @@ export interface paths {
          * @description Pin the user to exactly one team (PUT set / replace).
          *
          *     Locked contract: a second assign replaces ``team_id``; ``super_admin``,
-         *     ``qa_manager``, ``qa_agent`` and ``retention`` targets are rejected (company-wide scope is no
-         *     ``user_teams`` row).
+         *     ``qa_manager`` and ``qa_agent`` targets, and one holding ``retention`` with no team
+         *     role, are rejected (company-wide scope is no ``user_teams`` row).
          */
         put: operations["assign_user_team_auth_users__user_id__team_put"];
         post?: never;
@@ -3018,7 +3018,7 @@ export interface components {
             roles: ("fronter" | "closer" | "administrator" | "qa_manager" | "qa_agent" | "retention" | "super_admin")[];
             /**
              * Team Id
-             * @description Team the account joins: a Team Admin's own team, which they may leave out. A Super Admin must name one, except for a super_admin, qa_manager, qa_agent or retention account, which covers every team and has none.
+             * @description Team the account joins: a Team Admin's own team, which they may leave out. A Super Admin must name one, except for a super_admin, qa_manager or qa_agent account, or one whose only role is retention, which covers every team and has none.
              */
             team_id?: string | null;
             /** Username */

@@ -222,8 +222,9 @@ export function heldDesks(roles: Role[]): Role[] {
   if (roles.includes('fronter')) desks.push('fronter')
   const qa = qaDeskRole(roles)
   if (qa && !admin) desks.push(qa)
+  // A Super Admin has Retention under /admin; a Team Admin holding it needs its desk.
   const retention = retentionDeskRole(roles)
-  if (retention && !admin) desks.push(retention)
+  if (retention && admin !== 'super_admin') desks.push(retention)
   return desks
 }
 

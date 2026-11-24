@@ -188,9 +188,9 @@ const MOCK_USERS: MockUser[] = [
   { id: '3', username: 'admin', email: 'admin@tgs.com', password: 'password1', name: 'Ana Admin', roles: ['administrator'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_EAST },
   // Deactivated, so the list has something to show in that state from the start.
   { id: '5', username: 'former', email: 'former@tgs.com', password: 'password1', name: 'Nadia Former', roles: ['closer'], active: false, created_at: SEEDED_AT, team_id: MOCK_TEAM_EAST },
-  // Multi-role, so the sidebar's desk switcher is reachable locally: every other
-  // account here holds exactly one role, which is the case that hides it.
-  { id: '6', username: 'everything', email: 'everything@tgs.com', password: 'password1', name: 'Mo Everything', roles: ['administrator', 'closer', 'fronter'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_EAST },
+  // Multi-role, so the sidebar's desk switcher is reachable locally: a single-role
+  // account hides it. Retention too, so a Team Admin's switcher offers that desk.
+  { id: '6', username: 'everything', email: 'everything@tgs.com', password: 'password1', name: 'Mo Everything', roles: ['administrator', 'closer', 'fronter', 'retention'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_EAST },
   // Two desks and no admin — the switcher without a Team Admin entry.
   { id: '7', username: 'both', email: 'both@tgs.com', password: 'password1', name: 'Bea Both', roles: ['fronter', 'closer'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_WEST },
   // Company-wide admin — no team pin; inherits every Team Admin surface.
@@ -204,6 +204,8 @@ const MOCK_USERS: MockUser[] = [
   { id: '12', username: 'rita.retention', email: 'rita.retention@tgs.com', password: 'password1', name: 'Rita Retention', roles: ['retention'], active: true, created_at: SEEDED_AT, team_id: null },
   // Added with a password someone else chose, so signing in asks for a new one first.
   { id: '13', username: 'new.fronter', email: null, password: 'password1', name: 'Nia New', roles: ['fronter'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_EAST, must_change_password: true },
+  // A closer who also works Retention: on East as a closer, every team on Retention.
+  { id: '14', username: 'closer.retention', email: null, password: 'password1', name: 'Rae Keeper', roles: ['closer', 'retention'], active: true, created_at: SEEDED_AT, team_id: MOCK_TEAM_EAST },
 ]
 
 const KNOWN_ROLES: Role[] = [
@@ -218,11 +220,26 @@ const KNOWN_ROLES: Role[] = [
 
 /** Dialer agents a Team Admin may manage (besides self). */
 const AGENT_ROLES: readonly Role[] = ['fronter', 'closer']
+/** A Team Admin's agents may also work Retention, which only a Super Admin changes. */
+const TEAM_ADMIN_MANAGES: readonly Role[] = [...AGENT_ROLES, 'retention']
 /** QA staff a QA Manager may manage, on no team (besides self). */
 const QA_STAFF_ROLES: readonly Role[] = ['qa_agent']
 /** Company-wide roles besides Super Admin: no team, and fixed when the account is made. */
-const NO_TEAM_ROLES: readonly Role[] = ['qa_manager', 'qa_agent', 'retention']
-const NO_TEAM_MESSAGE = 'QA and Retention accounts cover every team, so have no team'
+const NO_TEAM_ROLES: readonly Role[] = ['qa_manager', 'qa_agent']
+const NO_TEAM_MESSAGE = 'QA accounts, and Retention on its own, cover every team, so have no team'
+/** The roles that work one team's leads, so whoever holds one is on that team. */
+const TEAM_ROLES: readonly Role[] = ['fronter', 'closer', 'administrator']
+
+/**
+ * Whether an account holding these roles is on a team, as the API decides it:
+ * Retention on its own has none, and with a team role takes that role's team.
+ */
+function needsTeam(roles: readonly Role[]): boolean {
+  return (
+    roles.some((role) => TEAM_ROLES.includes(role)) &&
+    !roles.some((role) => role === 'super_admin' || NO_TEAM_ROLES.includes(role))
+  )
+}
 
 type MockLink = { token: string; userId: string; purpose: 'invite' | 'reset'; state: 'live' | 'used' | 'superseded' | 'expired' }
 
@@ -540,8 +557,8 @@ function holdsOnly(target: MockUser, roles: readonly Role[]): boolean {
 
 /**
  * Whether this row is in the actor's Users list, as the API's grants decide:
- * themselves, a Team Admin's own team's agents, or QA staff on any team for a
- * QA Manager, who has no team.
+ * themselves, a Team Admin's own team's agents (Retention held alongside
+ * included), or QA staff on any team for a QA Manager, who has no team.
  */
 function isManageableBy(actor: MockUser, target: MockUser): boolean {
   if (actor.id === target.id) return true
@@ -550,7 +567,7 @@ function isManageableBy(actor: MockUser, target: MockUser): boolean {
     actor.roles.includes('administrator') &&
     actor.team_id &&
     target.team_id === actor.team_id &&
-    holdsOnly(target, AGENT_ROLES)
+    holdsOnly(target, TEAM_ADMIN_MANAGES)
   ) {
     return true
   }
@@ -563,7 +580,8 @@ function isManageableBy(actor: MockUser, target: MockUser): boolean {
 
 /**
  * 403 when the actor tries to grant above their ceiling, or a Team Admin onto
- * another team. A QA Manager grants QA Agents, who have no team.
+ * another team. A QA Manager grants QA Agents, who have no team. A Team Admin
+ * leaves Retention as it was, and the account on a team role.
  */
 function grantCeilingRefusal(
   actor: MockUser,
@@ -578,6 +596,8 @@ function grantCeilingRefusal(
   if (
     actor.roles.includes('administrator') &&
     within(AGENT_ROLES) &&
+    roles.includes('retention') === current.has('retention') &&
+    needsTeam(roles) &&
     actor.team_id &&
     teamId === actor.team_id
   ) {
@@ -4161,15 +4181,14 @@ export const handlers = [
     const requestedTeam =
       typeof body.team_id === 'string' && knownTeamIds.has(body.team_id) ? body.team_id : null
     // A Team Admin omits team_id and the API pins their own; Super Admin, QA and
-    // Retention accounts cover every team, so get none.
-    const qaStaff = roles.some((role) => NO_TEAM_ROLES.includes(role))
-    const companyWide = roles.includes('super_admin') || qaStaff
+    // Retention on its own cover every team, so get none.
+    const companyWide = !needsTeam(roles)
     const teamId = companyWide ? null : (requestedTeam ?? actor.team_id)
 
     const ceiling = grantCeilingRefusal(actor, roles, teamId)
     if (ceiling) return res(ctx.status(ceiling.status), ctx.json(ceiling.body))
 
-    if (qaStaff && !roles.includes('super_admin') && body.team_id) {
+    if (companyWide && !roles.includes('super_admin') && body.team_id) {
       return res(ctx.status(422), ctx.json(qaManagerHasNoTeam('team_id', NO_TEAM_MESSAGE)))
     }
 
@@ -4321,6 +4340,21 @@ export const handlers = [
           )
         }
       }
+      // Retention on its own has no team: a team role added to it needs one, and an
+      // account left with only Retention keeps none.
+      if (needsTeam(body.roles) && !needsTeam(user.roles) && typeof body.team_id !== 'string') {
+        return res(
+          ctx.status(422),
+          ctx.json(
+            authErrorBody('a team is required for this role', 'user.team_required', [
+              { field: 'team_id', in: 'body', message: 'a team is required for this role' },
+            ])
+          )
+        )
+      }
+      if (needsTeam(user.roles) && !needsTeam(body.roles) && typeof body.team_id === 'string') {
+        return res(ctx.status(422), ctx.json(qaManagerHasNoTeam('team_id', NO_TEAM_MESSAGE)))
+      }
     }
 
     // The API refuses to let someone lock themselves out of their elevated role.
@@ -4361,7 +4395,7 @@ export const handlers = [
           )
         )
       }
-      if (user.roles.some((role) => NO_TEAM_ROLES.includes(role))) {
+      if (!needsTeam(body.roles ?? user.roles)) {
         return res(ctx.status(422), ctx.json(qaManagerHasNoTeam('team_id', NO_TEAM_MESSAGE)))
       }
       if (!MOCK_TEAMS.some((team) => team.id === body.team_id)) {
@@ -4399,7 +4433,11 @@ export const handlers = [
       user.email = email
     }
     if (body.name !== undefined) user.name = body.name
-    if (body.roles !== undefined) user.roles = body.roles
+    if (body.roles !== undefined) {
+      // Down to Retention on its own: it covers every team, so the account leaves its own.
+      if (needsTeam(user.roles) && !needsTeam(body.roles)) user.team_id = null
+      user.roles = body.roles
+    }
     if (body.active !== undefined) user.active = body.active
     if (typeof body.team_id === 'string') user.team_id = body.team_id
 
